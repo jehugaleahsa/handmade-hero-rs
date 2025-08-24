@@ -30,4 +30,4 @@ I decided to make this project public in the spirit of sharing. I don't make eno
 
 ## How are you writing code?
 
-I am not Casey - I do not like emacs. I can `vi`, but I am not productive in it. So, instead, I am using a non-commercial copy of JetBrain's [CLion](https://www.jetbrains.com/clion/) with the Rust plugin. It's free, and JetBrain IDEs are amazing. Auto-complete, debugging, and refactoring tools? Why wouldn't you? I use Intellij Ultimate for Java/Scala at work - having CLion is nice because I can keep work and personal projects separate. I still do quite a lot of `cargo` on th command-line, as well as `git`, etc.
+I am not Casey - I do not like emacs. I can `vi`, but I am not productive in it. So, instead, I am using a non-commercial copy of JetBrain's [CLion](https://www.jetbrains.com/clion/) with the Rust plugin. It's free, and JetBrain IDEs are amazing. Auto-complete, debugging, and refactoring tools? Why wouldn't you? I use Intellij Ultimate for Java/Scala at work - having CLion is nice because I can keep work and personal projects separate. I still do quite a lot of `cargo` on the command-line, as well as `git`, etc.
