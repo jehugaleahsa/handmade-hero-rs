@@ -8,10 +8,15 @@ use windows::Win32::Graphics::Gdi::{
     BeginPaint, EndPaint, GetDC, ReleaseDC, StretchDIBits, BITMAPINFO, BI_RGB, DIB_RGB_COLORS, HDC,
     PAINTSTRUCT, SRCCOPY,
 };
+use windows::Win32::Media::Audio::DirectSound::{
+    DirectSoundCreate, DSBCAPS_PRIMARYBUFFER, DSBUFFERDESC, DSSCL_PRIORITY,
+};
+use windows::Win32::Media::Audio::{WAVEFORMATEX, WAVE_FORMAT_PCM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Memory::{
-    VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, PAGE_READWRITE,
+    VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_A, VK_D, VK_F4, VK_S, VK_W};
 use windows::Win32::UI::Input::XboxController::{XInputGetState, XINPUT_STATE, XUSER_MAX_COUNT};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetWindowLongPtrW, LoadCursorW,
@@ -20,6 +25,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WINDOW_EX_STYLE, WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT,
     WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
+
+const NUMBER_OF_CHANNELS: u16 = 2;
+const BITS_PER_SAMPLE: u16 = 16;
 
 #[repr(C)]
 struct Pixel {
@@ -182,7 +190,8 @@ impl Application {
         header.biCompression = BI_RGB.0;
 
         let memory_size = width as usize * height as usize * size_of::<Pixel>();
-        self.bitmap_buffer = unsafe { VirtualAlloc(None, memory_size, MEM_COMMIT, PAGE_READWRITE) };
+        self.bitmap_buffer =
+            unsafe { VirtualAlloc(None, memory_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
 
         Ok(LRESULT(0))
     }
@@ -193,10 +202,12 @@ impl Application {
         Ok(client_rectangle)
     }
 
+    #[inline]
     fn calculate_width(rectangle: &RECT) -> i32 {
         rectangle.right - rectangle.left
     }
 
+    #[inline]
     fn calculate_height(rectangle: &RECT) -> i32 {
         rectangle.bottom - rectangle.top
     }
@@ -220,18 +231,27 @@ impl Application {
     }
 
     fn handle_key_press(&mut self, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+        #[allow(clippy::cast_possible_truncation)]
+        let virtual_key = VIRTUAL_KEY(w_param.0 as u16);
+
+        // Allow exiting with ALT+F4
+        let is_alt_down = (l_param.0 & (1 << 29)) != 0;
+        if is_alt_down && virtual_key == VK_F4 {
+            return self.destroy_window();
+        }
+
         let was_down = (l_param.0 & (1 << 30)) != 0;
         let is_down = (l_param.0 & (1 << 31)) == 0;
         if was_down == is_down {
             // Ignore repeated messages
-            return LRESULT(0);
+            //return LRESULT(0);
         }
-        #[allow(clippy::cast_possible_truncation)]
-        match w_param.0 as u8 {
-            b'W' => self.shift_y(-10),
-            b'A' => self.shift_x(-10),
-            b'S' => self.shift_y(10),
-            b'D' => self.shift_x(10),
+
+        match virtual_key {
+            VK_W => self.shift_y(-10),
+            VK_A => self.shift_x(-10),
+            VK_S => self.shift_y(10),
+            VK_D => self.shift_x(10),
             _ => {}
         }
         LRESULT(0)
@@ -246,6 +266,12 @@ fn main() -> Result<()> {
     let window_handle = create_window(instance, class_name, &mut application)?;
 
     application.resize_buffer(720, 480).unwrap_or(LRESULT(0));
+
+    let samples_per_second = 48_000u32;
+    #[allow(clippy::cast_possible_truncation)]
+    let sound_buffer_size =
+        u32::from(NUMBER_OF_CHANNELS) * samples_per_second * size_of::<u16>() as u32;
+    initialize_direct_sound(window_handle, samples_per_second, sound_buffer_size).unwrap_or(()); // Ignore errors - run without sound
 
     run_application_loop(&mut application, window_handle)?;
 
@@ -269,8 +295,8 @@ fn create_window_class(instance: HINSTANCE) -> Result<PCWSTR> {
         ..Default::default()
     };
 
-    let atom = unsafe { RegisterClassW(&raw const window_class) };
-    if atom == 0 {
+    let register_result = unsafe { RegisterClassW(&raw const window_class) };
+    if register_result == 0 {
         let error = unsafe { GetLastError() };
         return Err(Error::from(error));
     }
@@ -301,40 +327,6 @@ fn create_window(
     }
 }
 
-fn run_application_loop(application: &mut Application, window_handle: HWND) -> Result<()> {
-    loop {
-        let mut message = MSG::default();
-        let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
-        if message_result.0 < 0 || message.message == WM_QUIT {
-            return Ok(());
-        }
-        unsafe {
-            #[allow(unused_must_use)]
-            TranslateMessage(&raw const message);
-            DispatchMessageW(&raw const message);
-        };
-
-        if let Some(controller_state) = poll_controller_state() {
-            let gamepad = &controller_state.Gamepad;
-            application.shift_x(gamepad.sThumbRX);
-            application.shift_y(gamepad.sThumbRY);
-        }
-
-        application.update_display(window_handle)?;
-    }
-}
-
-fn poll_controller_state() -> Option<XINPUT_STATE> {
-    for controller_index in 0..XUSER_MAX_COUNT {
-        let mut controller_state = XINPUT_STATE::default();
-        let result = unsafe { XInputGetState(controller_index, &raw mut controller_state) };
-        if result == ERROR_SUCCESS.0 {
-            return Some(controller_state);
-        }
-    }
-    None
-}
-
 extern "system" fn window_procedure(
     window_handle: HWND,
     message: u32,
@@ -360,4 +352,128 @@ extern "system" fn window_procedure(
     // global variables.
     let application = unsafe { &mut *application_pointer };
     application.process_windows_message(window_handle, message, w_param, l_param)
+}
+
+fn initialize_direct_sound(
+    window_handle: HWND,
+    samples_per_second: u32,
+    buffer_size: u32,
+) -> Result<()> {
+    let mut direct_sound_opt = None;
+    unsafe { DirectSoundCreate(None, &raw mut direct_sound_opt, None)? };
+    let Some(direct_sound) = direct_sound_opt else {
+        return Ok(());
+    };
+    unsafe { direct_sound.SetCooperativeLevel(window_handle, DSSCL_PRIORITY)? };
+
+    let primary_buffer_description = create_primary_buffer_description();
+    let mut primary_buffer_opt = None;
+    unsafe {
+        direct_sound.CreateSoundBuffer(
+            &raw const primary_buffer_description,
+            &raw mut primary_buffer_opt,
+            None,
+        )?;
+    }
+    let Some(primary_buffer) = primary_buffer_opt else {
+        return Ok(());
+    };
+    let mut format = create_buffer_format(samples_per_second);
+    unsafe {
+        primary_buffer.SetFormat(&raw const format)?;
+    }
+
+    let secondary_buffer_description =
+        create_secondary_buffer_description(buffer_size, &mut format);
+    let mut secondary_buffer_opt = None;
+    unsafe {
+        direct_sound.CreateSoundBuffer(
+            &raw const secondary_buffer_description,
+            &raw mut secondary_buffer_opt,
+            None,
+        )?;
+    }
+    let Some(_secondary_buffer) = secondary_buffer_opt else {
+        return Ok(());
+    };
+
+    // TODO - do something with the buffers!
+
+    Ok(())
+}
+
+fn create_primary_buffer_description() -> DSBUFFERDESC {
+    let mut description = DSBUFFERDESC::default();
+    #[allow(clippy::cast_possible_truncation)]
+    let description_size = size_of::<DSBUFFERDESC>() as u32;
+    description.dwSize = description_size;
+    description.dwFlags = DSBCAPS_PRIMARYBUFFER;
+    // NOTE: The buffer size for the primary buffer should be 0.
+    description
+}
+
+fn create_buffer_format(samples_per_second: u32) -> WAVEFORMATEX {
+    const BLOCK_ALIGN: u16 = NUMBER_OF_CHANNELS * BITS_PER_SAMPLE / 8;
+    #[allow(clippy::cast_possible_truncation)]
+    WAVEFORMATEX {
+        wFormatTag: WAVE_FORMAT_PCM as u16,
+        nChannels: NUMBER_OF_CHANNELS,
+        nSamplesPerSec: samples_per_second,
+        wBitsPerSample: BITS_PER_SAMPLE,
+        nBlockAlign: BLOCK_ALIGN,
+        nAvgBytesPerSec: samples_per_second * u32::from(BLOCK_ALIGN),
+        ..Default::default()
+    }
+}
+
+fn create_secondary_buffer_description(
+    buffer_size: u32,
+    format: &mut WAVEFORMATEX,
+) -> DSBUFFERDESC {
+    let mut description = DSBUFFERDESC::default();
+    #[allow(clippy::cast_possible_truncation)]
+    let description_size = size_of::<DSBUFFERDESC>() as u32;
+    description.dwSize = description_size;
+    description.dwBufferBytes = buffer_size;
+    description.lpwfxFormat = format;
+    description
+}
+
+fn run_application_loop(application: &mut Application, window_handle: HWND) -> Result<()> {
+    loop {
+        let mut message = MSG::default();
+        let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
+        if message_result.0 < 0 || message.message == WM_QUIT {
+            return Ok(());
+        }
+        unsafe {
+            #[allow(unused_must_use)]
+            TranslateMessage(&raw const message);
+            DispatchMessageW(&raw const message);
+        };
+
+        if let Some(controller_state) = poll_controller_state() {
+            let gamepad = &controller_state.Gamepad;
+            application.shift_x(gamepad.sThumbRX);
+            application.shift_y(gamepad.sThumbRY);
+        } else {
+            application.shift_x(1);
+            application.shift_y(1);
+        }
+
+        application.update_display(window_handle)?;
+    }
+}
+
+// NOTE: We probably don't want to call this as part of the main game loop since it
+// can hang the application if the controller is disconnected.
+fn poll_controller_state() -> Option<XINPUT_STATE> {
+    for controller_index in 0..XUSER_MAX_COUNT {
+        let mut controller_state = XINPUT_STATE::default();
+        let result = unsafe { XInputGetState(controller_index, &raw mut controller_state) };
+        if result == ERROR_SUCCESS.0 {
+            return Some(controller_state);
+        }
+    }
+    None
 }
