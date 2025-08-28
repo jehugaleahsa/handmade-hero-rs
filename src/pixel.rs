@@ -1,0 +1,28 @@
+#[repr(C)]
+#[derive(Debug)]
+pub struct Pixel {
+    red: u8,
+    green: u8,
+    blue: u8,
+    alpha: u8,
+}
+
+impl Pixel {
+    pub fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
+        Self {
+            red,
+            green,
+            blue,
+            alpha: 0,
+        }
+    }
+}
+
+impl From<Pixel> for u32 {
+    fn from(value: Pixel) -> Self {
+        (u32::from(value.alpha) << 24)
+            | (u32::from(value.red) << 16)
+            | (u32::from(value.green) << 8)
+            | u32::from(value.blue)
+    }
+}
