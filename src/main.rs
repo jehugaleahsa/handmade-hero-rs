@@ -1,19 +1,19 @@
 mod application;
-mod direct_sound_buffer_lock;
+mod direct_sound;
+mod direct_sound_buffer;
+mod direct_sound_buffer_lock_guard;
 mod pixel;
 
 use crate::application::Application;
-use crate::direct_sound_buffer_lock::DirectSoundBufferLock;
+use crate::direct_sound::{
+    DirectSound, BYTES_PER_SAMPLE, SOUND_BUFFER_SIZE, SQUARE_WAVE_MID_PERIOD, VOLUME,
+};
+use crate::direct_sound_buffer::DirectSoundBuffer;
 use std::ffi::c_void;
 use windows::core::{w, Error, Result, PCWSTR};
 use windows::Win32::Foundation::{
     GetLastError, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM,
 };
-use windows::Win32::Media::Audio::DirectSound::{
-    DirectSoundCreate, IDirectSound, IDirectSoundBuffer, DSBCAPS_PRIMARYBUFFER, DSBPLAY_LOOPING,
-    DSBUFFERDESC, DSSCL_PRIORITY,
-};
-use windows::Win32::Media::Audio::{WAVEFORMATEX, WAVE_FORMAT_PCM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::XboxController::{XInputGetState, XINPUT_STATE, XUSER_MAX_COUNT};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -22,15 +22,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GWL_USERDATA, IDC_ARROW, MSG, PM_REMOVE, WINDOW_EX_STYLE,
     WM_NCCREATE, WM_QUIT, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
-
-const NUMBER_OF_CHANNELS: u16 = 2;
-const BITS_PER_SAMPLE: u16 = 16;
-#[allow(clippy::cast_possible_truncation)]
-const BYTES_PER_SAMPLE: u32 = size_of::<u32>() as u32;
-const SAMPLES_PER_SECOND: u32 = 48_000u32;
-const HERTZ: u32 = 30;
-const SQUARE_WAVE_PERIOD: u32 = SAMPLES_PER_SECOND / HERTZ;
-const SQUARE_WAVE_MID_PERIOD: u32 = SQUARE_WAVE_PERIOD / 2;
 
 fn main() -> Result<()> {
     let instance = get_instance()?;
@@ -41,28 +32,20 @@ fn main() -> Result<()> {
 
     application.resize_buffer(720, 480).unwrap_or(LRESULT(0));
 
-    #[allow(clippy::cast_possible_truncation)]
-    let sound_buffer_size =
-        SAMPLES_PER_SECOND * size_of::<u16>() as u32 * u32::from(NUMBER_OF_CHANNELS);
-    let direct_sound = initialize_direct_sound(window_handle).unwrap_or(None);
-    let mut sound_buffer = None;
-    if let Some(ref direct_sound) = direct_sound {
-        let mut format = create_buffer_format();
-        sound_buffer =
-            create_sound_buffer(direct_sound, sound_buffer_size, &mut format).unwrap_or(None); // Ignore errors - run without sound
-        if let Some(ref sound_buffer) = sound_buffer {
-            unsafe {
-                sound_buffer.Play(0, 0, DSBPLAY_LOOPING).unwrap_or(()); // Ignore errors
-            }
-        }
+    let direct_sound = DirectSound::initialize(window_handle).ok();
+    let sound_buffer = direct_sound
+        .as_ref()
+        .and_then(|ds| ds.create_buffer(SOUND_BUFFER_SIZE).ok());
+    if let Some(ref buffer) = sound_buffer {
+        buffer.play_looping().unwrap_or(());
     }
 
     run_application_loop(
         &mut application,
         window_handle,
         sound_buffer.as_ref(),
-        sound_buffer_size,
-        1000,
+        SOUND_BUFFER_SIZE,
+        VOLUME,
     )?;
 
     Ok(())
@@ -144,92 +127,10 @@ extern "system" fn window_procedure(
     application.process_windows_message(window_handle, message, w_param, l_param)
 }
 
-fn initialize_direct_sound(window_handle: HWND) -> Result<Option<IDirectSound>> {
-    let mut direct_sound = None;
-    unsafe { DirectSoundCreate(None, &raw mut direct_sound, None)? };
-    let Some(direct_sound) = direct_sound else {
-        return Ok(None);
-    };
-    unsafe { direct_sound.SetCooperativeLevel(window_handle, DSSCL_PRIORITY)? };
-
-    Ok(Some(direct_sound))
-}
-
-fn create_sound_buffer(
-    direct_sound: &IDirectSound,
-    buffer_size: u32,
-    format: &mut WAVEFORMATEX,
-) -> Result<Option<IDirectSoundBuffer>> {
-    let primary_buffer_description = create_primary_buffer_description();
-    let mut primary_buffer = None;
-    unsafe {
-        direct_sound.CreateSoundBuffer(
-            &raw const primary_buffer_description,
-            &raw mut primary_buffer,
-            None,
-        )?;
-    }
-    let Some(ref primary_buffer) = primary_buffer else {
-        return Ok(None);
-    };
-    unsafe {
-        primary_buffer.SetFormat(format)?;
-    }
-
-    let secondary_buffer_description = create_secondary_buffer_description(buffer_size, format);
-    let mut secondary_buffer = None;
-    unsafe {
-        direct_sound.CreateSoundBuffer(
-            &raw const secondary_buffer_description,
-            &raw mut secondary_buffer,
-            None,
-        )?;
-    }
-
-    Ok(secondary_buffer)
-}
-
-fn create_primary_buffer_description() -> DSBUFFERDESC {
-    let mut description = DSBUFFERDESC::default();
-    #[allow(clippy::cast_possible_truncation)]
-    let description_size = size_of::<DSBUFFERDESC>() as u32;
-    description.dwSize = description_size;
-    description.dwFlags = DSBCAPS_PRIMARYBUFFER;
-    // NOTE: The buffer size for the primary buffer should be 0.
-    description
-}
-
-fn create_buffer_format() -> WAVEFORMATEX {
-    const BLOCK_ALIGN: u16 = NUMBER_OF_CHANNELS * BITS_PER_SAMPLE / 8;
-    #[allow(clippy::cast_possible_truncation)]
-    WAVEFORMATEX {
-        wFormatTag: WAVE_FORMAT_PCM as u16,
-        nChannels: NUMBER_OF_CHANNELS,
-        nSamplesPerSec: SAMPLES_PER_SECOND,
-        wBitsPerSample: BITS_PER_SAMPLE,
-        nBlockAlign: BLOCK_ALIGN,
-        nAvgBytesPerSec: SAMPLES_PER_SECOND * u32::from(BLOCK_ALIGN),
-        ..Default::default()
-    }
-}
-
-fn create_secondary_buffer_description(
-    buffer_size: u32,
-    format: &mut WAVEFORMATEX,
-) -> DSBUFFERDESC {
-    let mut description = DSBUFFERDESC::default();
-    #[allow(clippy::cast_possible_truncation)]
-    let description_size = size_of::<DSBUFFERDESC>() as u32;
-    description.dwSize = description_size;
-    description.dwBufferBytes = buffer_size;
-    description.lpwfxFormat = format;
-    description
-}
-
 fn run_application_loop(
     application: &mut Application,
     window_handle: HWND,
-    sound_buffer: Option<&IDirectSoundBuffer>,
+    sound_buffer: Option<&DirectSoundBuffer<'_>>,
     sound_buffer_size: u32,
     volume: i16,
 ) -> Result<()> {
@@ -267,7 +168,7 @@ fn run_application_loop(
 }
 
 fn play_sound(
-    sound_buffer: Option<&IDirectSoundBuffer>,
+    sound_buffer: Option<&DirectSoundBuffer<'_>>,
     sound_buffer_size: u32,
     running_sample_index: u32,
     volume: i16,
@@ -275,24 +176,19 @@ fn play_sound(
     let Some(sound_buffer) = sound_buffer else {
         return running_sample_index;
     };
-    let mut play_cursor = 0u32;
-    let mut write_cursor = 0u32;
-    let position_result = unsafe {
-        sound_buffer.GetCurrentPosition(Some(&raw mut play_cursor), Some(&raw mut write_cursor))
-    };
-    let Ok(()) = position_result else {
+    let play_cursor = sound_buffer.get_play_cursor();
+    let Ok(play_cursor) = play_cursor else {
         return running_sample_index;
     };
 
-    let byte_to_lock = running_sample_index * BYTES_PER_SAMPLE % sound_buffer_size;
-    let bytes_to_write = if byte_to_lock > play_cursor {
-        (sound_buffer_size - byte_to_lock) + play_cursor
+    let write_offset = running_sample_index * BYTES_PER_SAMPLE % sound_buffer_size;
+    let write_length = if write_offset > play_cursor {
+        (sound_buffer_size - write_offset) + play_cursor
     } else {
-        play_cursor - byte_to_lock
+        play_cursor - write_offset
     };
 
-    let buffer_lock = DirectSoundBufferLock::new(sound_buffer);
-    let buffer_lock_guard = buffer_lock.lock(byte_to_lock, bytes_to_write);
+    let buffer_lock_guard = sound_buffer.lock(write_offset, write_length);
     let Ok(buffer_lock_guard) = buffer_lock_guard else {
         return running_sample_index;
     };

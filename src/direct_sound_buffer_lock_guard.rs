@@ -1,19 +1,19 @@
+use crate::direct_sound_buffer::DirectSoundBuffer;
 use std::ffi::c_void;
 use std::ptr::null_mut;
 use windows::core::Result;
-use windows::Win32::Media::Audio::DirectSound::IDirectSoundBuffer;
 
-pub struct DirectSoundBufferLockGuard<'buffer> {
-    buffer: &'buffer IDirectSoundBuffer,
+pub struct DirectSoundBufferLockGuard<'ds> {
+    buffer: &'ds DirectSoundBuffer<'ds>,
     region1: *mut c_void,
     region1_size: u32,
     region2: *mut c_void,
     region2_size: u32,
 }
 
-impl<'buffer> DirectSoundBufferLockGuard<'buffer> {
-    fn create(
-        buffer: &'buffer IDirectSoundBuffer,
+impl<'ds> DirectSoundBufferLockGuard<'ds> {
+    pub(crate) fn create(
+        buffer: &'ds DirectSoundBuffer<'ds>,
         write_offset: u32,
         bytes_to_write: u32,
     ) -> Result<Self> {
@@ -22,7 +22,7 @@ impl<'buffer> DirectSoundBufferLockGuard<'buffer> {
         let mut region2 = null_mut();
         let mut region2_size = 0;
         unsafe {
-            buffer.Lock(
+            buffer.buffer.Lock(
                 write_offset,
                 bytes_to_write,
                 &raw mut region1,
@@ -70,6 +70,7 @@ impl Drop for DirectSoundBufferLockGuard<'_> {
     fn drop(&mut self) {
         unsafe {
             self.buffer
+                .buffer
                 .Unlock(
                     self.region1,
                     self.region1_size,
@@ -78,24 +79,5 @@ impl Drop for DirectSoundBufferLockGuard<'_> {
                 )
                 .unwrap_or(()); // Ignore any errors
         };
-    }
-}
-
-pub struct DirectSoundBufferLock<'buffer> {
-    buffer: &'buffer IDirectSoundBuffer,
-}
-
-impl<'buffer> DirectSoundBufferLock<'buffer> {
-    #[must_use]
-    pub fn new(buffer: &'buffer IDirectSoundBuffer) -> Self {
-        Self { buffer }
-    }
-
-    pub fn lock(
-        &self,
-        write_offset: u32,
-        bytes_to_write: u32,
-    ) -> Result<DirectSoundBufferLockGuard<'buffer>> {
-        DirectSoundBufferLockGuard::create(self.buffer, write_offset, bytes_to_write)
     }
 }
