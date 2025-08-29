@@ -7,15 +7,22 @@ use windows::Win32::Media::Audio::DirectSound::{IDirectSoundBuffer, DSBPLAY_LOOP
 #[derive(Debug)]
 pub struct DirectSoundBuffer<'ds> {
     pub(crate) buffer: IDirectSoundBuffer,
+    length: u32,
     direct_sound: PhantomData<&'ds DirectSound>,
 }
 
-impl<'ds> DirectSoundBuffer<'ds> {
-    pub(crate) fn new(buffer: IDirectSoundBuffer) -> Self {
+impl DirectSoundBuffer<'_> {
+    pub(crate) fn new(buffer: IDirectSoundBuffer, length: u32) -> Self {
         Self {
             buffer,
+            length,
             direct_sound: PhantomData {},
         }
+    }
+
+    #[inline]
+    pub fn length(&self) -> u32 {
+        self.length
     }
 
     pub fn play_looping(&self) -> Result<()> {

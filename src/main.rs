@@ -36,15 +36,11 @@ fn main() -> Result<()> {
     let sound_buffer = direct_sound
         .as_ref()
         .and_then(|ds| ds.create_buffer(SOUND_BUFFER_SIZE).ok());
-    if let Some(ref buffer) = sound_buffer {
-        buffer.play_looping().unwrap_or(());
-    }
 
     run_application_loop(
         &mut application,
         window_handle,
         sound_buffer.as_ref(),
-        SOUND_BUFFER_SIZE,
         VOLUME,
     )?;
 
@@ -131,7 +127,6 @@ fn run_application_loop(
     application: &mut Application,
     window_handle: HWND,
     sound_buffer: Option<&DirectSoundBuffer<'_>>,
-    sound_buffer_size: u32,
     volume: i16,
 ) -> Result<()> {
     let mut running_sample_index = 0u32;
@@ -158,18 +153,12 @@ fn run_application_loop(
 
         application.update_display(window_handle)?;
 
-        running_sample_index = play_sound(
-            sound_buffer,
-            sound_buffer_size,
-            running_sample_index,
-            volume,
-        );
+        running_sample_index = play_sound(sound_buffer, running_sample_index, volume);
     }
 }
 
 fn play_sound(
     sound_buffer: Option<&DirectSoundBuffer<'_>>,
-    sound_buffer_size: u32,
     running_sample_index: u32,
     volume: i16,
 ) -> u32 {
@@ -181,9 +170,9 @@ fn play_sound(
         return running_sample_index;
     };
 
-    let write_offset = running_sample_index * BYTES_PER_SAMPLE % sound_buffer_size;
-    let write_length = if write_offset > play_cursor {
-        (sound_buffer_size - write_offset) + play_cursor
+    let write_offset = running_sample_index * BYTES_PER_SAMPLE % sound_buffer.length();
+    let write_length = if write_offset >= play_cursor {
+        (sound_buffer.length() - write_offset) + play_cursor
     } else {
         play_cursor - write_offset
     };
@@ -200,12 +189,17 @@ fn play_sound(
         volume,
     );
 
-    write_square_wave(
+    let updated_index = write_square_wave(
         buffer_lock_guard.region2(),
         buffer_lock_guard.region2_size(),
         updated_index,
         volume,
-    )
+    );
+
+    // NOTE: It's a no-op to call play when already playing
+    sound_buffer.play_looping().unwrap_or(());
+
+    updated_index
 }
 
 fn write_square_wave(

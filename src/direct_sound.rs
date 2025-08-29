@@ -69,7 +69,7 @@ impl DirectSound {
             return Err(Error::from_win32());
         };
 
-        Ok(DirectSoundBuffer::new(secondary_buffer))
+        Ok(DirectSoundBuffer::new(secondary_buffer, buffer_size))
     }
 
     fn create_primary_buffer_description() -> DSBUFFERDESC {
