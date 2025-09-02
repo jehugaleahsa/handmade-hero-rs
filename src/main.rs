@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+use std::f32::consts::PI;
 mod application;
 mod direct_sound;
 mod direct_sound_buffer;
@@ -5,9 +7,7 @@ mod direct_sound_buffer_lock_guard;
 mod pixel;
 
 use crate::application::Application;
-use crate::direct_sound::{
-    DirectSound, BYTES_PER_SAMPLE, SOUND_BUFFER_SIZE, SQUARE_WAVE_MID_PERIOD, VOLUME,
-};
+use crate::direct_sound::{DirectSound, BYTES_PER_SAMPLE, SOUND_BUFFER_SIZE, VOLUME, WAVE_PERIOD};
 use crate::direct_sound_buffer::DirectSoundBuffer;
 use std::ffi::c_void;
 use windows::core::{w, Error, Result, PCWSTR};
@@ -15,7 +15,10 @@ use windows::Win32::Foundation::{
     GetLastError, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::XboxController::{XInputGetState, XINPUT_STATE, XUSER_MAX_COUNT};
+use windows::Win32::UI::Input::XboxController::{
+    XInputGetState, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE,
+    XINPUT_STATE, XUSER_MAX_COUNT,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetWindowLongPtrW, LoadCursorW, PeekMessageW,
     RegisterClassW, SetWindowLongPtrW, TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT,
@@ -33,16 +36,11 @@ fn main() -> Result<()> {
     application.resize_buffer(720, 480).unwrap_or(LRESULT(0));
 
     let direct_sound = DirectSound::initialize(window_handle).ok();
-    let sound_buffer = direct_sound
+    let mut sound_buffer = direct_sound
         .as_ref()
         .and_then(|ds| ds.create_buffer(SOUND_BUFFER_SIZE).ok());
 
-    run_application_loop(
-        &mut application,
-        window_handle,
-        sound_buffer.as_ref(),
-        VOLUME,
-    )?;
+    run_application_loop(&mut application, window_handle, &mut sound_buffer, VOLUME)?;
 
     Ok(())
 }
@@ -126,7 +124,7 @@ extern "system" fn window_procedure(
 fn run_application_loop(
     application: &mut Application,
     window_handle: HWND,
-    sound_buffer: Option<&DirectSoundBuffer<'_>>,
+    sound_buffer: &mut Option<DirectSoundBuffer<'_>>,
     volume: i16,
 ) -> Result<()> {
     let mut running_sample_index = 0u32;
@@ -143,9 +141,18 @@ fn run_application_loop(
         };
 
         if let Some(controller_state) = poll_controller_state() {
+            #[allow(clippy::cast_possible_wrap)]
+            const LEFT_THUMB_DEAD_ZONE: i16 = XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0 as i16;
+            #[allow(clippy::cast_possible_wrap)]
+            const RIGHT_THUMB_DEAD_ZONE: i16 = XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0 as i16;
             let gamepad = &controller_state.Gamepad;
-            application.shift_x(gamepad.sThumbRX);
-            application.shift_y(gamepad.sThumbRY);
+            application.shift_x(
+                -(gamepad.sThumbLX / LEFT_THUMB_DEAD_ZONE
+                    + gamepad.sThumbRX / RIGHT_THUMB_DEAD_ZONE),
+            );
+            application.shift_y(
+                gamepad.sThumbLY / LEFT_THUMB_DEAD_ZONE + gamepad.sThumbRY / RIGHT_THUMB_DEAD_ZONE,
+            );
         } else {
             application.shift_x(1);
             application.shift_y(1);
@@ -158,7 +165,7 @@ fn run_application_loop(
 }
 
 fn play_sound(
-    sound_buffer: Option<&DirectSoundBuffer<'_>>,
+    sound_buffer: &mut Option<DirectSoundBuffer<'_>>,
     running_sample_index: u32,
     volume: i16,
 ) -> u32 {
@@ -170,31 +177,32 @@ fn play_sound(
         return running_sample_index;
     };
 
-    let write_offset = running_sample_index * BYTES_PER_SAMPLE % sound_buffer.length();
-    let write_length = if write_offset >= play_cursor {
-        (sound_buffer.length() - write_offset) + play_cursor
-    } else {
-        play_cursor - write_offset
+    let write_offset = (running_sample_index * BYTES_PER_SAMPLE) % sound_buffer.length();
+    let write_length = match write_offset.cmp(&play_cursor) {
+        Ordering::Greater | Ordering::Equal => (sound_buffer.length() - write_offset) + play_cursor,
+        Ordering::Less => play_cursor - write_offset,
     };
 
-    let buffer_lock_guard = sound_buffer.lock(write_offset, write_length);
-    let Ok(buffer_lock_guard) = buffer_lock_guard else {
-        return running_sample_index;
+    let updated_index = {
+        let buffer_lock_guard = sound_buffer.lock(write_offset, write_length);
+        let Ok(buffer_lock_guard) = buffer_lock_guard else {
+            return running_sample_index;
+        };
+
+        let updated_index = write_wave(
+            buffer_lock_guard.region1(),
+            buffer_lock_guard.region1_size(),
+            running_sample_index,
+            volume,
+        );
+
+        write_wave(
+            buffer_lock_guard.region2(),
+            buffer_lock_guard.region2_size(),
+            updated_index,
+            volume,
+        )
     };
-
-    let updated_index = write_square_wave(
-        buffer_lock_guard.region1(),
-        buffer_lock_guard.region1_size(),
-        running_sample_index,
-        volume,
-    );
-
-    let updated_index = write_square_wave(
-        buffer_lock_guard.region2(),
-        buffer_lock_guard.region2_size(),
-        updated_index,
-        volume,
-    );
 
     // NOTE: It's a no-op to call play when already playing
     sound_buffer.play_looping().unwrap_or(());
@@ -202,7 +210,7 @@ fn play_sound(
     updated_index
 }
 
-fn write_square_wave(
+fn write_wave(
     region: *mut c_void,
     region_size: u32,
     running_sample_index: u32,
@@ -211,12 +219,13 @@ fn write_square_wave(
     let mut sample_out = region.cast::<i16>();
     let mut index = running_sample_index;
     let sample_count = region_size / BYTES_PER_SAMPLE;
+    assert_eq!(sample_count * BYTES_PER_SAMPLE, region_size);
     for _ in 0..sample_count {
-        let sample_value = if (index / SQUARE_WAVE_MID_PERIOD) % 2 == 1 {
-            volume
-        } else {
-            -volume
-        };
+        #[allow(clippy::cast_precision_loss)]
+        let t = 2.0f32 * PI * (index as f32 / WAVE_PERIOD as f32);
+        let sine_value = t.sin();
+        #[allow(clippy::cast_possible_truncation)]
+        let sample_value = (sine_value * f32::from(volume)) as i16;
         unsafe {
             *sample_out = sample_value;
             sample_out = sample_out.add(1);

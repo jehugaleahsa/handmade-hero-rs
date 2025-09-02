@@ -11,11 +11,10 @@ const BITS_PER_SAMPLE: u16 = 16;
 #[allow(clippy::cast_possible_truncation)]
 pub(crate) const BYTES_PER_SAMPLE: u32 = size_of::<u32>() as u32;
 const SAMPLES_PER_SECOND: u32 = 48_000u32;
-const HERTZ: u32 = 60;
-const SQUARE_WAVE_PERIOD: u32 = SAMPLES_PER_SECOND / HERTZ;
-pub(crate) const SQUARE_WAVE_MID_PERIOD: u32 = SQUARE_WAVE_PERIOD / 2;
+const HERTZ: u32 = 250;
+pub(crate) const WAVE_PERIOD: u32 = SAMPLES_PER_SECOND / HERTZ;
 
-pub(crate) const VOLUME: i16 = 1_000;
+pub(crate) const VOLUME: i16 = 3_000;
 #[allow(clippy::cast_possible_truncation)]
 pub(crate) const SOUND_BUFFER_SIZE: u32 =
     SAMPLES_PER_SECOND * size_of::<u16>() as u32 * NUMBER_OF_CHANNELS as u32;

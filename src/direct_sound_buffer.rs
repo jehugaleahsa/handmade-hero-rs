@@ -12,6 +12,8 @@ pub struct DirectSoundBuffer<'ds> {
 }
 
 impl DirectSoundBuffer<'_> {
+    #[inline]
+    #[must_use]
     pub(crate) fn new(buffer: IDirectSoundBuffer, length: u32) -> Self {
         Self {
             buffer,
@@ -21,6 +23,7 @@ impl DirectSoundBuffer<'_> {
     }
 
     #[inline]
+    #[must_use]
     pub fn length(&self) -> u32 {
         self.length
     }
