@@ -9,10 +9,8 @@ use windows::Win32::Media::Audio::{WAVEFORMATEX, WAVE_FORMAT_PCM};
 const NUMBER_OF_CHANNELS: u16 = 2; // Stereo
 const BITS_PER_SAMPLE: u16 = 16;
 #[allow(clippy::cast_possible_truncation)]
-pub(crate) const BYTES_PER_SAMPLE: u32 = size_of::<u32>() as u32;
-const SAMPLES_PER_SECOND: u32 = 48_000u32;
-const HERTZ: u32 = 250;
-pub(crate) const WAVE_PERIOD: u32 = SAMPLES_PER_SECOND / HERTZ;
+pub(crate) const BYTES_PER_SAMPLE: u32 = (size_of::<i16>() * 2) as u32;
+pub(crate) const SAMPLES_PER_SECOND: u32 = 48_000u32;
 
 pub(crate) const VOLUME: i16 = 3_000;
 #[allow(clippy::cast_possible_truncation)]

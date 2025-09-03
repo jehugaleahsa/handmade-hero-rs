@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-use std::f32::consts::PI;
 mod application;
 mod direct_sound;
 mod direct_sound_buffer;
@@ -7,8 +5,12 @@ mod direct_sound_buffer_lock_guard;
 mod pixel;
 
 use crate::application::Application;
-use crate::direct_sound::{DirectSound, BYTES_PER_SAMPLE, SOUND_BUFFER_SIZE, VOLUME, WAVE_PERIOD};
+use crate::direct_sound::{
+    DirectSound, BYTES_PER_SAMPLE, SAMPLES_PER_SECOND, SOUND_BUFFER_SIZE, VOLUME,
+};
 use crate::direct_sound_buffer::DirectSoundBuffer;
+use std::cmp::Ordering;
+use std::f32::consts::PI;
 use std::ffi::c_void;
 use windows::core::{w, Error, Result, PCWSTR};
 use windows::Win32::Foundation::{
@@ -25,6 +27,14 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GWL_USERDATA, IDC_ARROW, MSG, PM_REMOVE, WINDOW_EX_STYLE,
     WM_NCCREATE, WM_QUIT, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
+
+struct SoundOutputState {
+    hertz: u32,
+    index: u32,
+    theta: f32,
+    wave_period: u32,
+    latency: u32,
+}
 
 fn main() -> Result<()> {
     let instance = get_instance()?;
@@ -127,7 +137,19 @@ fn run_application_loop(
     sound_buffer: &mut Option<DirectSoundBuffer<'_>>,
     volume: i16,
 ) -> Result<()> {
-    let mut running_sample_index = 0u32;
+    let mut sound_output = SoundOutputState {
+        hertz: 256,
+        index: 0,
+        theta: 0f32,
+        wave_period: SAMPLES_PER_SECOND / 256,
+        latency: SAMPLES_PER_SECOND / 15,
+    };
+
+    fill_sound_buffer(sound_buffer, &mut sound_output, volume);
+    if let Some(sound_buffer) = sound_buffer {
+        sound_buffer.play_looping().unwrap_or(()); // Ignore errors
+    }
+
     loop {
         let mut message = MSG::default();
         let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
@@ -146,13 +168,21 @@ fn run_application_loop(
             #[allow(clippy::cast_possible_wrap)]
             const RIGHT_THUMB_DEAD_ZONE: i16 = XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0 as i16;
             let gamepad = &controller_state.Gamepad;
-            application.shift_x(
-                -(gamepad.sThumbLX / LEFT_THUMB_DEAD_ZONE
-                    + gamepad.sThumbRX / RIGHT_THUMB_DEAD_ZONE),
-            );
-            application.shift_y(
-                gamepad.sThumbLY / LEFT_THUMB_DEAD_ZONE + gamepad.sThumbRY / RIGHT_THUMB_DEAD_ZONE,
-            );
+            let shift_x = -(gamepad.sThumbLX / LEFT_THUMB_DEAD_ZONE
+                + gamepad.sThumbRX / RIGHT_THUMB_DEAD_ZONE);
+            application.shift_x(shift_x);
+            let shift_y =
+                gamepad.sThumbLY / LEFT_THUMB_DEAD_ZONE + gamepad.sThumbRY / RIGHT_THUMB_DEAD_ZONE;
+            application.shift_y(shift_y);
+            let left_thumb_y_ratio = f32::from(gamepad.sThumbLY) / f32::from(i16::MAX);
+            let right_thumb_y_ratio = f32::from(gamepad.sThumbRY) / f32::from(i16::MAX);
+            let thumb_y_ratio = left_thumb_y_ratio + right_thumb_y_ratio / 2.0f32;
+            #[allow(clippy::cast_sign_loss)]
+            #[allow(clippy::cast_possible_truncation)]
+            let hertz = (512.0f32 + (256.0f32 * thumb_y_ratio)) as u32;
+            sound_output.hertz = hertz;
+            let wave_period = SAMPLES_PER_SECOND / hertz;
+            sound_output.wave_period = wave_period;
         } else {
             application.shift_x(1);
             application.shift_y(1);
@@ -160,70 +190,70 @@ fn run_application_loop(
 
         application.update_display(window_handle)?;
 
-        running_sample_index = play_sound(sound_buffer, running_sample_index, volume);
+        fill_sound_buffer(sound_buffer, &mut sound_output, volume);
     }
 }
 
-fn play_sound(
+fn fill_sound_buffer(
     sound_buffer: &mut Option<DirectSoundBuffer<'_>>,
-    running_sample_index: u32,
+    sound_output: &mut SoundOutputState,
     volume: i16,
-) -> u32 {
+) {
     let Some(sound_buffer) = sound_buffer else {
-        return running_sample_index;
+        return;
     };
     let play_cursor = sound_buffer.get_play_cursor();
     let Ok(play_cursor) = play_cursor else {
-        return running_sample_index;
+        return;
     };
 
-    let write_offset = (running_sample_index * BYTES_PER_SAMPLE) % sound_buffer.length();
-    let write_length = match write_offset.cmp(&play_cursor) {
-        Ordering::Greater | Ordering::Equal => (sound_buffer.length() - write_offset) + play_cursor,
-        Ordering::Less => play_cursor - write_offset,
+    let write_offset = (sound_output.index * BYTES_PER_SAMPLE) % sound_buffer.length();
+    let target_cursor =
+        (play_cursor + (sound_output.latency * BYTES_PER_SAMPLE)) % sound_buffer.length();
+    let write_length = match write_offset.cmp(&target_cursor) {
+        Ordering::Greater => (sound_buffer.length() - write_offset) + target_cursor,
+        Ordering::Less => target_cursor - write_offset,
+        Ordering::Equal => 0,
     };
 
-    let updated_index = {
-        let buffer_lock_guard = sound_buffer.lock(write_offset, write_length);
-        let Ok(buffer_lock_guard) = buffer_lock_guard else {
-            return running_sample_index;
-        };
-
-        let updated_index = write_wave(
-            buffer_lock_guard.region1(),
-            buffer_lock_guard.region1_size(),
-            running_sample_index,
-            volume,
-        );
-
-        write_wave(
-            buffer_lock_guard.region2(),
-            buffer_lock_guard.region2_size(),
-            updated_index,
-            volume,
-        )
+    let buffer_lock_guard = sound_buffer.lock(write_offset, write_length);
+    let Ok(buffer_lock_guard) = buffer_lock_guard else {
+        return;
     };
 
-    // NOTE: It's a no-op to call play when already playing
-    sound_buffer.play_looping().unwrap_or(());
+    write_wave(
+        buffer_lock_guard.region1(),
+        buffer_lock_guard.region1_size(),
+        sound_output,
+        volume,
+    );
 
-    updated_index
+    write_wave(
+        buffer_lock_guard.region2(),
+        buffer_lock_guard.region2_size(),
+        sound_output,
+        volume,
+    );
 }
 
 fn write_wave(
     region: *mut c_void,
     region_size: u32,
-    running_sample_index: u32,
+    sound_output: &mut SoundOutputState,
     volume: i16,
-) -> u32 {
+) {
     let mut sample_out = region.cast::<i16>();
-    let mut index = running_sample_index;
     let sample_count = region_size / BYTES_PER_SAMPLE;
     assert_eq!(sample_count * BYTES_PER_SAMPLE, region_size);
+
+    #[allow(clippy::cast_sign_loss)]
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_precision_loss)]
+    let time_delta = 2.0f32 * PI / sound_output.wave_period as f32;
+
     for _ in 0..sample_count {
         #[allow(clippy::cast_precision_loss)]
-        let t = 2.0f32 * PI * (index as f32 / WAVE_PERIOD as f32);
-        let sine_value = t.sin();
+        let sine_value = sound_output.theta.sin();
         #[allow(clippy::cast_possible_truncation)]
         let sample_value = (sine_value * f32::from(volume)) as i16;
         unsafe {
@@ -232,9 +262,9 @@ fn write_wave(
             *sample_out = sample_value;
             sample_out = sample_out.add(1);
         }
-        index = index.wrapping_add(1);
+        sound_output.theta += time_delta;
+        sound_output.index = sound_output.index.wrapping_add(1);
     }
-    index
 }
 
 // NOTE: We probably don't want to call this as part of the main game loop since it
