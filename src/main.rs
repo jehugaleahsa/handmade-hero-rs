@@ -12,6 +12,8 @@ use crate::direct_sound_buffer::DirectSoundBuffer;
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 use std::ffi::c_void;
+#[cfg(debug_assertions)]
+use std::time::Instant;
 use windows::core::{w, Error, Result, PCWSTR};
 use windows::Win32::Foundation::{
     GetLastError, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM,
@@ -150,6 +152,12 @@ fn run_application_loop(
         sound_buffer.play_looping().unwrap_or(()); // Ignore errors
     }
 
+    #[cfg(debug_assertions)]
+    let mut last_counter = query_performance_counter();
+    #[cfg(all(debug_assertions, target_arch = "x86"))]
+    let mut last_cycle_count = unsafe { core::arch::x86::_rdtsc() };
+    #[cfg(all(debug_assertions, target_arch = "x86_64"))]
+    let mut last_cycle_count = unsafe { core::arch::x86_64::_rdtsc() };
     loop {
         let mut message = MSG::default();
         let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
@@ -191,6 +199,31 @@ fn run_application_loop(
         application.update_display(window_handle)?;
 
         fill_sound_buffer(sound_buffer, &mut sound_output, volume);
+
+        #[cfg(debug_assertions)]
+        {
+            #[cfg(target_arch = "x86")]
+            let mut end_cycle_count = unsafe { core::arch::x86::_rdtsc() };
+            #[cfg(target_arch = "x86_64")]
+            let end_cycle_count = unsafe { core::arch::x86_64::_rdtsc() };
+            let cycles_elapsed = end_cycle_count - last_cycle_count;
+            #[allow(clippy::cast_precision_loss)]
+            let megacycles_elapsed = cycles_elapsed as f64 / 1_000_000.0;
+
+            let end_counter = query_performance_counter();
+            let counter_elapsed = end_counter.duration_since(last_counter);
+            #[allow(clippy::cast_precision_loss)]
+            let ms_per_frame = counter_elapsed.as_micros() as f64 / 1_000.0;
+            #[allow(clippy::cast_precision_loss)]
+            let frames_per_second = 1_000.0 / ms_per_frame;
+
+            println!(
+                "{ms_per_frame:.2}ms/f, {frames_per_second:.2}f/s, {megacycles_elapsed:.2}Mc/f"
+            );
+
+            last_cycle_count = end_cycle_count;
+            last_counter = end_counter;
+        }
     }
 }
 
@@ -265,6 +298,12 @@ fn write_wave(
         sound_output.theta += time_delta;
         sound_output.index = sound_output.index.wrapping_add(1);
     }
+}
+
+#[cfg(debug_assertions)]
+fn query_performance_counter() -> Instant {
+    // On Windows, the Rust standard library is using WinAPI's QueryPerformanceCounter.
+    Instant::now()
 }
 
 // NOTE: We probably don't want to call this as part of the main game loop since it
