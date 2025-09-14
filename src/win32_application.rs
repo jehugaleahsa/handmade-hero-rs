@@ -2,10 +2,12 @@ use crate::application::Application;
 use crate::application_error::{ApplicationError, Result};
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
+#[cfg(debug_assertions)]
 use crate::performance_counter::PerformanceCounter;
 use crate::pixel::Pixel;
+use crate::stereo_sample::StereoSample;
+use core::slice;
 use std::cmp::Ordering;
-use std::f32::consts::PI;
 use std::ffi::c_void;
 use windows::core::{w, Error, Result as Win32Result, PCWSTR};
 use windows::Win32::Foundation::{
@@ -35,6 +37,7 @@ pub struct Win32Application {
     window_handle: HWND,
     bitmap_info: BITMAPINFO,
     bitmap_buffer: Option<Vec<Pixel>>,
+    sound_buffer: Option<Vec<StereoSample>>,
     closing: bool,
 }
 
@@ -45,6 +48,7 @@ impl Win32Application {
             window_handle: HWND::default(),
             bitmap_info: BITMAPINFO::default(),
             bitmap_buffer: None,
+            sound_buffer: None,
             closing: false,
         }
     }
@@ -103,10 +107,14 @@ impl Win32Application {
         header.biCompression = BI_RGB.0;
 
         let pixel_count = width as usize * height as usize;
-        self.bitmap_buffer = Some(Vec::with_capacity(pixel_count));
-        let bitmap_buffer = self.bitmap_buffer.as_mut().unwrap();
-        for _ in 0..pixel_count {
-            bitmap_buffer.push(Pixel::default());
+        if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
+            match pixel_count.cmp(&bitmap_buffer.len()) {
+                Ordering::Greater => bitmap_buffer.resize(pixel_count, Pixel::default()),
+                Ordering::Less => bitmap_buffer.truncate(pixel_count),
+                Ordering::Equal => {}
+            }
+        } else {
+            self.bitmap_buffer = Some(vec![Pixel::default(); pixel_count]);
         }
 
         self.application.resize_bitmap(width, height);
@@ -205,10 +213,12 @@ impl Win32Application {
         }
 
         self.application.render(&mut self.bitmap_buffer);
+
         let device_context = unsafe { GetDC(Some(self.window_handle)) };
         self.write_buffer(device_context, self.window_handle)
             .map_err(|e| ApplicationError::wrap("Failed to write the render to the buffer.", e))?;
         unsafe { ReleaseDC(Some(self.window_handle), device_context) };
+
         Ok(())
     }
 
@@ -329,71 +339,84 @@ impl Win32Application {
         }
     }
 
-    fn fill_sound_buffer(&mut self, sound_buffer: &mut Option<DirectSoundBuffer<'_>>) {
-        let Some(sound_buffer) = sound_buffer else {
+    fn fill_sound_buffer(&mut self, direct_sound_buffer: &mut Option<DirectSoundBuffer<'_>>) {
+        let Some(direct_sound_buffer) = direct_sound_buffer else {
             return;
         };
-        let play_cursor = sound_buffer.get_play_cursor();
+        let play_cursor = direct_sound_buffer.get_play_cursor();
         let Ok(play_cursor) = play_cursor else {
             return;
         };
 
-        let application = &self.application;
+        let application = &mut self.application;
         let write_offset = (application.sound_index() * application.sound_bytes_per_sample())
-            % sound_buffer.length();
+            % direct_sound_buffer.length();
         let target_cursor = (play_cursor
             + (application.sound_latency() * application.sound_bytes_per_sample()))
-            % sound_buffer.length();
+            % direct_sound_buffer.length();
         let write_length = match write_offset.cmp(&target_cursor) {
-            Ordering::Greater => (sound_buffer.length() - write_offset) + target_cursor,
+            Ordering::Greater => (direct_sound_buffer.length() - write_offset) + target_cursor,
             Ordering::Less => target_cursor - write_offset,
             Ordering::Equal => 0,
         };
+        if write_length == 0 {
+            return;
+        }
 
-        let buffer_lock_guard = sound_buffer.lock(write_offset, write_length);
+        if let Some(ref mut sound_buffer) = self.sound_buffer {
+            let write_length = write_length as usize / size_of::<StereoSample>();
+            match write_length.cmp(&sound_buffer.len()) {
+                Ordering::Less => sound_buffer.truncate(write_length),
+                Ordering::Greater => sound_buffer.resize(write_length, StereoSample::default()),
+                Ordering::Equal => {}
+            }
+        } else {
+            let write_length = write_length as usize / size_of::<StereoSample>();
+            self.sound_buffer = Some(vec![StereoSample::default(); write_length]);
+        }
+        let sound_buffer = self
+            .sound_buffer
+            .as_mut()
+            .expect("Sound buffer uninitialized after creation.");
+        application.write_sound(sound_buffer);
+
+        let buffer_lock_guard = direct_sound_buffer.lock(write_offset, write_length);
         let Ok(buffer_lock_guard) = buffer_lock_guard else {
             return;
         };
 
-        self.write_wave(
+        Self::copy_sound_buffer(
             buffer_lock_guard.region1(),
             buffer_lock_guard.region1_size(),
+            sound_buffer,
+            0,
         );
 
-        self.write_wave(
+        Self::copy_sound_buffer(
             buffer_lock_guard.region2(),
             buffer_lock_guard.region2_size(),
+            sound_buffer,
+            buffer_lock_guard.region1_size(),
         );
     }
 
-    fn write_wave(&mut self, region: *mut c_void, region_size: u32) {
-        let application = &mut self.application;
-        let mut sample_out = region.cast::<i16>();
-        let sample_count = region_size / application.sound_bytes_per_sample();
-        assert_eq!(
-            sample_count * application.sound_bytes_per_sample(),
-            region_size
-        );
-
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_precision_loss)]
-        let time_delta = 2.0f32 * PI / application.sound_wave_period() as f32;
-
-        for _ in 0..sample_count {
-            #[allow(clippy::cast_precision_loss)]
-            let sine_value = application.sound_theta().sin();
-            #[allow(clippy::cast_possible_truncation)]
-            let sample_value = (sine_value * f32::from(application.sound_volume())) as i16;
-            unsafe {
-                *sample_out = sample_value;
-                sample_out = sample_out.add(1);
-                *sample_out = sample_value;
-                sample_out = sample_out.add(1);
-            }
-            application.increase_sound_theta(time_delta);
-            application.increase_sound_index(1);
+    fn copy_sound_buffer(
+        destination: *mut c_void,
+        destination_length_in_bytes: u32,
+        source: &[StereoSample],
+        source_offset: u32,
+    ) {
+        if destination.is_null() {
+            return;
         }
+        let sample_count = destination_length_in_bytes as usize / size_of::<StereoSample>();
+        let sample_out =
+            unsafe { slice::from_raw_parts_mut(destination.cast::<StereoSample>(), sample_count) };
+        let source_offset = source_offset as usize / size_of::<StereoSample>();
+        let source_end = source_offset + sample_count;
+        let source_slice = &source[source_offset..source_end];
+        assert_eq!(source_slice.len(), sample_out.len());
+        sample_out.copy_from_slice(source_slice);
     }
 }
 

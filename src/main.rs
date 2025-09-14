@@ -1,7 +1,10 @@
 mod application;
 mod application_error;
-mod performance_counter;
 mod pixel;
+mod stereo_sample;
+
+#[cfg(debug_assertions)]
+mod performance_counter;
 
 #[cfg(target_os = "windows")]
 mod direct_sound;

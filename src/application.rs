@@ -1,4 +1,6 @@
 use crate::pixel::Pixel;
+use crate::stereo_sample::StereoSample;
+use std::f32::consts::PI;
 
 const BITS_PER_SAMPLE: u16 = 16;
 const STEREO_CHANNEL_COUNT: u16 = 2; // Stereo
@@ -75,6 +77,23 @@ impl Application {
         }
     }
 
+    pub fn write_sound(&mut self, sound_buffer: &mut [StereoSample]) {
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        #[allow(clippy::cast_precision_loss)]
+        let time_delta = 2.0f32 * PI / self.sound_output_state.wave_period as f32;
+
+        for sample in sound_buffer {
+            #[allow(clippy::cast_precision_loss)]
+            let sine_value = self.sound_output_state.theta.sin();
+            #[allow(clippy::cast_possible_truncation)]
+            let sample_value = (sine_value * f32::from(self.sound_output_state.volume)) as i16;
+            *sample = StereoSample::from_left_right(sample_value, sample_value);
+            self.sound_output_state.theta += time_delta;
+            self.sound_output_state.index = self.sound_output_state.index.wrapping_add(1);
+        }
+    }
+
     pub fn resize_bitmap(&mut self, width: u32, height: u32) {
         self.bitmap_width = width;
         self.bitmap_height = height;
@@ -117,11 +136,6 @@ impl Application {
     }
 
     #[inline]
-    pub fn increase_sound_index(&mut self, delta: u32) {
-        self.sound_output_state.index = self.sound_output_state.index.wrapping_add(delta);
-    }
-
-    #[inline]
     #[must_use]
     pub fn sound_channel_count(&self) -> u16 {
         self.sound_output_state.channel_count
@@ -156,29 +170,6 @@ impl Application {
         self.sound_output_state.hertz = hertz;
         let wave_period = self.sound_output_state.samples_per_seconds / hertz;
         self.sound_output_state.wave_period = wave_period;
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sound_wave_period(&self) -> u32 {
-        self.sound_output_state.wave_period
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sound_theta(&self) -> f32 {
-        self.sound_output_state.theta
-    }
-
-    #[inline]
-    pub fn increase_sound_theta(&mut self, delta: f32) {
-        self.sound_output_state.theta += delta;
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sound_volume(&self) -> i16 {
-        self.sound_output_state.volume
     }
 
     #[inline]
