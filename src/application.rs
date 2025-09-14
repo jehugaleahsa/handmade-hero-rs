@@ -1,29 +1,37 @@
 use crate::pixel::Pixel;
 use std::ffi::c_void;
-use std::ptr::null_mut;
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, GetDC, ReleaseDC, StretchDIBits, BITMAPINFO, BI_RGB, DIB_RGB_COLORS, HDC,
-    PAINTSTRUCT, SRCCOPY,
-};
-use windows::Win32::System::Memory::{
-    VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
-};
-use windows::Win32::UI::Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_A, VK_D, VK_F4, VK_S, VK_W};
-use windows::Win32::UI::WindowsAndMessaging::{
-    DefWindowProcW, GetClientRect, PostQuitMessage, WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP,
-    WM_PAINT, WM_SYSKEYDOWN, WM_SYSKEYUP,
-};
+
+const BITS_PER_SAMPLE: u16 = 16;
+const STEREO_CHANNEL_COUNT: u16 = 2; // Stereo
+pub const SAMPLES_PER_SECOND: u32 = 48_000u32;
+pub const DEFAULT_VOLUME: i16 = 3_000;
+#[allow(clippy::cast_possible_truncation)]
+pub const SOUND_BUFFER_SIZE: u32 =
+    SAMPLES_PER_SECOND * size_of::<u16>() as u32 * STEREO_CHANNEL_COUNT as u32;
+#[allow(clippy::cast_possible_truncation)]
+pub const BYTES_PER_SAMPLE: u32 = (size_of::<i16>() * 2) as u32;
+
+#[derive(Debug)]
+struct SoundOutputState {
+    hertz: u32,
+    index: u32,
+    theta: f32,
+    wave_period: u32,
+    latency: u32,
+    samples_per_seconds: u32,
+    bytes_per_sample: u32,
+    bits_per_sample: u16,
+    channel_count: u16,
+    volume: i16,
+}
 
 #[derive(Debug)]
 pub struct Application {
     x_offset: u32,
     y_offset: u32,
-    bitmap_buffer: *mut c_void,
     bitmap_width: u32,
     bitmap_height: u32,
-    bitmap_info: BITMAPINFO,
-    closing: bool,
+    sound_output_state: SoundOutputState,
 }
 
 impl Application {
@@ -31,64 +39,28 @@ impl Application {
         Self {
             x_offset: 0,
             y_offset: 0,
-            bitmap_buffer: null_mut(),
             bitmap_width: 0,
             bitmap_height: 0,
-            bitmap_info: BITMAPINFO::default(),
-            closing: false,
+            sound_output_state: SoundOutputState {
+                hertz: 256,
+                index: 0,
+                theta: 0f32,
+                wave_period: SAMPLES_PER_SECOND / 256,
+                latency: SAMPLES_PER_SECOND / 15,
+                samples_per_seconds: SAMPLES_PER_SECOND,
+                bytes_per_sample: BYTES_PER_SAMPLE,
+                bits_per_sample: BITS_PER_SAMPLE,
+                channel_count: STEREO_CHANNEL_COUNT,
+                volume: DEFAULT_VOLUME,
+            },
         }
     }
 
-    pub fn process_windows_message(
-        &mut self,
-        window_handle: HWND,
-        message: u32,
-        w_param: WPARAM,
-        l_param: LPARAM,
-    ) -> LRESULT {
-        match message {
-            WM_CLOSE | WM_DESTROY => self.destroy_window(),
-            WM_PAINT => self.resize_window(window_handle).unwrap_or(LRESULT(0)), // Ignore error
-            WM_SYSKEYDOWN | WM_SYSKEYUP | WM_KEYDOWN | WM_KEYUP => {
-                self.handle_key_press(w_param, l_param)
-            }
-            _ => unsafe { DefWindowProcW(window_handle, message, w_param, l_param) },
-        }
-    }
-
-    fn destroy_window(&mut self) -> LRESULT {
-        self.closing = true;
-        unsafe { PostQuitMessage(0) };
-        LRESULT(0)
-    }
-
-    fn resize_window(&mut self, window_handle: HWND) -> windows::core::Result<LRESULT> {
-        let mut paint_struct = PAINTSTRUCT::default();
-        let device_context = unsafe { BeginPaint(window_handle, &raw mut paint_struct) };
-        self.write_buffer(device_context, window_handle)?;
-        #[allow(unused_must_use)]
-        unsafe {
-            EndPaint(window_handle, &raw mut paint_struct)
-        };
-        Ok(LRESULT(0))
-    }
-
-    pub fn update_display(&mut self, window_handle: HWND) -> windows::core::Result<()> {
-        if self.closing {
-            return Ok(());
-        }
-
-        self.render();
-        let device_context = unsafe { GetDC(Some(window_handle)) };
-        self.write_buffer(device_context, window_handle)?;
-        unsafe { ReleaseDC(Some(window_handle), device_context) };
-        Ok(())
-    }
-
-    fn render(&self) {
+    pub fn render(&self, bitmap_buffer: *mut c_void) {
+        assert!(!bitmap_buffer.is_null());
         let width = self.bitmap_width;
         let height = self.bitmap_height;
-        let mut pixel = self.bitmap_buffer.cast::<u32>();
+        let mut pixel = bitmap_buffer.cast::<u32>();
         for y in 0..height {
             for x in 0..width {
                 let color = Pixel::from_rgb(
@@ -102,77 +74,21 @@ impl Application {
         }
     }
 
-    fn write_buffer(
-        &mut self,
-        device_context: HDC,
-        window_handle: HWND,
-    ) -> windows::core::Result<()> {
-        #[allow(clippy::cast_possible_wrap)]
-        let source_width = self.bitmap_width as i32;
-        #[allow(clippy::cast_possible_wrap)]
-        let source_height = self.bitmap_height as i32;
-
-        let client_rectangle = Self::get_client_rectangle(window_handle)?;
-        let destination_width = Self::calculate_width(&client_rectangle);
-        let destination_height = Self::calculate_height(&client_rectangle);
-
-        unsafe {
-            StretchDIBits(
-                device_context,
-                client_rectangle.left,
-                client_rectangle.top,
-                destination_width,
-                destination_height,
-                0,
-                0,
-                source_width,
-                source_height,
-                Some(self.bitmap_buffer),
-                &raw const self.bitmap_info,
-                DIB_RGB_COLORS,
-                SRCCOPY,
-            );
-        }
-        Ok(())
-    }
-
-    pub fn resize_buffer(&mut self, width: u32, height: u32) -> windows::core::Result<LRESULT> {
-        if !self.bitmap_buffer.is_null() {
-            unsafe { VirtualFree(self.bitmap_buffer, 0, MEM_RELEASE)? };
-        }
-
+    pub fn resize_bitmap(&mut self, width: u32, height: u32) {
         self.bitmap_width = width;
         self.bitmap_height = height;
-
-        let header = &mut self.bitmap_info.bmiHeader;
-        header.biSize = u32::try_from(size_of_val(header))?;
-        header.biWidth = i32::try_from(width)?;
-        header.biHeight = -i32::try_from(height)?;
-        header.biPlanes = 1;
-        header.biBitCount = 32;
-        header.biCompression = BI_RGB.0;
-
-        let memory_size = width as usize * height as usize * size_of::<Pixel>();
-        self.bitmap_buffer =
-            unsafe { VirtualAlloc(None, memory_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
-
-        Ok(LRESULT(0))
-    }
-
-    fn get_client_rectangle(window_handle: HWND) -> windows::core::Result<RECT> {
-        let mut client_rectangle = RECT::default();
-        unsafe { GetClientRect(window_handle, &raw mut client_rectangle)? };
-        Ok(client_rectangle)
     }
 
     #[inline]
-    fn calculate_width(rectangle: &RECT) -> i32 {
-        rectangle.right - rectangle.left
+    #[must_use]
+    pub fn bitmap_width(&self) -> u32 {
+        self.bitmap_width
     }
 
     #[inline]
-    fn calculate_height(rectangle: &RECT) -> i32 {
-        rectangle.bottom - rectangle.top
+    #[must_use]
+    pub fn bitmap_height(&self) -> u32 {
+        self.bitmap_height
     }
 
     #[allow(clippy::cast_sign_loss)]
@@ -193,30 +109,80 @@ impl Application {
         }
     }
 
-    fn handle_key_press(&mut self, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-        #[allow(clippy::cast_possible_truncation)]
-        let virtual_key = VIRTUAL_KEY(w_param.0 as u16);
+    #[inline]
+    #[must_use]
+    pub fn sound_index(&self) -> u32 {
+        self.sound_output_state.index
+    }
 
-        // Allow exiting with ALT+F4
-        let is_alt_down = (l_param.0 & (1 << 29)) != 0;
-        if is_alt_down && virtual_key == VK_F4 {
-            return self.destroy_window();
-        }
+    #[inline]
+    pub fn increase_sound_index(&mut self, delta: u32) {
+        self.sound_output_state.index = self.sound_output_state.index.wrapping_add(delta);
+    }
 
-        let was_down = (l_param.0 & (1 << 30)) != 0;
-        let is_down = (l_param.0 & (1 << 31)) == 0;
-        if was_down == is_down {
-            // Ignore repeated messages
-            //return LRESULT(0);
-        }
+    #[inline]
+    #[must_use]
+    pub fn sound_channel_count(&self) -> u16 {
+        self.sound_output_state.channel_count
+    }
 
-        match virtual_key {
-            VK_W => self.shift_y(-10),
-            VK_A => self.shift_x(-10),
-            VK_S => self.shift_y(10),
-            VK_D => self.shift_x(10),
-            _ => {}
-        }
-        LRESULT(0)
+    #[inline]
+    #[must_use]
+    pub fn sound_samples_per_second(&self) -> u32 {
+        self.sound_output_state.samples_per_seconds
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sound_bits_per_sample(&self) -> u16 {
+        self.sound_output_state.bits_per_sample
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sound_bytes_per_sample(&self) -> u32 {
+        self.sound_output_state.bytes_per_sample
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sound_latency(&self) -> u32 {
+        self.sound_output_state.latency
+    }
+
+    #[inline]
+    pub fn set_sound_hertz(&mut self, hertz: u32) {
+        self.sound_output_state.hertz = hertz;
+        let wave_period = self.sound_output_state.samples_per_seconds / hertz;
+        self.sound_output_state.wave_period = wave_period;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sound_wave_period(&self) -> u32 {
+        self.sound_output_state.wave_period
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sound_theta(&self) -> f32 {
+        self.sound_output_state.theta
+    }
+
+    #[inline]
+    pub fn increase_sound_theta(&mut self, delta: f32) {
+        self.sound_output_state.theta += delta;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sound_volume(&self) -> i16 {
+        self.sound_output_state.volume
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sound_buffer_size(&self) -> u32 {
+        SOUND_BUFFER_SIZE
     }
 }

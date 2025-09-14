@@ -6,17 +6,6 @@ use windows::Win32::Media::Audio::DirectSound::{
 };
 use windows::Win32::Media::Audio::{WAVEFORMATEX, WAVE_FORMAT_PCM};
 
-const NUMBER_OF_CHANNELS: u16 = 2; // Stereo
-const BITS_PER_SAMPLE: u16 = 16;
-#[allow(clippy::cast_possible_truncation)]
-pub(crate) const BYTES_PER_SAMPLE: u32 = (size_of::<i16>() * 2) as u32;
-pub(crate) const SAMPLES_PER_SECOND: u32 = 48_000u32;
-
-pub(crate) const VOLUME: i16 = 3_000;
-#[allow(clippy::cast_possible_truncation)]
-pub(crate) const SOUND_BUFFER_SIZE: u32 =
-    SAMPLES_PER_SECOND * size_of::<u16>() as u32 * NUMBER_OF_CHANNELS as u32;
-
 #[derive(Debug)]
 pub struct DirectSound {
     direct_sound: IDirectSound,
@@ -34,7 +23,13 @@ impl DirectSound {
         Ok(Self { direct_sound })
     }
 
-    pub fn create_buffer(&self, buffer_size: u32) -> Result<DirectSoundBuffer<'_>> {
+    pub fn create_buffer(
+        &self,
+        channel_count: u16,
+        samples_per_second: u32,
+        sample_bits: u16,
+        buffer_size: u32,
+    ) -> Result<DirectSoundBuffer<'_>> {
         let primary_buffer_description = Self::create_primary_buffer_description();
         let mut primary_buffer = None;
         unsafe {
@@ -47,7 +42,7 @@ impl DirectSound {
         let Some(ref primary_buffer) = primary_buffer else {
             return Err(Error::from_win32());
         };
-        let mut format = Self::create_buffer_format();
+        let mut format = Self::create_buffer_format(channel_count, samples_per_second, sample_bits);
         unsafe {
             primary_buffer.SetFormat(&raw const format)?;
         }
@@ -79,16 +74,21 @@ impl DirectSound {
         description
     }
 
-    fn create_buffer_format() -> WAVEFORMATEX {
-        const BLOCK_ALIGN: u16 = NUMBER_OF_CHANNELS * BITS_PER_SAMPLE / 8;
+    fn create_buffer_format(
+        channel_count: u16,
+        samples_per_second: u32,
+        bits_per_sample: u16,
+    ) -> WAVEFORMATEX {
+        let block_align = channel_count * bits_per_sample / 8;
+        let average_bytes_per_second = samples_per_second * u32::from(block_align);
         #[allow(clippy::cast_possible_truncation)]
         WAVEFORMATEX {
             wFormatTag: WAVE_FORMAT_PCM as u16,
-            nChannels: NUMBER_OF_CHANNELS,
-            nSamplesPerSec: SAMPLES_PER_SECOND,
-            wBitsPerSample: BITS_PER_SAMPLE,
-            nBlockAlign: BLOCK_ALIGN,
-            nAvgBytesPerSec: SAMPLES_PER_SECOND * u32::from(BLOCK_ALIGN),
+            nChannels: channel_count,
+            nSamplesPerSec: samples_per_second,
+            wBitsPerSample: bits_per_sample,
+            nBlockAlign: block_align,
+            nAvgBytesPerSec: average_bytes_per_second,
             ..Default::default()
         }
     }
