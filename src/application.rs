@@ -1,5 +1,4 @@
 use crate::pixel::Pixel;
-use std::ffi::c_void;
 
 const BITS_PER_SAMPLE: u16 = 16;
 const STEREO_CHANNEL_COUNT: u16 = 2; // Stereo
@@ -56,11 +55,13 @@ impl Application {
         }
     }
 
-    pub fn render(&self, bitmap_buffer: *mut c_void) {
-        assert!(!bitmap_buffer.is_null());
+    pub fn render(&self, bitmap_buffer: &mut Option<Vec<Pixel>>) {
+        let Some(bitmap_buffer) = bitmap_buffer else {
+            return;
+        };
         let width = self.bitmap_width;
         let height = self.bitmap_height;
-        let mut pixel = bitmap_buffer.cast::<u32>();
+        let mut index = 0;
         for y in 0..height {
             for x in 0..width {
                 let color = Pixel::from_rgb(
@@ -68,8 +69,8 @@ impl Application {
                     (y.wrapping_add(self.y_offset) & 0xFF) as u8,
                     (x.wrapping_add(self.x_offset) & 0xFF) as u8,
                 );
-                unsafe { *pixel = u32::from(color) };
-                pixel = unsafe { pixel.add(1) };
+                bitmap_buffer[index] = color;
+                index += 1;
             }
         }
     }

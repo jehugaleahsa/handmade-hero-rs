@@ -1,9 +1,9 @@
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct Pixel {
-    red: u8,
-    green: u8,
     blue: u8,
+    green: u8,
+    red: u8,
     alpha: u8,
 }
 

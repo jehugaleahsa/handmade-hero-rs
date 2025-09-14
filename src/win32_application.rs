@@ -16,9 +16,6 @@ use windows::Win32::Graphics::Gdi::{
     PAINTSTRUCT, SRCCOPY,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Memory::{
-    VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE,
-};
 use windows::Win32::UI::Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_A, VK_D, VK_F4, VK_S, VK_W};
 use windows::Win32::UI::Input::XboxController::{
     XInputGetState, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE,
@@ -37,7 +34,7 @@ pub struct Win32Application {
     application: Application,
     window_handle: HWND,
     bitmap_info: BITMAPINFO,
-    bitmap_buffer: *mut c_void,
+    bitmap_buffer: Option<Vec<Pixel>>,
     closing: bool,
 }
 
@@ -47,7 +44,7 @@ impl Win32Application {
             application,
             window_handle: HWND::default(),
             bitmap_info: BITMAPINFO::default(),
-            bitmap_buffer: std::ptr::null_mut(),
+            bitmap_buffer: None,
             closing: false,
         }
     }
@@ -105,19 +102,14 @@ impl Win32Application {
         header.biBitCount = 32;
         header.biCompression = BI_RGB.0;
 
-        let old_buffer = self.bitmap_buffer;
-        let memory_size = width as usize * height as usize * size_of::<Pixel>();
-        self.bitmap_buffer =
-            unsafe { VirtualAlloc(None, memory_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE) };
+        let pixel_count = width as usize * height as usize;
+        self.bitmap_buffer = Some(Vec::with_capacity(pixel_count));
+        let bitmap_buffer = self.bitmap_buffer.as_mut().unwrap();
+        for _ in 0..pixel_count {
+            bitmap_buffer.push(Pixel::default());
+        }
 
         self.application.resize_bitmap(width, height);
-
-        if !old_buffer.is_null() && old_buffer != self.bitmap_buffer {
-            unsafe {
-                VirtualFree(old_buffer, 0, MEM_RELEASE)
-                    .map_err(|e| ApplicationError::wrap("Failed to free the window buffer.", e))?;
-            }
-        }
 
         Ok(())
     }
@@ -212,7 +204,7 @@ impl Win32Application {
             return Ok(());
         }
 
-        self.application.render(self.bitmap_buffer);
+        self.application.render(&mut self.bitmap_buffer);
         let device_context = unsafe { GetDC(Some(self.window_handle)) };
         self.write_buffer(device_context, self.window_handle)
             .map_err(|e| ApplicationError::wrap("Failed to write the render to the buffer.", e))?;
@@ -221,6 +213,10 @@ impl Win32Application {
     }
 
     fn write_buffer(&mut self, device_context: HDC, window_handle: HWND) -> Win32Result<()> {
+        let Some(ref bitmap_buffer) = self.bitmap_buffer else {
+            return Ok(());
+        };
+
         #[allow(clippy::cast_possible_wrap)]
         let source_width = self.application.bitmap_width() as i32;
         #[allow(clippy::cast_possible_wrap)]
@@ -231,6 +227,7 @@ impl Win32Application {
         let destination_height = Self::calculate_height(&client_rectangle);
 
         unsafe {
+            let bitmap_data = bitmap_buffer.as_ptr().cast::<c_void>();
             StretchDIBits(
                 device_context,
                 client_rectangle.left,
@@ -241,7 +238,7 @@ impl Win32Application {
                 0,
                 source_width,
                 source_height,
-                Some(self.bitmap_buffer),
+                Some(bitmap_data),
                 &raw const self.bitmap_info,
                 DIB_RGB_COLORS,
                 SRCCOPY,
