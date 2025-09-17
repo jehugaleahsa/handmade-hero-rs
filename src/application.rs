@@ -15,7 +15,6 @@ pub const BYTES_PER_SAMPLE: u32 = (size_of::<i16>() * 2) as u32;
 #[derive(Debug)]
 struct SoundOutputState {
     hertz: u32,
-    index: u32,
     theta: f32,
     wave_period: u32,
     latency: u32,
@@ -44,7 +43,6 @@ impl Application {
             bitmap_height: 0,
             sound_output_state: SoundOutputState {
                 hertz: 256,
-                index: 0,
                 theta: 0f32,
                 wave_period: SAMPLES_PER_SECOND / 256,
                 latency: SAMPLES_PER_SECOND / 15,
@@ -90,7 +88,6 @@ impl Application {
             let sample_value = (sine_value * f32::from(self.sound_output_state.volume)) as i16;
             *sample = StereoSample::from_left_right(sample_value, sample_value);
             self.sound_output_state.theta += time_delta;
-            self.sound_output_state.index = self.sound_output_state.index.wrapping_add(1);
         }
     }
 
@@ -127,12 +124,6 @@ impl Application {
         } else {
             self.y_offset = self.y_offset.wrapping_add(shift as u32);
         }
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sound_index(&self) -> u32 {
-        self.sound_output_state.index
     }
 
     #[inline]

@@ -38,6 +38,7 @@ pub struct Win32Application {
     bitmap_info: BITMAPINFO,
     bitmap_buffer: Option<Vec<Pixel>>,
     sound_buffer: Option<Vec<StereoSample>>,
+    sound_index: u32,
     closing: bool,
 }
 
@@ -49,6 +50,7 @@ impl Win32Application {
             bitmap_info: BITMAPINFO::default(),
             bitmap_buffer: None,
             sound_buffer: None,
+            sound_index: 0,
             closing: false,
         }
     }
@@ -349,7 +351,7 @@ impl Win32Application {
         };
 
         let application = &mut self.application;
-        let write_offset = (application.sound_index() * application.sound_bytes_per_sample())
+        let write_offset = (self.sound_index * application.sound_bytes_per_sample())
             % direct_sound_buffer.length();
         let target_cursor = (play_cursor
             + (application.sound_latency() * application.sound_bytes_per_sample()))
@@ -363,22 +365,19 @@ impl Win32Application {
             return;
         }
 
-        if let Some(ref mut sound_buffer) = self.sound_buffer {
-            let write_length = write_length as usize / size_of::<StereoSample>();
-            match write_length.cmp(&sound_buffer.len()) {
-                Ordering::Less => sound_buffer.truncate(write_length),
-                Ordering::Greater => sound_buffer.resize(write_length, StereoSample::default()),
-                Ordering::Equal => {}
-            }
-        } else {
-            let write_length = write_length as usize / size_of::<StereoSample>();
-            self.sound_buffer = Some(vec![StereoSample::default(); write_length]);
+        let sample_count = write_length as usize / size_of::<StereoSample>();
+        if self.sound_buffer.is_none() {
+            self.sound_buffer = Some(vec![
+                StereoSample::default();
+                direct_sound_buffer.length() as usize
+            ]);
         }
         let sound_buffer = self
             .sound_buffer
             .as_mut()
             .expect("Sound buffer uninitialized after creation.");
-        application.write_sound(sound_buffer);
+        let sound_buffer_slice = &mut sound_buffer[..sample_count];
+        application.write_sound(sound_buffer_slice);
 
         let buffer_lock_guard = direct_sound_buffer.lock(write_offset, write_length);
         let Ok(buffer_lock_guard) = buffer_lock_guard else {
@@ -388,16 +387,19 @@ impl Win32Application {
         Self::copy_sound_buffer(
             buffer_lock_guard.region1(),
             buffer_lock_guard.region1_size(),
-            sound_buffer,
+            sound_buffer_slice,
             0,
         );
 
         Self::copy_sound_buffer(
             buffer_lock_guard.region2(),
             buffer_lock_guard.region2_size(),
-            sound_buffer,
+            sound_buffer_slice,
             buffer_lock_guard.region1_size(),
         );
+        let sample_count = u32::try_from(sample_count)
+            .expect("The sound index could not be converted to an unsigned 32-bit integer.");
+        self.sound_index = self.sound_index.wrapping_add(sample_count);
     }
 
     fn copy_sound_buffer(
