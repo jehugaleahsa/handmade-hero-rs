@@ -1,3 +1,4 @@
+use crate::input_state::InputState;
 use crate::pixel::Pixel;
 use crate::stereo_sample::StereoSample;
 use std::f32::consts::PI;
@@ -96,6 +97,32 @@ impl Application {
         self.bitmap_height = height;
     }
 
+    pub fn handle_input(&mut self, input_state: &InputState) {
+        let Some(controller) = input_state.get_controller(0) else {
+            return;
+        };
+        if !controller.enabled() {
+            return;
+        }
+        let shift_x_ratio =
+            -(controller.left_joystick().x().end() + controller.right_joystick().x().end());
+        #[allow(clippy::cast_possible_truncation)]
+        let shift_x = (shift_x_ratio * 5f32) as i16;
+        self.shift_x(shift_x);
+        let shift_y_ratio =
+            controller.left_joystick().y().end() + controller.right_joystick().y().end();
+        #[allow(clippy::cast_possible_truncation)]
+        let shift_y = (shift_y_ratio * 5f32) as i16;
+        self.shift_y(shift_y);
+        let left_thumb_y_ratio = controller.left_joystick().y().end();
+        let right_thumb_y_ratio = controller.right_joystick().y().end();
+        let thumb_y_ratio = f32::midpoint(left_thumb_y_ratio, right_thumb_y_ratio);
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        let hertz = (512.0f32 + (256.0f32 * thumb_y_ratio)) as u32;
+        self.sound_output_state.hertz = hertz;
+    }
+
     #[inline]
     #[must_use]
     pub fn bitmap_width(&self) -> u32 {
@@ -154,13 +181,6 @@ impl Application {
     #[must_use]
     pub fn sound_latency(&self) -> u32 {
         self.sound_output_state.latency
-    }
-
-    #[inline]
-    pub fn set_sound_hertz(&mut self, hertz: u32) {
-        self.sound_output_state.hertz = hertz;
-        let wave_period = self.sound_output_state.samples_per_seconds / hertz;
-        self.sound_output_state.wave_period = wave_period;
     }
 
     #[inline]

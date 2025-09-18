@@ -1,7 +1,10 @@
 use crate::application::Application;
 use crate::application_error::{ApplicationError, Result};
+use crate::button_state::ButtonState;
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
+use crate::input_state::InputState;
+use crate::joystick_transition::JoystickTransition;
 #[cfg(debug_assertions)]
 use crate::performance_counter::PerformanceCounter;
 use crate::pixel::Pixel;
@@ -20,8 +23,12 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_A, VK_D, VK_F4, VK_S, VK_W};
 use windows::Win32::UI::Input::XboxController::{
-    XInputGetState, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE,
-    XINPUT_STATE, XUSER_MAX_COUNT,
+    XInputGetState, XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B,
+    XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_BUTTON_FLAGS, XINPUT_GAMEPAD_DPAD_DOWN,
+    XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_DPAD_UP,
+    XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE,
+    XINPUT_GAMEPAD_RIGHT_SHOULDER, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, XINPUT_GAMEPAD_START,
+    XINPUT_GAMEPAD_TRIGGER_THRESHOLD, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y, XINPUT_STATE, XUSER_MAX_COUNT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetWindowLongPtrW, LoadCursorW,
@@ -39,6 +46,7 @@ pub struct Win32Application {
     bitmap_buffer: Option<Vec<Pixel>>,
     sound_buffer: Option<Vec<StereoSample>>,
     sound_index: u32,
+    input_state: InputState,
     closing: bool,
 }
 
@@ -51,6 +59,7 @@ impl Win32Application {
             bitmap_buffer: None,
             sound_buffer: None,
             sound_index: 0,
+            input_state: InputState::default(),
             closing: false,
         }
     }
@@ -307,30 +316,9 @@ impl Win32Application {
                 DispatchMessageW(&raw const message);
             };
 
-            let application = &mut self.application;
-            if let Some(controller_state) = poll_controller_state() {
-                #[allow(clippy::cast_possible_wrap)]
-                const LEFT_THUMB_DEAD_ZONE: i16 = XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0 as i16;
-                #[allow(clippy::cast_possible_wrap)]
-                const RIGHT_THUMB_DEAD_ZONE: i16 = XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0 as i16;
-                let gamepad = &controller_state.Gamepad;
-                let shift_x = -(gamepad.sThumbLX / LEFT_THUMB_DEAD_ZONE
-                    + gamepad.sThumbRX / RIGHT_THUMB_DEAD_ZONE);
-                application.shift_x(shift_x);
-                let shift_y = gamepad.sThumbLY / LEFT_THUMB_DEAD_ZONE
-                    + gamepad.sThumbRY / RIGHT_THUMB_DEAD_ZONE;
-                application.shift_y(shift_y);
-                let left_thumb_y_ratio = f32::from(gamepad.sThumbLY) / f32::from(i16::MAX);
-                let right_thumb_y_ratio = f32::from(gamepad.sThumbRY) / f32::from(i16::MAX);
-                let thumb_y_ratio = left_thumb_y_ratio + right_thumb_y_ratio / 2.0f32;
-                #[allow(clippy::cast_sign_loss)]
-                #[allow(clippy::cast_possible_truncation)]
-                let hertz = (512.0f32 + (256.0f32 * thumb_y_ratio)) as u32;
-                application.set_sound_hertz(hertz);
-            } else {
-                application.shift_x(1);
-                application.shift_y(1);
-            }
+            self.poll_controller_state();
+
+            self.application.handle_input(&self.input_state);
 
             self.update_display()?;
 
@@ -420,6 +408,120 @@ impl Win32Application {
         assert_eq!(source_slice.len(), sample_out.len());
         sample_out.copy_from_slice(source_slice);
     }
+
+    // NOTE: We probably don't want to call this as part of the main game loop since it
+    // can hang the application if the controller is disconnected.
+    fn poll_controller_state(&mut self) -> Option<XINPUT_STATE> {
+        for controller_index in 0..XUSER_MAX_COUNT {
+            let mut controller_state = XINPUT_STATE::default();
+            let result = unsafe { XInputGetState(controller_index, &raw mut controller_state) };
+            let controller = self
+                .input_state
+                .get_or_insert_controller_mut(controller_index as usize);
+            if result == ERROR_SUCCESS.0 {
+                let gamepad = &controller_state.Gamepad;
+                controller.set_enabled(true);
+                Self::set_button_state(controller.a_mut(), gamepad, XINPUT_GAMEPAD_A);
+                Self::set_button_state(controller.b_mut(), gamepad, XINPUT_GAMEPAD_B);
+                Self::set_button_state(controller.x_mut(), gamepad, XINPUT_GAMEPAD_X);
+                Self::set_button_state(controller.y_mut(), gamepad, XINPUT_GAMEPAD_Y);
+                Self::set_button_state(controller.start_mut(), gamepad, XINPUT_GAMEPAD_START);
+                Self::set_button_state(controller.back_mut(), gamepad, XINPUT_GAMEPAD_BACK);
+                Self::set_button_state(controller.up_mut(), gamepad, XINPUT_GAMEPAD_DPAD_UP);
+                Self::set_button_state(controller.down_mut(), gamepad, XINPUT_GAMEPAD_DPAD_DOWN);
+                Self::set_button_state(controller.left_mut(), gamepad, XINPUT_GAMEPAD_DPAD_LEFT);
+                Self::set_button_state(controller.right_mut(), gamepad, XINPUT_GAMEPAD_DPAD_RIGHT);
+                Self::set_button_state(
+                    controller.left_shoulder_mut(),
+                    gamepad,
+                    XINPUT_GAMEPAD_LEFT_SHOULDER,
+                );
+                Self::set_button_state(
+                    controller.right_shoulder_mut(),
+                    gamepad,
+                    XINPUT_GAMEPAD_RIGHT_SHOULDER,
+                );
+
+                let left_joystick = controller.left_joystick_mut();
+                let left_x = left_joystick.x_mut();
+                Self::update_joystick(
+                    left_x,
+                    gamepad.sThumbLX,
+                    XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
+                );
+                let left_y = left_joystick.y_mut();
+                Self::update_joystick(
+                    left_y,
+                    gamepad.sThumbLY,
+                    XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
+                );
+                let right_joystick = controller.right_joystick_mut();
+                let right_x = right_joystick.x_mut();
+                Self::update_joystick(
+                    right_x,
+                    gamepad.sThumbRX,
+                    XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
+                );
+                let right_y = right_joystick.y_mut();
+                Self::update_joystick(
+                    right_y,
+                    gamepad.sThumbRY,
+                    XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
+                );
+
+                controller.set_left_trigger_ratio(Self::trigger_ratio(gamepad.bLeftTrigger));
+                controller.set_right_trigger_ratio(Self::trigger_ratio(gamepad.bRightTrigger));
+            } else {
+                controller.set_enabled(false);
+            }
+        }
+        None
+    }
+
+    fn set_button_state(
+        button_state: &mut ButtonState,
+        gamepad: &XINPUT_GAMEPAD,
+        button_flag: XINPUT_GAMEPAD_BUTTON_FLAGS,
+    ) {
+        let is_pressed = Self::is_pressed(gamepad, button_flag);
+        let was_pressed = button_state.ended_down();
+        button_state.set_half_transition_count((was_pressed == is_pressed).into());
+        button_state.set_ended_down(is_pressed);
+    }
+
+    #[inline]
+    #[must_use]
+    fn is_pressed(gamepad: &XINPUT_GAMEPAD, button: XINPUT_GAMEPAD_BUTTON_FLAGS) -> bool {
+        (gamepad.wButtons & button).0 != 0
+    }
+
+    fn update_joystick(transition: &mut JoystickTransition, thumb_value: i16, dead_zone: u16) {
+        let thumb_ratio = Self::thumb_stick_ratio(thumb_value, dead_zone);
+        transition.set_start(thumb_ratio);
+        transition.set_min(thumb_ratio);
+        transition.set_max(thumb_ratio);
+        transition.set_end(thumb_ratio);
+    }
+
+    #[inline]
+    #[must_use]
+    fn thumb_stick_ratio(amount: i16, dead_zone: u16) -> f32 {
+        if amount.unsigned_abs() <= dead_zone {
+            0f32
+        } else {
+            f32::from(amount) / f32::from(i16::MAX)
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    fn trigger_ratio(amount: u8) -> f32 {
+        if u16::from(amount) <= XINPUT_GAMEPAD_TRIGGER_THRESHOLD.0 {
+            0f32
+        } else {
+            f32::from(amount) / f32::from(u8::MAX)
+        }
+    }
 }
 
 extern "system" fn window_procedure(
@@ -447,19 +549,6 @@ extern "system" fn window_procedure(
     // global variables.
     let application = unsafe { &mut *application_pointer };
     application.process_windows_message(message, w_param, l_param)
-}
-
-// NOTE: We probably don't want to call this as part of the main game loop since it
-// can hang the application if the controller is disconnected.
-fn poll_controller_state() -> Option<XINPUT_STATE> {
-    for controller_index in 0..XUSER_MAX_COUNT {
-        let mut controller_state = XINPUT_STATE::default();
-        let result = unsafe { XInputGetState(controller_index, &raw mut controller_state) };
-        if result == ERROR_SUCCESS.0 {
-            return Some(controller_state);
-        }
-    }
-    None
 }
 
 #[cfg(debug_assertions)]
