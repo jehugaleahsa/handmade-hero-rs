@@ -497,7 +497,7 @@ impl Win32Application {
 
     fn update_joystick(transition: &mut JoystickTransition, thumb_value: i16, dead_zone: u16) {
         let thumb_ratio = Self::thumb_stick_ratio(thumb_value, dead_zone);
-        transition.set_start(thumb_ratio);
+        transition.set_start(transition.end());
         transition.set_min(thumb_ratio);
         transition.set_max(thumb_ratio);
         transition.set_end(thumb_ratio);
@@ -508,6 +508,8 @@ impl Win32Application {
     fn thumb_stick_ratio(amount: i16, dead_zone: u16) -> f32 {
         if amount.unsigned_abs() <= dead_zone {
             0f32
+        } else if amount < 0 {
+            -(f32::from(amount) / f32::from(i16::MIN))
         } else {
             f32::from(amount) / f32::from(i16::MAX)
         }

@@ -4,12 +4,11 @@ use crate::stereo_sample::StereoSample;
 use std::f32::consts::PI;
 
 const BITS_PER_SAMPLE: u16 = 16;
-const STEREO_CHANNEL_COUNT: u16 = 2; // Stereo
 pub const SAMPLES_PER_SECOND: u32 = 48_000u32;
 pub const DEFAULT_VOLUME: i16 = 3_000;
 #[allow(clippy::cast_possible_truncation)]
 pub const SOUND_BUFFER_SIZE: u32 =
-    SAMPLES_PER_SECOND * size_of::<u16>() as u32 * STEREO_CHANNEL_COUNT as u32;
+    SAMPLES_PER_SECOND * size_of::<u16>() as u32 * StereoSample::CHANNEL_COUNT as u32;
 #[allow(clippy::cast_possible_truncation)]
 pub const BYTES_PER_SAMPLE: u32 = (size_of::<i16>() * 2) as u32;
 
@@ -17,13 +16,21 @@ pub const BYTES_PER_SAMPLE: u32 = (size_of::<i16>() * 2) as u32;
 struct SoundOutputState {
     hertz: u32,
     theta: f32,
-    wave_period: u32,
     latency: u32,
     samples_per_seconds: u32,
     bytes_per_sample: u32,
     bits_per_sample: u16,
     channel_count: u16,
     volume: i16,
+}
+
+impl SoundOutputState {
+    #[inline]
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn calculate_wave_period(&self) -> f32 {
+        self.samples_per_seconds as f32 / self.hertz as f32
+    }
 }
 
 #[derive(Debug)]
@@ -45,12 +52,11 @@ impl Application {
             sound_output_state: SoundOutputState {
                 hertz: 256,
                 theta: 0f32,
-                wave_period: SAMPLES_PER_SECOND / 256,
                 latency: SAMPLES_PER_SECOND / 15,
                 samples_per_seconds: SAMPLES_PER_SECOND,
                 bytes_per_sample: BYTES_PER_SAMPLE,
                 bits_per_sample: BITS_PER_SAMPLE,
-                channel_count: STEREO_CHANNEL_COUNT,
+                channel_count: StereoSample::CHANNEL_COUNT,
                 volume: DEFAULT_VOLUME,
             },
         }
@@ -80,7 +86,7 @@ impl Application {
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         #[allow(clippy::cast_precision_loss)]
-        let time_delta = 2.0f32 * PI / self.sound_output_state.wave_period as f32;
+        let time_delta = 2.0f32 * PI / self.sound_output_state.calculate_wave_period();
 
         for sample in sound_buffer {
             #[allow(clippy::cast_precision_loss)]
@@ -117,6 +123,7 @@ impl Application {
         let left_thumb_y_ratio = controller.left_joystick().y().end();
         let right_thumb_y_ratio = controller.right_joystick().y().end();
         let thumb_y_ratio = f32::midpoint(left_thumb_y_ratio, right_thumb_y_ratio);
+        println!("{left_thumb_y_ratio} {right_thumb_y_ratio} {thumb_y_ratio}");
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         let hertz = (512.0f32 + (256.0f32 * thumb_y_ratio)) as u32;
