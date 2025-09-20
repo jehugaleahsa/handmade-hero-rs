@@ -354,16 +354,9 @@ impl Win32Application {
         }
 
         let sample_count = write_length as usize / size_of::<StereoSample>();
-        if self.sound_buffer.is_none() {
-            self.sound_buffer = Some(vec![
-                StereoSample::default();
-                direct_sound_buffer.length() as usize
-            ]);
-        }
-        let sound_buffer = self
-            .sound_buffer
-            .as_mut()
-            .expect("Sound buffer uninitialized after creation.");
+        let sound_buffer = self.sound_buffer.get_or_insert_with(|| {
+            vec![StereoSample::default(); direct_sound_buffer.length() as usize]
+        });
         let sound_buffer_slice = &mut sound_buffer[..sample_count];
         application.write_sound(sound_buffer_slice);
 
