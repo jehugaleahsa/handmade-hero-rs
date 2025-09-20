@@ -62,10 +62,7 @@ impl Application {
         }
     }
 
-    pub fn render(&self, bitmap_buffer: &mut Option<Vec<Pixel>>) {
-        let Some(bitmap_buffer) = bitmap_buffer else {
-            return;
-        };
+    pub fn render(&self, bitmap_buffer: &mut [Pixel]) {
         let width = self.bitmap_width;
         let height = self.bitmap_height;
         let mut index = 0;

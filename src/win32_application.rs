@@ -223,7 +223,9 @@ impl Win32Application {
             return Ok(());
         }
 
-        self.application.render(&mut self.bitmap_buffer);
+        if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
+            self.application.render(bitmap_buffer);
+        }
 
         let device_context = unsafe { GetDC(Some(self.window_handle)) };
         self.write_buffer(device_context, self.window_handle)
@@ -296,9 +298,8 @@ impl Win32Application {
             .ok()
         });
 
-        self.fill_sound_buffer(&mut sound_buffer);
-
-        if let Some(ref sound_buffer) = sound_buffer {
+        if let Some(ref mut sound_buffer) = sound_buffer {
+            self.fill_sound_buffer(sound_buffer);
             sound_buffer.play_looping().unwrap_or(()); // Ignore errors
         }
 
@@ -322,30 +323,29 @@ impl Win32Application {
 
             self.update_display()?;
 
-            self.fill_sound_buffer(&mut sound_buffer);
+            if let Some(ref mut sound_buffer) = sound_buffer {
+                self.fill_sound_buffer(sound_buffer);
+            }
 
             #[cfg(debug_assertions)]
             display_metrics(&mut counter);
         }
     }
 
-    fn fill_sound_buffer(&mut self, direct_sound_buffer: &mut Option<DirectSoundBuffer<'_>>) {
-        let Some(direct_sound_buffer) = direct_sound_buffer else {
-            return;
-        };
+    fn fill_sound_buffer(&mut self, direct_sound_buffer: &mut DirectSoundBuffer<'_>) {
         let play_cursor = direct_sound_buffer.get_play_cursor();
         let Ok(play_cursor) = play_cursor else {
             return;
         };
 
         let application = &mut self.application;
-        let write_offset = (self.sound_index * application.sound_bytes_per_sample())
-            % direct_sound_buffer.length();
-        let target_cursor = (play_cursor
-            + (application.sound_latency() * application.sound_bytes_per_sample()))
-            % direct_sound_buffer.length();
+        let buffer_length = direct_sound_buffer.length();
+        let bytes_per_sample = application.sound_bytes_per_sample();
+        let write_offset = (self.sound_index * bytes_per_sample) % buffer_length;
+        let latency = application.sound_latency();
+        let target_cursor = (play_cursor + (latency * bytes_per_sample)) % buffer_length;
         let write_length = match write_offset.cmp(&target_cursor) {
-            Ordering::Greater => (direct_sound_buffer.length() - write_offset) + target_cursor,
+            Ordering::Greater => (buffer_length - write_offset) + target_cursor,
             Ordering::Less => target_cursor - write_offset,
             Ordering::Equal => 0,
         };
@@ -354,11 +354,11 @@ impl Win32Application {
         }
 
         let sample_count = write_length as usize / size_of::<StereoSample>();
-        let sound_buffer = self.sound_buffer.get_or_insert_with(|| {
-            vec![StereoSample::default(); direct_sound_buffer.length() as usize]
-        });
-        let sound_buffer_slice = &mut sound_buffer[..sample_count];
-        application.write_sound(sound_buffer_slice);
+        let sound_buffer = self
+            .sound_buffer
+            .get_or_insert_with(|| vec![StereoSample::default(); buffer_length as usize]);
+        let sound_buffer = &mut sound_buffer[..sample_count];
+        application.write_sound(sound_buffer);
 
         let buffer_lock_guard = direct_sound_buffer.lock(write_offset, write_length);
         let Ok(buffer_lock_guard) = buffer_lock_guard else {
@@ -368,14 +368,14 @@ impl Win32Application {
         Self::copy_sound_buffer(
             buffer_lock_guard.region1(),
             buffer_lock_guard.region1_size(),
-            sound_buffer_slice,
+            sound_buffer,
             0,
         );
 
         Self::copy_sound_buffer(
             buffer_lock_guard.region2(),
             buffer_lock_guard.region2_size(),
-            sound_buffer_slice,
+            sound_buffer,
             buffer_lock_guard.region1_size(),
         );
         let sample_count = u32::try_from(sample_count)
@@ -387,7 +387,7 @@ impl Win32Application {
         destination: *mut c_void,
         destination_length_in_bytes: u32,
         source: &[StereoSample],
-        source_offset: u32,
+        source_offset_in_bytes: u32,
     ) {
         if destination.is_null() {
             return;
@@ -395,7 +395,7 @@ impl Win32Application {
         let sample_count = destination_length_in_bytes as usize / size_of::<StereoSample>();
         let sample_out =
             unsafe { slice::from_raw_parts_mut(destination.cast::<StereoSample>(), sample_count) };
-        let source_offset = source_offset as usize / size_of::<StereoSample>();
+        let source_offset = source_offset_in_bytes as usize / size_of::<StereoSample>();
         let source_end = source_offset + sample_count;
         let source_slice = &source[source_offset..source_end];
         assert_eq!(source_slice.len(), sample_out.len());
