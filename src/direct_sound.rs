@@ -82,8 +82,9 @@ impl DirectSound {
         let block_align = channel_count * bits_per_sample / 8;
         let average_bytes_per_second = samples_per_second * u32::from(block_align);
         #[allow(clippy::cast_possible_truncation)]
+        let format = WAVE_FORMAT_PCM as u16;
         WAVEFORMATEX {
-            wFormatTag: WAVE_FORMAT_PCM as u16,
+            wFormatTag: format,
             nChannels: channel_count,
             nSamplesPerSec: samples_per_second,
             wBitsPerSample: bits_per_sample,

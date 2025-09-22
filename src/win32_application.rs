@@ -64,7 +64,7 @@ impl Win32Application {
         }
     }
 
-    pub fn create_window(&mut self, width: u32, height: u32) -> Result<()> {
+    pub fn create_window(&mut self, width: u16, height: u16) -> Result<()> {
         let instance = Self::get_instance()
             .map_err(|e| ApplicationError::wrap("Could not retrieve the Windows handle.", e))?;
         let class_name = Self::create_window_class(instance)
@@ -104,15 +104,13 @@ impl Win32Application {
         Ok(class_name)
     }
 
-    fn resize_window(&mut self, width: u32, height: u32) -> Result<()> {
+    fn resize_window(&mut self, width: u16, height: u16) -> Result<()> {
         let header = &mut self.bitmap_info.bmiHeader;
         header.biSize = u32::try_from(size_of_val(header)).map_err(|e| {
             ApplicationError::wrap("Failed to determine the bitmap information header size.", e)
         })?;
-        header.biWidth = i32::try_from(width)
-            .map_err(|e| ApplicationError::wrap("Failed to set the bitmap width.", e))?;
-        header.biHeight = -i32::try_from(height)
-            .map_err(|e| ApplicationError::wrap("Failed to set the bitmap height.", e))?;
+        header.biWidth = i32::from(width);
+        header.biHeight = -i32::from(height);
         header.biPlanes = 1;
         header.biBitCount = 32;
         header.biCompression = BI_RGB.0;
@@ -153,10 +151,10 @@ impl Win32Application {
         let mut paint_struct = PAINTSTRUCT::default();
         let device_context = unsafe { BeginPaint(window_handle, &raw mut paint_struct) };
         self.write_buffer(device_context, window_handle)?;
-        #[allow(unused_must_use)]
         unsafe {
-            EndPaint(window_handle, &raw mut paint_struct)
-        };
+            #[allow(unused_must_use)]
+            EndPaint(window_handle, &raw mut paint_struct);
+        }
         Ok(LRESULT(0))
     }
 
@@ -240,10 +238,8 @@ impl Win32Application {
             return Ok(());
         };
 
-        #[allow(clippy::cast_possible_wrap)]
-        let source_width = self.application.bitmap_width() as i32;
-        #[allow(clippy::cast_possible_wrap)]
-        let source_height = self.application.bitmap_height() as i32;
+        let source_width = i32::from(self.application.bitmap_width());
+        let source_height = i32::from(self.application.bitmap_height());
 
         let client_rectangle = Self::get_client_rectangle(window_handle)?;
         let destination_width = Self::calculate_width(&client_rectangle);
@@ -556,7 +552,6 @@ fn display_metrics(counter: &mut PerformanceCounter) {
     let time_elapsed = metrics.elapsed_time();
     #[allow(clippy::cast_precision_loss)]
     let ms_per_frame = time_elapsed.as_micros() as f64 / 1_000.0;
-    #[allow(clippy::cast_precision_loss)]
     let frames_per_second = 1_000.0 / ms_per_frame;
 
     println!("{ms_per_frame:.2}ms/f, {frames_per_second:.2}f/s, {megacycles_elapsed:.2}Mc/f");

@@ -35,10 +35,10 @@ impl SoundOutputState {
 
 #[derive(Debug)]
 pub struct Application {
-    x_offset: u32,
-    y_offset: u32,
-    bitmap_width: u32,
-    bitmap_height: u32,
+    x_offset: u16,
+    y_offset: u16,
+    bitmap_width: u16,
+    bitmap_height: u16,
     sound_output_state: SoundOutputState,
 }
 
@@ -80,13 +80,9 @@ impl Application {
     }
 
     pub fn write_sound(&mut self, sound_buffer: &mut [StereoSample]) {
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_precision_loss)]
         let time_delta = 2.0f32 * PI / self.sound_output_state.calculate_wave_period();
 
         for sample in sound_buffer {
-            #[allow(clippy::cast_precision_loss)]
             let sine_value = self.sound_output_state.theta.sin();
             #[allow(clippy::cast_possible_truncation)]
             let sample_value = (sine_value * f32::from(self.sound_output_state.volume)) as i16;
@@ -95,7 +91,7 @@ impl Application {
         }
     }
 
-    pub fn resize_bitmap(&mut self, width: u32, height: u32) {
+    pub fn resize_bitmap(&mut self, width: u16, height: u16) {
         self.bitmap_width = width;
         self.bitmap_height = height;
     }
@@ -129,31 +125,32 @@ impl Application {
 
     #[inline]
     #[must_use]
-    pub fn bitmap_width(&self) -> u32 {
+    pub fn bitmap_width(&self) -> u16 {
         self.bitmap_width
     }
 
     #[inline]
     #[must_use]
-    pub fn bitmap_height(&self) -> u32 {
+    pub fn bitmap_height(&self) -> u16 {
         self.bitmap_height
     }
 
-    #[allow(clippy::cast_sign_loss)]
+    #[inline]
     pub fn shift_x(&mut self, shift: i16) {
-        if shift.is_negative() {
-            self.x_offset = self.x_offset.wrapping_sub(-shift as u32);
-        } else {
-            self.x_offset = self.x_offset.wrapping_add(shift as u32);
-        }
+        Self::shift(&mut self.x_offset, shift);
     }
 
-    #[allow(clippy::cast_sign_loss)]
+    #[inline]
     pub fn shift_y(&mut self, shift: i16) {
-        if shift.is_negative() {
-            self.y_offset = self.y_offset.wrapping_sub(-shift as u32);
+        Self::shift(&mut self.y_offset, shift);
+    }
+
+    fn shift(offset: &mut u16, shift: i16) {
+        // We need to handle if a negative value is the minimal possible value.
+        *offset = if shift.is_negative() {
+            offset.wrapping_sub(shift.unsigned_abs())
         } else {
-            self.y_offset = self.y_offset.wrapping_add(shift as u32);
+            offset.wrapping_add(shift.unsigned_abs())
         }
     }
 
