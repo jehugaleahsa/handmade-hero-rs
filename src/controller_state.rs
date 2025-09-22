@@ -37,6 +37,17 @@ impl ControllerState {
 
     #[inline]
     #[must_use]
+    pub fn analog(&self) -> bool {
+        self.analog
+    }
+
+    #[inline]
+    pub fn set_analog(&mut self, value: bool) {
+        self.analog = value;
+    }
+
+    #[inline]
+    #[must_use]
     pub fn a(&self) -> &ButtonState {
         &self.a
     }

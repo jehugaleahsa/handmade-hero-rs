@@ -21,7 +21,9 @@ use windows::Win32::Graphics::Gdi::{
     PAINTSTRUCT, SRCCOPY,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::{VIRTUAL_KEY, VK_A, VK_D, VK_F4, VK_S, VK_W};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    VIRTUAL_KEY, VK_A, VK_D, VK_DOWN, VK_F4, VK_LEFT, VK_RIGHT, VK_S, VK_UP, VK_W,
+};
 use windows::Win32::UI::Input::XboxController::{
     XInputGetState, XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B,
     XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_BUTTON_FLAGS, XINPUT_GAMEPAD_DPAD_DOWN,
@@ -181,12 +183,17 @@ impl Win32Application {
             //return LRESULT(0);
         }
 
-        match virtual_key {
-            VK_W => self.application.shift_y(-10),
-            VK_A => self.application.shift_x(-10),
-            VK_S => self.application.shift_y(10),
-            VK_D => self.application.shift_x(10),
-            _ => {}
+        let keyboard = self.input_state.keyboard_mut();
+        let mapped_button = match virtual_key {
+            VK_W | VK_UP => Some(keyboard.up_mut()),
+            VK_A | VK_LEFT => Some(keyboard.left_mut()),
+            VK_S | VK_DOWN => Some(keyboard.down_mut()),
+            VK_D | VK_RIGHT => Some(keyboard.right_mut()),
+            _ => None,
+        };
+        if let Some(mapped_button) = mapped_button {
+            mapped_button.increment_half_transition_count();
+            mapped_button.set_ended_down(true);
         }
         LRESULT(0)
     }
@@ -273,11 +280,13 @@ impl Win32Application {
     }
 
     #[inline]
+    #[must_use]
     fn calculate_width(rectangle: &RECT) -> i32 {
         rectangle.right - rectangle.left
     }
 
     #[inline]
+    #[must_use]
     fn calculate_height(rectangle: &RECT) -> i32 {
         rectangle.bottom - rectangle.top
     }
@@ -474,7 +483,9 @@ impl Win32Application {
     ) {
         let is_pressed = Self::is_pressed(gamepad, button_flag);
         let was_pressed = button_state.ended_down();
-        button_state.set_half_transition_count((was_pressed == is_pressed).into());
+        if was_pressed == is_pressed {
+            button_state.increment_half_transition_count();
+        }
         button_state.set_ended_down(is_pressed);
     }
 

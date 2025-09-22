@@ -23,7 +23,7 @@ impl ButtonState {
     }
 
     #[inline]
-    pub fn set_half_transition_count(&mut self, value: u16) {
-        self.half_transition_count = value;
+    pub fn increment_half_transition_count(&mut self) {
+        self.half_transition_count += 1;
     }
 }
