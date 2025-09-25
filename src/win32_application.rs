@@ -500,9 +500,11 @@ impl Win32Application {
         if amount.unsigned_abs() <= dead_zone {
             0f32
         } else if amount < 0 {
-            -(f32::from(amount) / f32::from(i16::MIN))
+            let dead_zone = f32::from(dead_zone);
+            -((f32::from(amount) + dead_zone) / (f32::from(i16::MIN) + dead_zone))
         } else {
-            f32::from(amount) / f32::from(i16::MAX)
+            let dead_zone = f32::from(dead_zone);
+            (f32::from(amount) - dead_zone) / (f32::from(i16::MAX) - dead_zone)
         }
     }
 
@@ -512,7 +514,8 @@ impl Win32Application {
         if u16::from(amount) <= XINPUT_GAMEPAD_TRIGGER_THRESHOLD.0 {
             0f32
         } else {
-            f32::from(amount) / f32::from(u8::MAX)
+            let threshold = f32::from(XINPUT_GAMEPAD_TRIGGER_THRESHOLD.0);
+            (f32::from(amount) - threshold) / (f32::from(u8::MAX) - threshold)
         }
     }
 }

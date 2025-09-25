@@ -9,31 +9,7 @@ const BITS_PER_SAMPLE: u16 = 16;
 pub const SAMPLES_PER_SECOND: u32 = 48_000u32;
 pub const DEFAULT_VOLUME: i16 = 500;
 #[allow(clippy::cast_possible_truncation)]
-pub const SOUND_BUFFER_SIZE: u32 =
-    SAMPLES_PER_SECOND * size_of::<u16>() as u32 * StereoSample::CHANNEL_COUNT as u32;
-#[allow(clippy::cast_possible_truncation)]
-pub const BYTES_PER_SAMPLE: u32 = (size_of::<i16>() * 2) as u32;
-
-#[derive(Debug)]
-struct SoundOutputState {
-    hertz: u32,
-    theta: f32,
-    latency: u32,
-    samples_per_seconds: u32,
-    bytes_per_sample: u32,
-    bits_per_sample: u16,
-    channel_count: u16,
-    volume: i16,
-}
-
-impl SoundOutputState {
-    #[inline]
-    #[must_use]
-    #[allow(clippy::cast_precision_loss)]
-    pub fn calculate_wave_period(&self) -> f32 {
-        self.samples_per_seconds as f32 / self.hertz as f32
-    }
-}
+pub const BYTES_PER_SAMPLE: u32 = size_of::<StereoSample>() as u32;
 
 #[derive(Debug)]
 pub struct Application {
@@ -41,7 +17,14 @@ pub struct Application {
     y_offset: u16,
     bitmap_width: u16,
     bitmap_height: u16,
-    sound_output_state: SoundOutputState,
+    sound_hertz: u32,
+    sound_theta: f32,
+    sound_latency: u32,
+    sound_samples_per_seconds: u32,
+    sound_bytes_per_sample: u32,
+    sound_bits_per_sample: u16,
+    sound_channel_count: u16,
+    sound_volume: i16,
 }
 
 impl Application {
@@ -51,16 +34,14 @@ impl Application {
             y_offset: 0,
             bitmap_width: 0,
             bitmap_height: 0,
-            sound_output_state: SoundOutputState {
-                hertz: 256,
-                theta: 0f32,
-                latency: SAMPLES_PER_SECOND / 15,
-                samples_per_seconds: SAMPLES_PER_SECOND,
-                bytes_per_sample: BYTES_PER_SAMPLE,
-                bits_per_sample: BITS_PER_SAMPLE,
-                channel_count: StereoSample::CHANNEL_COUNT,
-                volume: DEFAULT_VOLUME,
-            },
+            sound_hertz: 256,
+            sound_theta: 0f32,
+            sound_latency: SAMPLES_PER_SECOND / 15,
+            sound_samples_per_seconds: SAMPLES_PER_SECOND,
+            sound_bytes_per_sample: BYTES_PER_SAMPLE,
+            sound_bits_per_sample: BITS_PER_SAMPLE,
+            sound_channel_count: StereoSample::CHANNEL_COUNT,
+            sound_volume: DEFAULT_VOLUME,
         }
     }
 
@@ -82,14 +63,15 @@ impl Application {
     }
 
     pub fn write_sound(&mut self, sound_buffer: &mut [StereoSample]) {
-        let time_delta = 2.0f32 * PI / self.sound_output_state.calculate_wave_period();
+        let time_delta = 2.0f32 * PI / self.calculate_wave_period();
 
         for sample in sound_buffer {
-            let sine_value = self.sound_output_state.theta.sin();
+            let sine_value = self.sound_theta.sin();
+            let volume = f32::from(self.sound_volume);
             #[allow(clippy::cast_possible_truncation)]
-            let sample_value = (sine_value * f32::from(self.sound_output_state.volume)) as i16;
+            let sample_value = (sine_value * volume) as i16;
             *sample = StereoSample::from_left_right(sample_value, sample_value);
-            self.sound_output_state.theta += time_delta;
+            self.sound_theta += time_delta;
         }
     }
 
@@ -157,13 +139,19 @@ impl Application {
     }
 
     fn set_hertz_using_controller(&mut self, controller: &ControllerState) {
-        let left_thumb_y_ratio = controller.left_joystick().y();
+        let left_thumb_y_ratio = if controller.up().ended_down() {
+            1.0f32
+        } else if controller.down().ended_down() {
+            -1.0f32
+        } else {
+            controller.left_joystick().y()
+        };
         let right_thumb_y_ratio = controller.right_joystick().y();
         let thumb_y_ratio = f32::midpoint(left_thumb_y_ratio, right_thumb_y_ratio);
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         let hertz = (512.0f32 + (256.0f32 * thumb_y_ratio)) as u32;
-        self.sound_output_state.hertz = hertz;
+        self.sound_hertz = hertz;
     }
 
     #[inline]
@@ -200,36 +188,43 @@ impl Application {
     #[inline]
     #[must_use]
     pub fn sound_channel_count(&self) -> u16 {
-        self.sound_output_state.channel_count
+        self.sound_channel_count
     }
 
     #[inline]
     #[must_use]
     pub fn sound_samples_per_second(&self) -> u32 {
-        self.sound_output_state.samples_per_seconds
+        self.sound_samples_per_seconds
     }
 
     #[inline]
     #[must_use]
     pub fn sound_bits_per_sample(&self) -> u16 {
-        self.sound_output_state.bits_per_sample
+        self.sound_bits_per_sample
     }
 
     #[inline]
     #[must_use]
     pub fn sound_bytes_per_sample(&self) -> u32 {
-        self.sound_output_state.bytes_per_sample
+        self.sound_bytes_per_sample
     }
 
     #[inline]
     #[must_use]
     pub fn sound_latency(&self) -> u32 {
-        self.sound_output_state.latency
+        self.sound_latency
+    }
+
+    #[inline]
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn calculate_wave_period(&self) -> f32 {
+        self.sound_samples_per_seconds as f32 / self.sound_hertz as f32
     }
 
     #[inline]
     #[must_use]
     pub fn sound_buffer_size(&self) -> u32 {
-        SOUND_BUFFER_SIZE
+        self.sound_samples_per_seconds * self.sound_bytes_per_sample
     }
 }
