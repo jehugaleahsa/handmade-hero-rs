@@ -1,33 +1,29 @@
-use crate::joystick_transition::JoystickTransition;
-
 #[derive(Debug, Default, Copy, Clone)]
 pub struct JoystickState {
-    x: JoystickTransition,
-    y: JoystickTransition,
+    x: f32,
+    y: f32,
 }
 
 impl JoystickState {
     #[inline]
     #[must_use]
-    pub fn x(&self) -> &JoystickTransition {
-        &self.x
+    pub fn x(self) -> f32 {
+        self.x
+    }
+
+    #[inline]
+    pub fn set_x(&mut self, value: f32) {
+        self.x = value;
     }
 
     #[inline]
     #[must_use]
-    pub fn x_mut(&mut self) -> &mut JoystickTransition {
-        &mut self.x
+    pub fn y(self) -> f32 {
+        self.y
     }
 
     #[inline]
-    #[must_use]
-    pub fn y(&self) -> &JoystickTransition {
-        &self.y
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn y_mut(&mut self) -> &mut JoystickTransition {
-        &mut self.y
+    pub fn set_y(&mut self, value: f32) {
+        self.y = value;
     }
 }

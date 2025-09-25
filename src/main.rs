@@ -4,7 +4,6 @@ mod button_state;
 mod controller_state;
 mod input_state;
 mod joystick_state;
-mod joystick_transition;
 mod pixel;
 mod stereo_sample;
 

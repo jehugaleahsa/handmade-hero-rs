@@ -1,11 +1,13 @@
+use crate::controller_state::ControllerState;
 use crate::input_state::InputState;
 use crate::pixel::Pixel;
 use crate::stereo_sample::StereoSample;
 use std::f32::consts::PI;
+use std::ops::Neg;
 
 const BITS_PER_SAMPLE: u16 = 16;
 pub const SAMPLES_PER_SECOND: u32 = 48_000u32;
-pub const DEFAULT_VOLUME: i16 = 3_000;
+pub const DEFAULT_VOLUME: i16 = 500;
 #[allow(clippy::cast_possible_truncation)]
 pub const SOUND_BUFFER_SIZE: u32 =
     SAMPLES_PER_SECOND * size_of::<u16>() as u32 * StereoSample::CHANNEL_COUNT as u32;
@@ -97,26 +99,67 @@ impl Application {
     }
 
     pub fn handle_input(&mut self, input_state: &InputState) {
-        let Some(controller) = input_state.get_controller(0) else {
+        self.handle_keyboard_input(input_state.keyboard());
+        for controller in input_state.controllers() {
+            self.handle_controller_input(controller);
+        }
+    }
+
+    fn handle_keyboard_input(&mut self, keyboard: &ControllerState) {
+        if !keyboard.enabled() {
             return;
-        };
+        }
+
+        let shift_left = keyboard.left().half_transition_count();
+        let shift_right = keyboard.right().half_transition_count();
+        let shift_x = shift_right.cast_signed() - shift_left.cast_signed();
+        self.shift_x(shift_x.neg().saturating_mul(5));
+
+        let shift_up = keyboard.up().half_transition_count();
+        let shift_down = keyboard.down().half_transition_count();
+        let shift_y = shift_up.cast_signed() - shift_down.cast_signed();
+        self.shift_y(shift_y.saturating_mul(5));
+    }
+
+    fn handle_controller_input(&mut self, controller: &ControllerState) {
         if !controller.enabled() {
             return;
         }
-        let shift_x_ratio =
-            -(controller.left_joystick().x().end() + controller.right_joystick().x().end());
+        self.shift_x_using_controller(controller);
+        self.shift_y_using_controller(controller);
+        self.set_hertz_using_controller(controller);
+    }
+
+    fn shift_x_using_controller(&mut self, controller: &ControllerState) {
+        let shift_x_ratio = if controller.left().ended_down() {
+            1.0f32
+        } else if controller.right().ended_down() {
+            -1.0f32
+        } else {
+            -(controller.left_joystick().x() + controller.right_joystick().x())
+        };
         #[allow(clippy::cast_possible_truncation)]
         let shift_x = (shift_x_ratio * 5f32) as i16;
         self.shift_x(shift_x);
-        let shift_y_ratio =
-            controller.left_joystick().y().end() + controller.right_joystick().y().end();
+    }
+
+    fn shift_y_using_controller(&mut self, controller: &ControllerState) {
+        let shift_y_ratio = if controller.up().ended_down() {
+            1.0f32
+        } else if controller.down().ended_down() {
+            -1.0f32
+        } else {
+            controller.left_joystick().y() + controller.right_joystick().y()
+        };
         #[allow(clippy::cast_possible_truncation)]
         let shift_y = (shift_y_ratio * 5f32) as i16;
         self.shift_y(shift_y);
-        let left_thumb_y_ratio = controller.left_joystick().y().end();
-        let right_thumb_y_ratio = controller.right_joystick().y().end();
+    }
+
+    fn set_hertz_using_controller(&mut self, controller: &ControllerState) {
+        let left_thumb_y_ratio = controller.left_joystick().y();
+        let right_thumb_y_ratio = controller.right_joystick().y();
         let thumb_y_ratio = f32::midpoint(left_thumb_y_ratio, right_thumb_y_ratio);
-        println!("{left_thumb_y_ratio} {right_thumb_y_ratio} {thumb_y_ratio}");
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         let hertz = (512.0f32 + (256.0f32 * thumb_y_ratio)) as u32;

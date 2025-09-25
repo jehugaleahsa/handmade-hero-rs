@@ -20,7 +20,6 @@ pub struct ControllerState {
     left_trigger_ratio: f32,
     right_trigger_ratio: f32,
     enabled: bool,
-    analog: bool,
 }
 
 impl ControllerState {
@@ -33,17 +32,6 @@ impl ControllerState {
     #[inline]
     pub fn set_enabled(&mut self, value: bool) {
         self.enabled = value;
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn analog(&self) -> bool {
-        self.analog
-    }
-
-    #[inline]
-    pub fn set_analog(&mut self, value: bool) {
-        self.analog = value;
     }
 
     #[inline]

@@ -33,24 +33,19 @@ impl InputState {
         &mut self.keyboard
     }
 
-    #[inline]
-    #[must_use]
-    pub fn get_controller(&self, index: usize) -> Option<&ControllerState> {
-        self.controllers.get(index)
-    }
-
     #[must_use]
     pub fn get_or_insert_controller_mut(&mut self, index: usize) -> &mut ControllerState {
         if index >= self.controllers.len() {
-            self.controllers.resize_with(index + 1, || {
-                // We create a controller even if it's not connected, so we
-                // don't enable the controller by default.
-                let mut default_controller = ControllerState::default();
-                default_controller.set_analog(true);
-                default_controller
-            });
+            self.controllers
+                .resize(index + 1, ControllerState::default());
         }
         &mut self.controllers[index]
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn controllers(&self) -> &[ControllerState] {
+        &self.controllers
     }
 }
 

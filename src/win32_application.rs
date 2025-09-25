@@ -4,7 +4,6 @@ use crate::button_state::ButtonState;
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::input_state::InputState;
-use crate::joystick_transition::JoystickTransition;
 #[cfg(debug_assertions)]
 use crate::performance_counter::PerformanceCounter;
 use crate::pixel::Pixel;
@@ -22,7 +21,8 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    VIRTUAL_KEY, VK_A, VK_D, VK_DOWN, VK_F4, VK_LEFT, VK_RIGHT, VK_S, VK_UP, VK_W,
+    VIRTUAL_KEY, VK_A, VK_D, VK_DOWN, VK_E, VK_ESCAPE, VK_F4, VK_LEFT, VK_Q, VK_RIGHT, VK_S, VK_UP,
+    VK_W,
 };
 use windows::Win32::UI::Input::XboxController::{
     XInputGetState, XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B,
@@ -167,6 +167,13 @@ impl Win32Application {
     }
 
     fn handle_key_press(&mut self, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+        let was_down = (l_param.0 & (1 << 30)) != 0;
+        let is_down = (l_param.0 & (1 << 31)) == 0;
+        if was_down == is_down {
+            // Ignore repeated messages
+            return LRESULT(0);
+        }
+
         #[allow(clippy::cast_possible_truncation)]
         let virtual_key = VIRTUAL_KEY(w_param.0 as u16);
 
@@ -176,24 +183,24 @@ impl Win32Application {
             return self.destroy_window();
         }
 
-        let was_down = (l_param.0 & (1 << 30)) != 0;
-        let is_down = (l_param.0 & (1 << 31)) == 0;
-        if was_down == is_down {
-            // Ignore repeated messages
-            //return LRESULT(0);
-        }
-
         let keyboard = self.input_state.keyboard_mut();
         let mapped_button = match virtual_key {
             VK_W | VK_UP => Some(keyboard.up_mut()),
             VK_A | VK_LEFT => Some(keyboard.left_mut()),
             VK_S | VK_DOWN => Some(keyboard.down_mut()),
             VK_D | VK_RIGHT => Some(keyboard.right_mut()),
+            VK_Q => Some(keyboard.left_shoulder_mut()),
+            VK_E => Some(keyboard.right_shoulder_mut()),
+            VK_ESCAPE => Some(keyboard.start_mut()),
             _ => None,
         };
         if let Some(mapped_button) = mapped_button {
-            mapped_button.increment_half_transition_count();
-            mapped_button.set_ended_down(true);
+            mapped_button.set_ended_down(is_down);
+            if is_down {
+                mapped_button.increment_half_transition_count();
+            } else {
+                mapped_button.reset_half_transition_count();
+            }
         }
         LRESULT(0)
     }
@@ -441,31 +448,23 @@ impl Win32Application {
                 );
 
                 let left_joystick = controller.left_joystick_mut();
-                let left_x = left_joystick.x_mut();
-                Self::update_joystick(
-                    left_x,
+                left_joystick.set_x(Self::thumb_stick_ratio(
                     gamepad.sThumbLX,
                     XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
-                );
-                let left_y = left_joystick.y_mut();
-                Self::update_joystick(
-                    left_y,
+                ));
+                left_joystick.set_y(Self::thumb_stick_ratio(
                     gamepad.sThumbLY,
                     XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
-                );
+                ));
                 let right_joystick = controller.right_joystick_mut();
-                let right_x = right_joystick.x_mut();
-                Self::update_joystick(
-                    right_x,
+                right_joystick.set_x(Self::thumb_stick_ratio(
                     gamepad.sThumbRX,
                     XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
-                );
-                let right_y = right_joystick.y_mut();
-                Self::update_joystick(
-                    right_y,
+                ));
+                right_joystick.set_y(Self::thumb_stick_ratio(
                     gamepad.sThumbRY,
                     XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
-                );
+                ));
 
                 controller.set_left_trigger_ratio(Self::trigger_ratio(gamepad.bLeftTrigger));
                 controller.set_right_trigger_ratio(Self::trigger_ratio(gamepad.bRightTrigger));
@@ -493,14 +492,6 @@ impl Win32Application {
     #[must_use]
     fn is_pressed(gamepad: &XINPUT_GAMEPAD, button: XINPUT_GAMEPAD_BUTTON_FLAGS) -> bool {
         (gamepad.wButtons & button).0 != 0
-    }
-
-    fn update_joystick(transition: &mut JoystickTransition, thumb_value: i16, dead_zone: u16) {
-        let thumb_ratio = Self::thumb_stick_ratio(thumb_value, dead_zone);
-        transition.set_start(transition.end());
-        transition.set_min(thumb_ratio);
-        transition.set_max(thumb_ratio);
-        transition.set_end(thumb_ratio);
     }
 
     #[inline]
