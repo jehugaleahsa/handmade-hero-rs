@@ -4,21 +4,22 @@ use crate::button_state::ButtonState;
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::input_state::InputState;
-#[cfg(debug_assertions)]
 use crate::performance_counter::PerformanceCounter;
 use crate::pixel::Pixel;
 use crate::stereo_sample::StereoSample;
 use core::slice;
 use std::cmp::Ordering;
 use std::ffi::c_void;
+use std::time::Duration;
 use windows::core::{w, Error, Result as Win32Result, PCWSTR};
 use windows::Win32::Foundation::{
     GetLastError, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, GetDC, ReleaseDC, StretchDIBits, BITMAPINFO, BI_RGB, DIB_RGB_COLORS, HDC,
-    PAINTSTRUCT, SRCCOPY,
+    BeginPaint, EndPaint, EnumDisplaySettingsW, GetDC, ReleaseDC, StretchDIBits, BITMAPINFO,
+    BI_RGB, DEVMODEW, DIB_RGB_COLORS, ENUM_CURRENT_SETTINGS, HDC, PAINTSTRUCT, SRCCOPY,
 };
+use windows::Win32::Media::{timeBeginPeriod, TIMERR_NOERROR};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     VIRTUAL_KEY, VK_A, VK_D, VK_DOWN, VK_E, VK_ESCAPE, VK_F4, VK_LEFT, VK_Q, VK_RIGHT, VK_S, VK_UP,
@@ -39,6 +40,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WINDOW_EX_STYLE, WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT,
     WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
+
+const DEFAULT_REFRESH_RATE: u32 = 60;
 
 #[derive(Debug)]
 pub struct Win32Application {
@@ -76,7 +79,7 @@ impl Win32Application {
             .map_err(|e| ApplicationError::wrap("Failed to create the window.", e))?;
         self.window_handle = window_handle;
 
-        self.resize_window(width, height)?;
+        self.resize_window(width, height);
 
         Ok(())
     }
@@ -106,11 +109,11 @@ impl Win32Application {
         Ok(class_name)
     }
 
-    fn resize_window(&mut self, width: u16, height: u16) -> Result<()> {
+    fn resize_window(&mut self, width: u16, height: u16) {
         let header = &mut self.bitmap_info.bmiHeader;
-        header.biSize = u32::try_from(size_of_val(header)).map_err(|e| {
-            ApplicationError::wrap("Failed to determine the bitmap information header size.", e)
-        })?;
+        #[allow(clippy::cast_possible_truncation)]
+        let header_size = size_of_val(header) as u32;
+        header.biSize = header_size;
         header.biWidth = i32::from(width);
         header.biHeight = -i32::from(height);
         header.biPlanes = 1;
@@ -129,8 +132,6 @@ impl Win32Application {
         }
 
         self.application.resize_bitmap(width, height);
-
-        Ok(())
     }
 
     fn process_windows_message(
@@ -235,10 +236,6 @@ impl Win32Application {
             return Ok(());
         }
 
-        if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
-            self.application.render(bitmap_buffer);
-        }
-
         let device_context = unsafe { GetDC(Some(self.window_handle)) };
         self.write_buffer(device_context, self.window_handle)
             .map_err(|e| ApplicationError::wrap("Failed to write the render to the buffer.", e))?;
@@ -299,6 +296,15 @@ impl Win32Application {
     }
 
     pub fn run(&mut self) -> Result<()> {
+        let refresh_rate = Self::find_refresh_rate();
+        let game_update_rate = refresh_rate;
+        #[allow(clippy::cast_precision_loss)]
+        let target_frame_duration = Duration::from_secs_f32(1.0f32 / game_update_rate as f32);
+        let is_sleep_granular = unsafe {
+            // Set the Windows scheduler granularity to 1ms!
+            timeBeginPeriod(1) == TIMERR_NOERROR
+        };
+
         let direct_sound = DirectSound::initialize(self.window_handle).ok();
         let mut sound_buffer = direct_sound.as_ref().and_then(|ds| {
             ds.create_buffer(
@@ -315,7 +321,6 @@ impl Win32Application {
             sound_buffer.play_looping().unwrap_or(()); // Ignore errors
         }
 
-        #[cfg(debug_assertions)]
         let mut counter = PerformanceCounter::start();
         loop {
             let mut message = MSG::default();
@@ -333,15 +338,39 @@ impl Win32Application {
 
             self.application.handle_input(&self.input_state);
 
-            self.update_display()?;
+            if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
+                self.application.render(bitmap_buffer);
+            }
 
             if let Some(ref mut sound_buffer) = sound_buffer {
                 self.fill_sound_buffer(sound_buffer);
             }
 
-            #[cfg(debug_assertions)]
-            display_metrics(&mut counter);
+            wait_for_framerate(&mut counter, target_frame_duration, is_sleep_granular);
+
+            self.update_display()?;
         }
+    }
+
+    fn find_refresh_rate() -> u32 {
+        #[allow(clippy::cast_possible_truncation)]
+        let size = size_of::<DEVMODEW>() as u16;
+        let mut mode = DEVMODEW {
+            dmSize: size,
+            ..DEVMODEW::default()
+        };
+        let success = unsafe {
+            #[allow(unused)]
+            EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, &raw mut mode)
+        };
+        if !success.as_bool() {
+            return DEFAULT_REFRESH_RATE;
+        }
+        let frequency = mode.dmDisplayFrequency;
+        if frequency == 0 || frequency == 1 {
+            return DEFAULT_REFRESH_RATE;
+        }
+        frequency
     }
 
     fn fill_sound_buffer(&mut self, direct_sound_buffer: &mut DirectSoundBuffer<'_>) {
@@ -547,17 +576,34 @@ extern "system" fn window_procedure(
     application.process_windows_message(message, w_param, l_param)
 }
 
-#[cfg(debug_assertions)]
-fn display_metrics(counter: &mut PerformanceCounter) {
-    let metrics = counter.restart();
+fn wait_for_framerate(
+    counter: &mut PerformanceCounter,
+    target_duration: Duration,
+    is_sleep_granular: bool,
+) {
+    let mut metrics = counter.metrics();
+    let mut time_elapsed = metrics.elapsed_time();
+    while time_elapsed < target_duration {
+        if is_sleep_granular {
+            let remaining = target_duration - time_elapsed;
+            #[allow(clippy::cast_possible_truncation)]
+            let remaining = Duration::from_millis(remaining.as_millis() as u64);
+            std::thread::sleep(remaining);
+        }
+
+        metrics = counter.metrics();
+        time_elapsed = metrics.elapsed_time();
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    let ms_per_frame = time_elapsed.as_micros() as f32 / 1_000.0f32;
+    let frames_per_second = 1_000.0f32 / ms_per_frame;
+
     let cycles_elapsed = metrics.elapsed_cycles();
     #[allow(clippy::cast_precision_loss)]
-    let megacycles_elapsed = cycles_elapsed as f64 / 1_000_000.0;
-
-    let time_elapsed = metrics.elapsed_time();
-    #[allow(clippy::cast_precision_loss)]
-    let ms_per_frame = time_elapsed.as_micros() as f64 / 1_000.0;
-    let frames_per_second = 1_000.0 / ms_per_frame;
+    let megacycles_elapsed = cycles_elapsed as f32 / 1_000_000.0f32;
 
     println!("{ms_per_frame:.2}ms/f, {frames_per_second:.2}f/s, {megacycles_elapsed:.2}Mc/f");
+
+    counter.restart();
 }

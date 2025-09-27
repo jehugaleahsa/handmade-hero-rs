@@ -4,11 +4,9 @@ mod button_state;
 mod controller_state;
 mod input_state;
 mod joystick_state;
+mod performance_counter;
 mod pixel;
 mod stereo_sample;
-
-#[cfg(debug_assertions)]
-mod performance_counter;
 
 #[cfg(target_os = "windows")]
 mod direct_sound;

@@ -36,18 +36,20 @@ impl PerformanceCounter {
         }
     }
 
-    pub fn restart(&mut self) -> PerformanceMetrics {
+    pub fn metrics(&self) -> PerformanceMetrics {
         let current = Instant::now();
         let current_cycle_count = Self::query_cycle_count();
         let elapsed_time = current.duration_since(self.last_instant);
         let elapsed_cycles = current_cycle_count - self.last_cycle_count;
-        let metrics = PerformanceMetrics {
+        PerformanceMetrics {
             elapsed_time,
             elapsed_cycles,
-        };
-        self.last_instant = current;
-        self.last_cycle_count = current_cycle_count;
-        metrics
+        }
+    }
+
+    pub fn restart(&mut self) {
+        self.last_instant = Instant::now();
+        self.last_cycle_count = Self::query_cycle_count();
     }
 
     #[must_use]
