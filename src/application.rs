@@ -216,6 +216,11 @@ impl Application {
     }
 
     #[inline]
+    pub fn set_sound_latency(&mut self, value: u32) {
+        self.sound_latency = value;
+    }
+
+    #[inline]
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn calculate_wave_period(&self) -> f32 {

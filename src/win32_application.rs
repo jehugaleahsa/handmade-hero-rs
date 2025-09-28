@@ -297,7 +297,9 @@ impl Win32Application {
 
     pub fn run(&mut self) -> Result<()> {
         let refresh_rate = Self::find_refresh_rate();
-        let game_update_rate = refresh_rate;
+        let game_update_rate = refresh_rate / 2;
+        self.application
+            .set_sound_latency(self.application.sound_samples_per_second() / game_update_rate * 3);
         #[allow(clippy::cast_precision_loss)]
         let target_frame_duration = Duration::from_secs_f32(1.0f32 / game_update_rate as f32);
         let is_sleep_granular = unsafe {
@@ -595,6 +597,8 @@ fn wait_for_framerate(
         time_elapsed = metrics.elapsed_time();
     }
 
+    counter.restart();
+
     #[allow(clippy::cast_precision_loss)]
     let ms_per_frame = time_elapsed.as_micros() as f32 / 1_000.0f32;
     let frames_per_second = 1_000.0f32 / ms_per_frame;
@@ -604,6 +608,4 @@ fn wait_for_framerate(
     let megacycles_elapsed = cycles_elapsed as f32 / 1_000_000.0f32;
 
     println!("{ms_per_frame:.2}ms/f, {frames_per_second:.2}f/s, {megacycles_elapsed:.2}Mc/f");
-
-    counter.restart();
 }
