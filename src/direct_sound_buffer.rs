@@ -28,18 +28,19 @@ impl DirectSoundBuffer<'_> {
         self.length
     }
 
+    #[inline]
     pub fn play_looping(&self) -> Result<()> {
         unsafe { self.buffer.Play(0, 0, DSBPLAY_LOOPING) }
     }
 
-    pub fn get_play_cursor(&self) -> Result<u32> {
+    pub fn get_cursors(&self) -> Result<(u32, u32)> {
         let mut play_cursor = 0u32;
         let mut write_cursor = 0u32;
         unsafe {
             self.buffer
                 .GetCurrentPosition(Some(&raw mut play_cursor), Some(&raw mut write_cursor))?;
         }
-        Ok(play_cursor)
+        Ok((play_cursor, write_cursor))
     }
 
     pub fn lock(

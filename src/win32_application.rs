@@ -50,7 +50,8 @@ pub struct Win32Application {
     bitmap_info: BITMAPINFO,
     bitmap_buffer: Option<Vec<Pixel>>,
     sound_buffer: Option<Vec<StereoSample>>,
-    sound_index: u32,
+    sound_index: Option<u32>,
+    sound_safety_bytes: u32,
     input_state: InputState,
     closing: bool,
 }
@@ -63,7 +64,8 @@ impl Win32Application {
             bitmap_info: BITMAPINFO::default(),
             bitmap_buffer: None,
             sound_buffer: None,
-            sound_index: 0,
+            sound_index: None,
+            sound_safety_bytes: 0,
             input_state: InputState::default(),
             closing: false,
         }
@@ -296,12 +298,11 @@ impl Win32Application {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let refresh_rate = Self::find_refresh_rate();
-        let game_update_rate = refresh_rate / 2;
-        self.application
-            .set_sound_latency(self.application.sound_samples_per_second() / game_update_rate * 3);
+        let monitor_refresh_hertz = Self::find_monitor_refresh_hertz();
+        let game_update_hertz = monitor_refresh_hertz / 2;
+
         #[allow(clippy::cast_precision_loss)]
-        let target_frame_duration = Duration::from_secs_f32(1.0f32 / game_update_rate as f32);
+        let target_frame_duration = Duration::from_secs_f32(1.0f32 / game_update_hertz as f32);
         let is_sleep_granular = unsafe {
             // Set the Windows scheduler granularity to 1ms!
             timeBeginPeriod(1) == TIMERR_NOERROR
@@ -319,8 +320,8 @@ impl Win32Application {
         });
 
         if let Some(ref mut sound_buffer) = sound_buffer {
-            self.fill_sound_buffer(sound_buffer);
             sound_buffer.play_looping().unwrap_or(()); // Ignore errors
+            self.sound_safety_bytes = self.calculate_sound_safety_bytes(game_update_hertz);
         }
 
         let mut counter = PerformanceCounter::start();
@@ -344,17 +345,43 @@ impl Win32Application {
                 self.application.render(bitmap_buffer);
             }
 
-            if let Some(ref mut sound_buffer) = sound_buffer {
-                self.fill_sound_buffer(sound_buffer);
+            if let Some(sound_index) = self.sound_index
+                && let Some(ref mut sound_buffer) = sound_buffer
+            {
+                self.fill_sound_buffer(
+                    sound_buffer,
+                    sound_index,
+                    game_update_hertz,
+                    target_frame_duration,
+                    &counter,
+                );
             }
 
             wait_for_framerate(&mut counter, target_frame_duration, is_sleep_granular);
 
             self.update_display()?;
+
+            // After a single frame, we have a better idea how far away the sound
+            // play cursor is from the write cursor. We initialize the sound index
+            // as a flag for sound to start being written now that the metrics are
+            // recorded.
+            if self.sound_index.is_none()
+                && let Some(ref sound_buffer) = sound_buffer
+            {
+                self.sound_index = self.get_sample_index(sound_buffer);
+            }
         }
     }
 
-    fn find_refresh_rate() -> u32 {
+    fn calculate_sound_safety_bytes(&mut self, game_update_hertz: u32) -> u32 {
+        let sound_samples_per_second = self.application.sound_samples_per_second();
+        let sound_bytes_per_sample = self.application.sound_bytes_per_sample();
+        let sound_bytes_per_second = sound_samples_per_second * sound_bytes_per_sample;
+        let sound_bytes_per_game_hertz = sound_bytes_per_second / game_update_hertz;
+        sound_bytes_per_game_hertz / 2
+    }
+
+    fn find_monitor_refresh_hertz() -> u32 {
         #[allow(clippy::cast_possible_truncation)]
         let size = size_of::<DEVMODEW>() as u16;
         let mut mode = DEVMODEW {
@@ -375,35 +402,68 @@ impl Win32Application {
         frequency
     }
 
-    fn fill_sound_buffer(&mut self, direct_sound_buffer: &mut DirectSoundBuffer<'_>) {
-        let play_cursor = direct_sound_buffer.get_play_cursor();
-        let Ok(play_cursor) = play_cursor else {
+    fn fill_sound_buffer(
+        &mut self,
+        direct_sound_buffer: &mut DirectSoundBuffer<'_>,
+        sound_index: u32,
+        game_update_hertz: u32,
+        target_frame_duration: Duration,
+        performance_counter: &PerformanceCounter,
+    ) {
+        let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
             return;
         };
-
         let application = &mut self.application;
         let buffer_length = direct_sound_buffer.length();
         let bytes_per_sample = application.sound_bytes_per_sample();
-        let write_offset = (self.sound_index * bytes_per_sample) % buffer_length;
-        let latency = application.sound_latency();
-        let target_cursor = (play_cursor + (latency * bytes_per_sample)) % buffer_length;
-        let write_length = match write_offset.cmp(&target_cursor) {
+        let write_offset = (sound_index * bytes_per_sample) % buffer_length;
+
+        let safe_write_cursor = write_cursor
+            + self.sound_safety_bytes
+            + if write_cursor < play_cursor {
+                direct_sound_buffer.length()
+            } else {
+                0
+            };
+        let samples_per_second = application.sound_samples_per_second();
+        let frame_time_elapsed = performance_counter.metrics().elapsed_time();
+        let remaining_frame_time = if target_frame_duration >= frame_time_elapsed {
+            target_frame_duration - frame_time_elapsed
+        } else {
+            Duration::default()
+        };
+        let remaining_time_ratio = remaining_frame_time.div_duration_f32(target_frame_duration);
+        let bytes_per_frame = (samples_per_second * bytes_per_sample) / game_update_hertz;
+        #[allow(clippy::cast_precision_loss)]
+        let remaining_bytes = remaining_time_ratio * bytes_per_frame as f32;
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        let remaining_bytes = remaining_bytes as u32;
+        let expected_frame_boundary_bytes = play_cursor + remaining_bytes;
+        let audio_is_latent = safe_write_cursor >= expected_frame_boundary_bytes;
+        let target_cursor = if audio_is_latent {
+            write_cursor + self.sound_safety_bytes + bytes_per_frame
+        } else {
+            expected_frame_boundary_bytes + bytes_per_frame
+        };
+        let target_cursor = target_cursor % buffer_length;
+        let bytes_to_write = match write_offset.cmp(&target_cursor) {
             Ordering::Greater => (buffer_length - write_offset) + target_cursor,
             Ordering::Less => target_cursor - write_offset,
             Ordering::Equal => 0,
         };
-        if write_length == 0 {
+        if bytes_to_write == 0 {
             return;
         }
 
-        let sample_count = write_length as usize / size_of::<StereoSample>();
+        let sample_count = bytes_to_write as usize / size_of::<StereoSample>();
         let sound_buffer = self
             .sound_buffer
             .get_or_insert_with(|| vec![StereoSample::default(); buffer_length as usize]);
         let sound_buffer = &mut sound_buffer[..sample_count];
         application.write_sound(sound_buffer);
 
-        let buffer_lock_guard = direct_sound_buffer.lock(write_offset, write_length);
+        let buffer_lock_guard = direct_sound_buffer.lock(write_offset, bytes_to_write);
         let Ok(buffer_lock_guard) = buffer_lock_guard else {
             return;
         };
@@ -423,7 +483,7 @@ impl Win32Application {
         );
         let sample_count = u32::try_from(sample_count)
             .expect("The sound index could not be converted to an unsigned 32-bit integer.");
-        self.sound_index = self.sound_index.wrapping_add(sample_count);
+        self.sound_index = Some(sound_index.wrapping_add(sample_count));
     }
 
     fn copy_sound_buffer(
@@ -443,6 +503,13 @@ impl Win32Application {
         let source_slice = &source[source_offset..source_end];
         assert_eq!(source_slice.len(), sample_out.len());
         sample_out.copy_from_slice(source_slice);
+    }
+
+    fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
+        let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
+        let bytes_per_sample = self.application.sound_bytes_per_sample();
+        let sample_index = write_cursor / bytes_per_sample;
+        Some(sample_index)
     }
 
     // NOTE: We probably don't want to call this as part of the main game loop since it

@@ -19,7 +19,6 @@ pub struct Application {
     bitmap_height: u16,
     sound_hertz: u32,
     sound_theta: f32,
-    sound_latency: u32,
     sound_samples_per_seconds: u32,
     sound_bytes_per_sample: u32,
     sound_bits_per_sample: u16,
@@ -36,7 +35,6 @@ impl Application {
             bitmap_height: 0,
             sound_hertz: 256,
             sound_theta: 0f32,
-            sound_latency: SAMPLES_PER_SECOND / 15,
             sound_samples_per_seconds: SAMPLES_PER_SECOND,
             sound_bytes_per_sample: BYTES_PER_SAMPLE,
             sound_bits_per_sample: BITS_PER_SAMPLE,
@@ -63,7 +61,8 @@ impl Application {
     }
 
     pub fn write_sound(&mut self, sound_buffer: &mut [StereoSample]) {
-        let time_delta = 2.0f32 * PI / self.calculate_wave_period();
+        const FULL_CIRCLE: f32 = 2.0f32 * PI;
+        let time_delta = FULL_CIRCLE / self.calculate_wave_period();
 
         for sample in sound_buffer {
             let sine_value = self.sound_theta.sin();
@@ -72,6 +71,9 @@ impl Application {
             let sample_value = (sine_value * volume) as i16;
             *sample = StereoSample::from_left_right(sample_value, sample_value);
             self.sound_theta += time_delta;
+            if self.sound_theta >= FULL_CIRCLE {
+                self.sound_theta -= FULL_CIRCLE;
+            }
         }
     }
 
@@ -207,17 +209,6 @@ impl Application {
     #[must_use]
     pub fn sound_bytes_per_sample(&self) -> u32 {
         self.sound_bytes_per_sample
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sound_latency(&self) -> u32 {
-        self.sound_latency
-    }
-
-    #[inline]
-    pub fn set_sound_latency(&mut self, value: u32) {
-        self.sound_latency = value;
     }
 
     #[inline]
