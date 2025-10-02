@@ -16,7 +16,7 @@ impl DirectSound {
         let mut direct_sound = None;
         unsafe { DirectSoundCreate(None, &raw mut direct_sound, None)? };
         let Some(direct_sound) = direct_sound else {
-            return Err(Error::from_win32());
+            return Err(Error::from_thread());
         };
         unsafe { direct_sound.SetCooperativeLevel(window_handle, DSSCL_PRIORITY)? };
 
@@ -40,7 +40,7 @@ impl DirectSound {
             )?;
         }
         let Some(ref primary_buffer) = primary_buffer else {
-            return Err(Error::from_win32());
+            return Err(Error::from_thread());
         };
         let mut format = Self::create_buffer_format(channel_count, samples_per_second, sample_bits);
         unsafe {
@@ -58,7 +58,7 @@ impl DirectSound {
             )?;
         }
         let Some(secondary_buffer) = secondary_buffer else {
-            return Err(Error::from_win32());
+            return Err(Error::from_thread());
         };
 
         Ok(DirectSoundBuffer::new(secondary_buffer, buffer_size))
