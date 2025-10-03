@@ -1,14 +1,15 @@
-use crate::application::Application;
 use crate::application_error::{ApplicationError, Result};
 use crate::application_loader::ApplicationLoader;
-use crate::button_state::ButtonState;
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
-use crate::input_state::InputState;
 use crate::performance_counter::PerformanceCounter;
-use crate::pixel::Pixel;
-use crate::stereo_sample::StereoSample;
 use core::slice;
+use handmade_hero_interface::application_state::ApplicationState;
+use handmade_hero_interface::button_state::ButtonState;
+use handmade_hero_interface::input_state::InputState;
+use handmade_hero_interface::pixel::Pixel;
+use handmade_hero_interface::stereo_sample::StereoSample;
+use handmade_hero_interface::Application;
 use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::time::Duration;
@@ -46,8 +47,10 @@ const DEFAULT_REFRESH_RATE: u32 = 60;
 
 #[derive(Debug)]
 pub struct Win32Application {
-    application: Application,
+    state: ApplicationState,
     window_handle: HWND,
+    bitmap_width: u16,
+    bitmap_height: u16,
     bitmap_info: BITMAPINFO,
     bitmap_buffer: Option<Vec<Pixel>>,
     sound_buffer: Option<Vec<StereoSample>>,
@@ -58,10 +61,12 @@ pub struct Win32Application {
 }
 
 impl Win32Application {
-    pub fn new(application: Application) -> Win32Application {
+    pub fn new() -> Win32Application {
         Win32Application {
-            application,
+            state: ApplicationState::new(),
             window_handle: HWND::default(),
+            bitmap_width: 0,
+            bitmap_height: 0,
             bitmap_info: BITMAPINFO::default(),
             bitmap_buffer: None,
             sound_buffer: None,
@@ -134,7 +139,8 @@ impl Win32Application {
             self.bitmap_buffer = Some(vec![Pixel::default(); pixel_count]);
         }
 
-        self.application.resize_bitmap(width, height);
+        self.bitmap_width = width;
+        self.bitmap_height = height;
     }
 
     fn process_windows_message(
@@ -252,8 +258,8 @@ impl Win32Application {
             return Ok(());
         };
 
-        let source_width = i32::from(self.application.bitmap_width());
-        let source_height = i32::from(self.application.bitmap_height());
+        let source_width = i32::from(self.bitmap_width);
+        let source_height = i32::from(self.bitmap_height);
 
         let client_rectangle = Self::get_client_rectangle(window_handle)?;
         let destination_width = Self::calculate_width(&client_rectangle);
@@ -312,10 +318,10 @@ impl Win32Application {
         let direct_sound = DirectSound::initialize(self.window_handle).ok();
         let mut sound_buffer = direct_sound.as_ref().and_then(|ds| {
             ds.create_buffer(
-                self.application.sound_channel_count(),
-                self.application.sound_samples_per_second(),
-                self.application.sound_bits_per_sample(),
-                self.application.sound_buffer_size(),
+                self.state.sound_channel_count(),
+                self.state.sound_samples_per_second(),
+                self.state.sound_bits_per_sample(),
+                self.state.sound_buffer_size(),
             )
             .ok()
         });
@@ -326,21 +332,20 @@ impl Win32Application {
         }
 
         let mut loader = ApplicationLoader::new();
-        let mut application_stub = loader.load();
-        let mut counter = PerformanceCounter::start();
+        let mut application = loader.load();
         let mut iteration = 0;
+        let mut counter = PerformanceCounter::start();
         loop {
             if iteration == 0 {
-                loader.close();
+                drop(application);
+                drop(loader);
                 loader = ApplicationLoader::new();
-                application_stub = loader.load();
+                application = loader.load();
             } else if iteration == 120 {
                 iteration = 0;
             } else {
                 iteration += 1;
             }
-
-            application_stub.execute();
 
             let mut message = MSG::default();
             let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
@@ -355,16 +360,22 @@ impl Win32Application {
 
             self.poll_controller_state();
 
-            self.application.handle_input(&self.input_state);
+            self.state.handle_input(&self.input_state);
 
             if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
-                self.application.render(bitmap_buffer);
+                application.render(
+                    &mut self.state,
+                    bitmap_buffer,
+                    self.bitmap_width,
+                    self.bitmap_height,
+                );
             }
 
             if let Some(sound_index) = self.sound_index
                 && let Some(ref mut sound_buffer) = sound_buffer
             {
                 self.fill_sound_buffer(
+                    &application,
                     sound_buffer,
                     sound_index,
                     game_update_hertz,
@@ -390,8 +401,8 @@ impl Win32Application {
     }
 
     fn calculate_sound_safety_bytes(&mut self, game_update_hertz: u32) -> u32 {
-        let sound_samples_per_second = self.application.sound_samples_per_second();
-        let sound_bytes_per_sample = self.application.sound_bytes_per_sample();
+        let sound_samples_per_second = self.state.sound_samples_per_second();
+        let sound_bytes_per_sample = self.state.sound_bytes_per_sample();
         let sound_bytes_per_second = sound_samples_per_second * sound_bytes_per_sample;
         let sound_bytes_per_game_hertz = sound_bytes_per_second / game_update_hertz;
         sound_bytes_per_game_hertz / 2
@@ -420,6 +431,7 @@ impl Win32Application {
 
     fn fill_sound_buffer(
         &mut self,
+        application: &dyn Application,
         direct_sound_buffer: &mut DirectSoundBuffer<'_>,
         sound_index: u32,
         game_update_hertz: u32,
@@ -429,9 +441,8 @@ impl Win32Application {
         let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
             return;
         };
-        let application = &mut self.application;
         let buffer_length = direct_sound_buffer.length();
-        let bytes_per_sample = application.sound_bytes_per_sample();
+        let bytes_per_sample = self.state.sound_bytes_per_sample();
         let write_offset = (sound_index * bytes_per_sample) % buffer_length;
 
         let safe_write_cursor = write_cursor
@@ -441,7 +452,7 @@ impl Win32Application {
             } else {
                 0
             };
-        let samples_per_second = application.sound_samples_per_second();
+        let samples_per_second = self.state.sound_samples_per_second();
         let frame_time_elapsed = performance_counter.metrics().elapsed_time();
         let remaining_frame_time = if target_frame_duration >= frame_time_elapsed {
             target_frame_duration - frame_time_elapsed
@@ -477,7 +488,7 @@ impl Win32Application {
             .sound_buffer
             .get_or_insert_with(|| vec![StereoSample::default(); buffer_length as usize]);
         let sound_buffer = &mut sound_buffer[..sample_count];
-        application.write_sound(sound_buffer);
+        application.write_sound(&mut self.state, sound_buffer);
 
         let buffer_lock_guard = direct_sound_buffer.lock(write_offset, bytes_to_write);
         let Ok(buffer_lock_guard) = buffer_lock_guard else {
@@ -523,7 +534,7 @@ impl Win32Application {
 
     fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
         let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
-        let bytes_per_sample = self.application.sound_bytes_per_sample();
+        let bytes_per_sample = self.state.sound_bytes_per_sample();
         let sample_index = write_cursor / bytes_per_sample;
         Some(sample_index)
     }

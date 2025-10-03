@@ -1,6 +1,5 @@
 use crate::controller_state::ControllerState;
 use crate::input_state::InputState;
-use crate::pixel::Pixel;
 use crate::stereo_sample::StereoSample;
 use std::f32::consts::PI;
 use std::ops::Neg;
@@ -12,11 +11,9 @@ pub const DEFAULT_VOLUME: i16 = 500;
 pub const BYTES_PER_SAMPLE: u32 = size_of::<StereoSample>() as u32;
 
 #[derive(Debug)]
-pub struct Application {
+pub struct ApplicationState {
     x_offset: u16,
     y_offset: u16,
-    bitmap_width: u16,
-    bitmap_height: u16,
     sound_hertz: u32,
     sound_theta: f32,
     sound_samples_per_seconds: u32,
@@ -26,13 +23,14 @@ pub struct Application {
     sound_volume: i16,
 }
 
-impl Application {
+impl ApplicationState {
+    const FULL_CIRCLE: f32 = 2.0f32 * PI;
+
+    #[must_use]
     pub fn new() -> Self {
         Self {
             x_offset: 0,
             y_offset: 0,
-            bitmap_width: 0,
-            bitmap_height: 0,
             sound_hertz: 256,
             sound_theta: 0f32,
             sound_samples_per_seconds: SAMPLES_PER_SECOND,
@@ -43,43 +41,42 @@ impl Application {
         }
     }
 
-    pub fn render(&self, bitmap_buffer: &mut [Pixel]) {
-        let width = self.bitmap_width;
-        let height = self.bitmap_height;
-        let mut index = 0;
-        for y in 0..height {
-            for x in 0..width {
-                let color = Pixel::from_rgb(
-                    0,
-                    (y.wrapping_add(self.y_offset) & 0xFF) as u8,
-                    (x.wrapping_add(self.x_offset) & 0xFF) as u8,
-                );
-                bitmap_buffer[index] = color;
-                index += 1;
-            }
+    #[inline]
+    #[must_use]
+    pub fn y_offset(&self) -> u16 {
+        self.y_offset
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn x_offset(&self) -> u16 {
+        self.x_offset
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn time_delta(&self) -> f32 {
+        Self::FULL_CIRCLE / self.calculate_wave_period()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sound_theta(&self) -> f32 {
+        self.sound_theta
+    }
+
+    #[inline]
+    pub fn advance_sound_theta(&mut self, amount: f32) {
+        self.sound_theta += amount;
+        if self.sound_theta >= Self::FULL_CIRCLE {
+            self.sound_theta -= Self::FULL_CIRCLE;
         }
     }
 
-    pub fn write_sound(&mut self, sound_buffer: &mut [StereoSample]) {
-        const FULL_CIRCLE: f32 = 2.0f32 * PI;
-        let time_delta = FULL_CIRCLE / self.calculate_wave_period();
-
-        for sample in sound_buffer {
-            let sine_value = self.sound_theta.sin();
-            let volume = f32::from(self.sound_volume);
-            #[allow(clippy::cast_possible_truncation)]
-            let sample_value = (sine_value * volume) as i16;
-            *sample = StereoSample::from_left_right(sample_value, sample_value);
-            self.sound_theta += time_delta;
-            if self.sound_theta >= FULL_CIRCLE {
-                self.sound_theta -= FULL_CIRCLE;
-            }
-        }
-    }
-
-    pub fn resize_bitmap(&mut self, width: u16, height: u16) {
-        self.bitmap_width = width;
-        self.bitmap_height = height;
+    #[inline]
+    #[must_use]
+    pub fn sound_volume(&self) -> i16 {
+        self.sound_volume
     }
 
     pub fn handle_input(&mut self, input_state: &InputState) {
@@ -157,18 +154,6 @@ impl Application {
     }
 
     #[inline]
-    #[must_use]
-    pub fn bitmap_width(&self) -> u16 {
-        self.bitmap_width
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn bitmap_height(&self) -> u16 {
-        self.bitmap_height
-    }
-
-    #[inline]
     pub fn shift_x(&mut self, shift: i16) {
         Self::shift(&mut self.x_offset, shift);
     }
@@ -222,5 +207,12 @@ impl Application {
     #[must_use]
     pub fn sound_buffer_size(&self) -> u32 {
         self.sound_samples_per_seconds * self.sound_bytes_per_sample
+    }
+}
+
+impl Default for ApplicationState {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }

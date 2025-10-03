@@ -1,0 +1,13 @@
+[package]
+name = "handmade_hero_plugin"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+handmade_hero_interface = { path = "../handmade_hero_interface" }
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["dylib"]

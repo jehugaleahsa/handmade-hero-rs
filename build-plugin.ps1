@@ -1,0 +1,1 @@
+&cargo build --package handmade_hero_plugin
