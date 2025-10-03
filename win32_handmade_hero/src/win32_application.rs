@@ -1,5 +1,6 @@
 use crate::application::Application;
 use crate::application_error::{ApplicationError, Result};
+use crate::application_loader::ApplicationLoader;
 use crate::button_state::ButtonState;
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
@@ -324,8 +325,23 @@ impl Win32Application {
             self.sound_safety_bytes = self.calculate_sound_safety_bytes(game_update_hertz);
         }
 
+        let mut loader = ApplicationLoader::new();
+        let mut application_stub = loader.load();
         let mut counter = PerformanceCounter::start();
+        let mut iteration = 0;
         loop {
+            if iteration == 0 {
+                loader.close();
+                loader = ApplicationLoader::new();
+                application_stub = loader.load();
+            } else if iteration == 120 {
+                iteration = 0;
+            } else {
+                iteration += 1;
+            }
+
+            application_stub.execute();
+
             let mut message = MSG::default();
             let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
             if message_result.0 < 0 || message.message == WM_QUIT {

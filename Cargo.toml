@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "handmade_hero",
     "win32_handmade_hero"
 ]
 

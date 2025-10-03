@@ -1,5 +1,6 @@
 mod application;
 mod application_error;
+mod application_loader;
 mod button_state;
 mod controller_state;
 mod input_state;
