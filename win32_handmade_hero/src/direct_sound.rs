@@ -1,10 +1,10 @@
 use crate::direct_sound_buffer::DirectSoundBuffer;
-use windows::core::{Error, Result};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Media::Audio::DirectSound::{
-    DirectSoundCreate, IDirectSound, DSBCAPS_PRIMARYBUFFER, DSBUFFERDESC, DSSCL_PRIORITY,
+    DSBCAPS_PRIMARYBUFFER, DSBUFFERDESC, DSSCL_PRIORITY, DirectSoundCreate, IDirectSound,
 };
-use windows::Win32::Media::Audio::{WAVEFORMATEX, WAVE_FORMAT_PCM};
+use windows::Win32::Media::Audio::{WAVE_FORMAT_PCM, WAVEFORMATEX};
+use windows::core::{Error, Result};
 
 #[derive(Debug)]
 pub struct DirectSound {

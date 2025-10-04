@@ -8,6 +8,7 @@ pub struct Pixel {
 }
 
 impl Pixel {
+    #[must_use]
     pub fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
         Self {
             red,
@@ -19,6 +20,7 @@ impl Pixel {
 }
 
 impl From<Pixel> for u32 {
+    #[inline]
     fn from(value: Pixel) -> Self {
         (u32::from(value.alpha) << 24)
             | (u32::from(value.red) << 16)

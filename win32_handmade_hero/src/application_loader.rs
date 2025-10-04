@@ -1,8 +1,7 @@
-use handmade_hero_interface::application_state::ApplicationState;
-use handmade_hero_interface::pixel::Pixel;
-use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::Application;
-use libloading::{library_filename, Library, Symbol};
+use handmade_hero_interface::audio_context::AudioContext;
+use handmade_hero_interface::render_context::RenderContext;
+use libloading::{Library, Symbol, library_filename};
 use std::marker::PhantomData;
 
 pub struct ApplicationStub<'loader> {
@@ -12,19 +11,13 @@ pub struct ApplicationStub<'loader> {
 
 impl Application for ApplicationStub<'_> {
     #[inline]
-    fn render(
-        &self,
-        state: &mut ApplicationState,
-        bitmap_buffer: &mut [Pixel],
-        width: u16,
-        height: u16,
-    ) {
-        self.application.render(state, bitmap_buffer, width, height);
+    fn render(&self, context: &mut RenderContext<'_>) {
+        self.application.render(context);
     }
 
     #[inline]
-    fn write_sound(&self, state: &mut ApplicationState, sound_buffer: &mut [StereoSample]) {
-        self.application.write_sound(state, sound_buffer);
+    fn write_sound(&self, context: &mut AudioContext<'_>) {
+        self.application.write_sound(context);
     }
 }
 

@@ -8,6 +8,8 @@ pub struct StereoSample {
 impl StereoSample {
     pub const CHANNEL_COUNT: u16 = 2;
 
+    #[inline]
+    #[must_use]
     pub fn from_left_right(left: i16, right: i16) -> Self {
         Self { left, right }
     }

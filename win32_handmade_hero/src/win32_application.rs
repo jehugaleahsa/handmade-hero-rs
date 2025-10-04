@@ -4,44 +4,46 @@ use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::performance_counter::PerformanceCounter;
 use core::slice;
+use handmade_hero_interface::Application;
 use handmade_hero_interface::application_state::ApplicationState;
+use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::pixel::Pixel;
+use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
-use handmade_hero_interface::Application;
 use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::time::Duration;
-use windows::core::{w, Error, Result as Win32Result, PCWSTR};
 use windows::Win32::Foundation::{
-    GetLastError, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
+    ERROR_SUCCESS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, EnumDisplaySettingsW, GetDC, ReleaseDC, StretchDIBits, BITMAPINFO,
-    BI_RGB, DEVMODEW, DIB_RGB_COLORS, ENUM_CURRENT_SETTINGS, HDC, PAINTSTRUCT, SRCCOPY,
+    BI_RGB, BITMAPINFO, BeginPaint, DEVMODEW, DIB_RGB_COLORS, ENUM_CURRENT_SETTINGS, EndPaint,
+    EnumDisplaySettingsW, GetDC, HDC, PAINTSTRUCT, ReleaseDC, SRCCOPY, StretchDIBits,
 };
-use windows::Win32::Media::{timeBeginPeriod, TIMERR_NOERROR};
+use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     VIRTUAL_KEY, VK_A, VK_D, VK_DOWN, VK_E, VK_ESCAPE, VK_F4, VK_LEFT, VK_Q, VK_RIGHT, VK_S, VK_UP,
     VK_W,
 };
 use windows::Win32::UI::Input::XboxController::{
-    XInputGetState, XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B,
-    XINPUT_GAMEPAD_BACK, XINPUT_GAMEPAD_BUTTON_FLAGS, XINPUT_GAMEPAD_DPAD_DOWN,
-    XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_DPAD_UP,
-    XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE,
-    XINPUT_GAMEPAD_RIGHT_SHOULDER, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, XINPUT_GAMEPAD_START,
-    XINPUT_GAMEPAD_TRIGGER_THRESHOLD, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y, XINPUT_STATE, XUSER_MAX_COUNT,
+    XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK,
+    XINPUT_GAMEPAD_BUTTON_FLAGS, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT,
+    XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_LEFT_SHOULDER,
+    XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE, XINPUT_GAMEPAD_RIGHT_SHOULDER,
+    XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_TRIGGER_THRESHOLD,
+    XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y, XINPUT_STATE, XInputGetState, XUSER_MAX_COUNT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetWindowLongPtrW, LoadCursorW,
-    PeekMessageW, PostQuitMessage, RegisterClassW, SetWindowLongPtrW, TranslateMessage, CREATESTRUCTW, CS_HREDRAW,
-    CS_VREDRAW, CW_USEDEFAULT, GWL_USERDATA, IDC_ARROW, MSG, PM_REMOVE,
+    CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
+    DispatchMessageW, GWL_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, LoadCursorW, MSG,
+    PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW, SetWindowLongPtrW, TranslateMessage,
     WINDOW_EX_STYLE, WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT,
     WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
+use windows::core::{Error, PCWSTR, Result as Win32Result, w};
 
 const DEFAULT_REFRESH_RATE: u32 = 60;
 
@@ -363,12 +365,13 @@ impl Win32Application {
             self.state.handle_input(&self.input_state);
 
             if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
-                application.render(
+                let mut context = RenderContext::new(
                     &mut self.state,
                     bitmap_buffer,
                     self.bitmap_width,
                     self.bitmap_height,
                 );
+                application.render(&mut context);
             }
 
             if let Some(sound_index) = self.sound_index
@@ -488,7 +491,8 @@ impl Win32Application {
             .sound_buffer
             .get_or_insert_with(|| vec![StereoSample::default(); buffer_length as usize]);
         let sound_buffer = &mut sound_buffer[..sample_count];
-        application.write_sound(&mut self.state, sound_buffer);
+        let mut context = AudioContext::new(&mut self.state, sound_buffer);
+        application.write_sound(&mut context);
 
         let buffer_lock_guard = direct_sound_buffer.lock(write_offset, bytes_to_write);
         let Ok(buffer_lock_guard) = buffer_lock_guard else {

@@ -1,8 +1,8 @@
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer_lock_guard::DirectSoundBufferLockGuard;
 use std::marker::PhantomData;
+use windows::Win32::Media::Audio::DirectSound::{DSBPLAY_LOOPING, IDirectSoundBuffer};
 use windows::core::Result;
-use windows::Win32::Media::Audio::DirectSound::{IDirectSoundBuffer, DSBPLAY_LOOPING};
 
 #[derive(Debug)]
 pub struct DirectSoundBuffer<'ds> {

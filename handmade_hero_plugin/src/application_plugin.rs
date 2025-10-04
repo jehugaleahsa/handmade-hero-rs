@@ -1,43 +1,39 @@
-use handmade_hero_interface::application_state::ApplicationState;
-use handmade_hero_interface::pixel::Pixel;
-use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::Application;
+use handmade_hero_interface::audio_context::AudioContext;
+use handmade_hero_interface::pixel::Pixel;
+use handmade_hero_interface::render_context::RenderContext;
+use handmade_hero_interface::stereo_sample::StereoSample;
 
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ApplicationPlugin;
 
 impl Application for ApplicationPlugin {
-    fn render(
-        &self,
-        state: &mut ApplicationState,
-        bitmap_buffer: &mut [Pixel],
-        width: u16,
-        height: u16,
-    ) {
+    fn render(&self, context: &mut RenderContext<'_>) {
         let mut index = 0;
-        for y in 0..height {
-            for x in 0..width {
+        for y in 0..context.height() {
+            for x in 0..context.width() {
                 let color = Pixel::from_rgb(
                     0x00,
-                    (y.wrapping_add(state.y_offset()) & 0xFF) as u8,
-                    (x.wrapping_add(state.x_offset()) & 0xFF) as u8,
+                    (y.wrapping_add(context.y_offset()) & 0xFF) as u8,
+                    (x.wrapping_add(context.x_offset()) & 0xFF) as u8,
                 );
-                bitmap_buffer[index] = color;
+                context.set_pixel(index, color);
                 index += 1;
             }
         }
     }
 
-    fn write_sound(&self, state: &mut ApplicationState, sound_buffer: &mut [StereoSample]) {
-        let time_delta = state.time_delta();
-        for sample in sound_buffer {
-            let sine_value = state.sound_theta().sin();
-            let volume = f32::from(state.sound_volume());
+    fn write_sound(&self, context: &mut AudioContext<'_>) {
+        let time_delta = context.time_delta();
+        for index in 0..context.sample_count() {
+            let sine_value = context.theta().sin();
+            let volume = f32::from(context.volume());
             #[allow(clippy::cast_possible_truncation)]
             let sample_value = (sine_value * volume) as i16;
-            *sample = StereoSample::from_left_right(sample_value, sample_value);
-            state.advance_sound_theta(time_delta);
+            let sample = StereoSample::from_left_right(sample_value, sample_value);
+            context.set_sample(index, sample);
+            context.advance_theta(time_delta);
         }
     }
 }
