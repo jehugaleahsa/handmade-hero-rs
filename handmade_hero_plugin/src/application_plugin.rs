@@ -8,6 +8,14 @@ use handmade_hero_interface::stereo_sample::StereoSample;
 #[derive(Debug)]
 pub struct ApplicationPlugin;
 
+impl ApplicationPlugin {
+    #[unsafe(no_mangle)]
+    #[must_use]
+    pub extern "Rust" fn create_application() -> Box<dyn Application> {
+        Box::new(ApplicationPlugin)
+    }
+}
+
 impl Application for ApplicationPlugin {
     fn render(&self, context: &mut RenderContext<'_>) {
         let mut index = 0;
