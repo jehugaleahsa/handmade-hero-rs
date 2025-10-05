@@ -334,21 +334,8 @@ impl Win32Application {
         }
 
         let mut loader = ApplicationLoader::new();
-        let mut application = loader.load();
-        let mut iteration = 0;
         let mut counter = PerformanceCounter::start();
         loop {
-            if iteration == 0 {
-                drop(application);
-                drop(loader);
-                loader = ApplicationLoader::new();
-                application = loader.load();
-            } else if iteration == 120 {
-                iteration = 0;
-            } else {
-                iteration += 1;
-            }
-
             let mut message = MSG::default();
             let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
             if message_result.0 < 0 || message.message == WM_QUIT {
@@ -360,6 +347,7 @@ impl Win32Application {
                 DispatchMessageW(&raw const message);
             };
 
+            let application = loader.load()?;
             self.poll_controller_state();
 
             self.state.handle_input(&self.input_state);
@@ -378,7 +366,7 @@ impl Win32Application {
                 && let Some(ref mut sound_buffer) = sound_buffer
             {
                 self.fill_sound_buffer(
-                    &application,
+                    application,
                     sound_buffer,
                     sound_index,
                     game_update_hertz,

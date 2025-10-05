@@ -11,6 +11,15 @@ pub struct ApplicationError {
 impl ApplicationError {
     #[inline]
     #[must_use]
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            source: None,
+        }
+    }
+
+    #[inline]
+    #[must_use]
     pub fn wrap(message: impl Into<String>, source: impl Error + 'static) -> Self {
         Self {
             message: message.into(),
