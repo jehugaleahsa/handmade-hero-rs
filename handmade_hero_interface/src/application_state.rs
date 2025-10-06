@@ -21,10 +21,17 @@ pub struct ApplicationState {
     sound_bits_per_sample: u16,
     sound_channel_count: u16,
     sound_volume: i16,
+    player_x: u16,
+    player_y: u16,
+    width: u16,
+    height: u16,
+    jump_time: f32,
 }
 
 impl ApplicationState {
     const FULL_CIRCLE: f32 = 2.0f32 * PI;
+    pub const PLAYER_WIDTH: u16 = 10;
+    pub const PLAYER_HEIGHT: u16 = 10;
 
     #[must_use]
     pub fn new() -> Self {
@@ -38,6 +45,11 @@ impl ApplicationState {
             sound_bits_per_sample: BITS_PER_SAMPLE,
             sound_channel_count: StereoSample::CHANNEL_COUNT,
             sound_volume: DEFAULT_VOLUME,
+            player_x: 0,
+            player_y: 0,
+            width: 0,
+            height: 0,
+            jump_time: 0f32,
         }
     }
 
@@ -109,6 +121,12 @@ impl ApplicationState {
         self.shift_x_using_controller(controller);
         self.shift_y_using_controller(controller);
         self.set_hertz_using_controller(controller);
+
+        if controller.a().ended_down() && self.jump_time == 0f32 {
+            self.jump();
+        } else if self.jump_time > 0f32 {
+            self.jump_time = 0f32.max(self.jump_time - 0.033f32);
+        }
     }
 
     fn shift_x_using_controller(&mut self, controller: &ControllerState) {
@@ -121,7 +139,13 @@ impl ApplicationState {
         };
         #[allow(clippy::cast_possible_truncation)]
         let shift_x = (shift_x_ratio * 5f32) as i16;
-        self.shift_x(shift_x);
+        self.shift_x(shift_x.neg());
+        self.set_player_x(
+            self.player_x()
+                .cast_signed()
+                .wrapping_sub(shift_x)
+                .unsigned_abs(),
+        );
     }
 
     fn shift_y_using_controller(&mut self, controller: &ControllerState) {
@@ -134,7 +158,13 @@ impl ApplicationState {
         };
         #[allow(clippy::cast_possible_truncation)]
         let shift_y = (shift_y_ratio * 5f32) as i16;
-        self.shift_y(shift_y);
+        self.shift_y(shift_y.neg());
+        self.set_player_y(
+            self.player_y()
+                .cast_signed()
+                .wrapping_sub(shift_y)
+                .unsigned_abs(),
+        );
     }
 
     fn set_hertz_using_controller(&mut self, controller: &ControllerState) {
@@ -207,6 +237,63 @@ impl ApplicationState {
     #[must_use]
     pub fn sound_buffer_size(&self) -> u32 {
         self.sound_samples_per_seconds * self.sound_bytes_per_sample
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn player_x(&self) -> u16 {
+        self.player_x
+    }
+
+    #[inline]
+    pub fn set_player_x(&mut self, value: u16) {
+        self.player_x = value.min(self.width - Self::PLAYER_WIDTH);
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn player_y(&self) -> u16 {
+        self.player_y
+    }
+
+    #[inline]
+    pub fn set_player_y(&mut self, value: u16) {
+        self.player_y = value.min(self.height - Self::PLAYER_HEIGHT);
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn width(&self) -> u16 {
+        self.width
+    }
+
+    #[inline]
+    pub fn set_width(&mut self, value: u16) {
+        self.width = value;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn height(&self) -> u16 {
+        self.height
+    }
+
+    #[inline]
+    pub fn set_height(&mut self, value: u16) {
+        self.height = value;
+    }
+
+    #[inline]
+    pub fn jump(&mut self) {
+        if self.jump_time == 0f32 {
+            self.jump_time += 1.0f32;
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn jump_time(&self) -> f32 {
+        self.jump_time
     }
 }
 

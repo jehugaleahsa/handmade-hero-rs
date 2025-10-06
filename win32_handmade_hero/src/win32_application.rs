@@ -14,6 +14,7 @@ use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use std::cmp::Ordering;
 use std::ffi::c_void;
+use std::ops::Div;
 use std::time::Duration;
 use windows::Win32::Foundation::{
     ERROR_SUCCESS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
@@ -51,8 +52,6 @@ const DEFAULT_REFRESH_RATE: u32 = 60;
 pub struct Win32Application {
     state: ApplicationState,
     window_handle: HWND,
-    bitmap_width: u16,
-    bitmap_height: u16,
     bitmap_info: BITMAPINFO,
     bitmap_buffer: Option<Vec<Pixel>>,
     sound_buffer: Option<Vec<StereoSample>>,
@@ -67,8 +66,6 @@ impl Win32Application {
         Win32Application {
             state: ApplicationState::new(),
             window_handle: HWND::default(),
-            bitmap_width: 0,
-            bitmap_height: 0,
             bitmap_info: BITMAPINFO::default(),
             bitmap_buffer: None,
             sound_buffer: None,
@@ -141,8 +138,8 @@ impl Win32Application {
             self.bitmap_buffer = Some(vec![Pixel::default(); pixel_count]);
         }
 
-        self.bitmap_width = width;
-        self.bitmap_height = height;
+        self.state.set_width(width);
+        self.state.set_height(height);
     }
 
     fn process_windows_message(
@@ -260,8 +257,8 @@ impl Win32Application {
             return Ok(());
         };
 
-        let source_width = i32::from(self.bitmap_width);
-        let source_height = i32::from(self.bitmap_height);
+        let source_width = i32::from(self.state.width());
+        let source_height = i32::from(self.state.height());
 
         let client_rectangle = Self::get_client_rectangle(window_handle)?;
         let destination_width = Self::calculate_width(&client_rectangle);
@@ -333,6 +330,20 @@ impl Win32Application {
             self.sound_safety_bytes = self.calculate_sound_safety_bytes(game_update_hertz);
         }
 
+        // Center player initially
+        let x_center = self
+            .state
+            .width()
+            .div(2)
+            .saturating_add(ApplicationState::PLAYER_WIDTH.div(2));
+        let y_center = self
+            .state
+            .height()
+            .div(2)
+            .saturating_add(ApplicationState::PLAYER_HEIGHT.div(2));
+        self.state.set_player_x(x_center);
+        self.state.set_player_y(y_center);
+
         let mut loader = ApplicationLoader::new();
         let mut counter = PerformanceCounter::start();
         loop {
@@ -353,12 +364,7 @@ impl Win32Application {
             self.state.handle_input(&self.input_state);
 
             if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
-                let mut context = RenderContext::new(
-                    &mut self.state,
-                    bitmap_buffer,
-                    self.bitmap_width,
-                    self.bitmap_height,
-                );
+                let mut context = RenderContext::new(&mut self.state, bitmap_buffer);
                 application.render(&mut context);
             }
 

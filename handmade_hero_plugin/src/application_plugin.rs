@@ -1,4 +1,5 @@
 use handmade_hero_interface::Application;
+use handmade_hero_interface::application_state::ApplicationState;
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::pixel::Pixel;
 use handmade_hero_interface::render_context::RenderContext;
@@ -13,6 +14,24 @@ impl ApplicationPlugin {
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
         Box::new(ApplicationPlugin)
+    }
+
+    fn render_player(context: &mut RenderContext<'_>) {
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        let player_top =
+            (f32::from(context.player_y()) + -100f32 * (context.jump_time() * 2f32).sin()) as usize;
+        let player_left = usize::from(context.player_x());
+        let player_bottom = player_top.saturating_add(usize::from(ApplicationState::PLAYER_HEIGHT));
+        let player_right = player_left.saturating_add(usize::from(ApplicationState::PLAYER_WIDTH));
+        let pitch = usize::from(context.width());
+        for y in player_top..player_bottom {
+            for x in player_left..player_right {
+                let index = y * pitch + x;
+                let pixel = Pixel::from_rgb(0xFF, 0xFF, 0x00);
+                context.set_pixel(index, pixel);
+            }
+        }
     }
 }
 
@@ -30,6 +49,7 @@ impl Application for ApplicationPlugin {
                 index += 1;
             }
         }
+        Self::render_player(context);
     }
 
     fn write_sound(&self, context: &mut AudioContext<'_>) {
