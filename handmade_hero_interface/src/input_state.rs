@@ -1,6 +1,7 @@
 use crate::controller_state::ControllerState;
+use bincode::{Decode, Encode};
 
-#[derive(Debug)]
+#[derive(Debug, Encode, Decode)]
 pub struct InputState {
     keyboard: ControllerState,
     controllers: Vec<ControllerState>,

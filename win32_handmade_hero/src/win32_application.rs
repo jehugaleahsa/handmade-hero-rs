@@ -3,6 +3,7 @@ use crate::application_loader::ApplicationLoader;
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::performance_counter::PerformanceCounter;
+use crate::playback_recorder::PlaybackRecorder;
 use core::slice;
 use handmade_hero_interface::Application;
 use handmade_hero_interface::application_state::ApplicationState;
@@ -26,8 +27,8 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    VIRTUAL_KEY, VK_A, VK_D, VK_DOWN, VK_E, VK_ESCAPE, VK_F4, VK_LEFT, VK_Q, VK_RIGHT, VK_S, VK_UP,
-    VK_W,
+    VIRTUAL_KEY, VK_A, VK_D, VK_DOWN, VK_E, VK_ESCAPE, VK_F4, VK_L, VK_LEFT, VK_Q, VK_RIGHT, VK_S,
+    VK_UP, VK_W,
 };
 use windows::Win32::UI::Input::XboxController::{
     XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK,
@@ -59,6 +60,7 @@ pub struct Win32Application {
     sound_safety_bytes: u32,
     input_state: InputState,
     closing: bool,
+    recording: bool,
 }
 
 impl Win32Application {
@@ -73,6 +75,7 @@ impl Win32Application {
             sound_safety_bytes: 0,
             input_state: InputState::default(),
             closing: false,
+            recording: false,
         }
     }
 
@@ -211,6 +214,9 @@ impl Win32Application {
                 mapped_button.reset_half_transition_count();
             }
         }
+        if virtual_key == VK_L && is_down {
+            self.recording = !self.recording;
+        }
         LRESULT(0)
     }
 
@@ -346,6 +352,7 @@ impl Win32Application {
 
         let mut loader = ApplicationLoader::new();
         let mut counter = PerformanceCounter::start();
+        let mut recorder = PlaybackRecorder::new();
         loop {
             let mut message = MSG::default();
             let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
@@ -361,6 +368,11 @@ impl Win32Application {
             let application = loader.load()?;
             self.poll_controller_state();
 
+            if self.recording {
+                recorder.record(&self.input_state).unwrap_or_default(); // Ignore errors
+            } else if let Some(input_state) = recorder.playback().unwrap_or_default() {
+                self.input_state = input_state;
+            }
             self.state.handle_input(&self.input_state);
 
             if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {

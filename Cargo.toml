@@ -8,6 +8,7 @@ members = [
 
 [workspace.dependencies]
 thiserror = { version = "2.0.17" }
+bincode = { version = "2.0.1", features = ["alloc", "std"] }
 
 [workspace.lints.rust]
 rust_2018_idioms = "warn"

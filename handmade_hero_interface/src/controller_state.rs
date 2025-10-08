@@ -1,7 +1,8 @@
 use crate::button_state::ButtonState;
 use crate::joystick_state::JoystickState;
+use bincode::{Decode, Encode};
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Debug, Default, Copy, Clone, Encode, Decode)]
 pub struct ControllerState {
     a: ButtonState,
     b: ButtonState,

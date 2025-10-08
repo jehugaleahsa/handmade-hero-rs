@@ -1,4 +1,6 @@
-#[derive(Debug, Default, Copy, Clone)]
+use bincode::{Decode, Encode};
+
+#[derive(Debug, Default, Copy, Clone, Encode, Decode)]
 pub struct ButtonState {
     ended_down: bool,
     half_transition_count: u16,
