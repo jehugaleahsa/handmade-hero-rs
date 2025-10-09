@@ -14,7 +14,8 @@ enum State {
 #[derive(Debug, Default)]
 pub struct PlaybackRecorder {
     state: State,
-    recordings: usize,
+    total_recordings: usize,
+    remaining_recordings: usize,
 }
 
 impl PlaybackRecorder {
@@ -24,7 +25,8 @@ impl PlaybackRecorder {
     pub fn new() -> Self {
         Self {
             state: State::None,
-            recordings: 0,
+            total_recordings: 0,
+            remaining_recordings: 0,
         }
     }
 
@@ -32,7 +34,7 @@ impl PlaybackRecorder {
         let writer = self.get_recording_file()?;
         bincode::encode_into_std_write(input, writer, bincode::config::standard())
             .map_err(|e| ApplicationError::wrap("Could not write to the recording file", e))?;
-        self.recordings += 1;
+        self.total_recordings += 1;
         Ok(())
     }
 
@@ -48,10 +50,10 @@ impl PlaybackRecorder {
                 .map_err(|e| ApplicationError::wrap("Could not create the recording file", e))?;
             let writer = BufWriter::new(file);
             self.state = State::Recording(writer);
-            self.recordings = 0;
             let State::Recording(ref mut recording_file) = self.state else {
                 unreachable!("We just assigned the state to recording but it's not assigned!");
             };
+            self.total_recordings = 0;
             recording_file
         };
         Ok(recording_file)
@@ -62,7 +64,7 @@ impl PlaybackRecorder {
             return Ok(None);
         };
         if let Ok(input) = bincode::decode_from_reader(reader, bincode::config::standard()) {
-            self.recordings -= 1;
+            self.remaining_recordings -= 1;
             Ok(Some(input))
         } else {
             self.state = State::None;
@@ -71,22 +73,39 @@ impl PlaybackRecorder {
     }
 
     fn get_playback_file(&mut self) -> Result<Option<&mut BufReader<File>>> {
-        if self.recordings == 0 {
-            return Ok(None);
-        }
         match self.state {
-            State::Playing(ref mut file) => Ok(Some(file)),
             State::None => Ok(None),
+            State::Playing(ref mut file) => {
+                if self.remaining_recordings == 0 {
+                    // Avoid trying to read an empty file.
+                    Ok(None)
+                } else {
+                    Ok(Some(file))
+                }
+            }
             State::Recording(_) => {
-                let file = File::open(Self::RECORD_PATH)
-                    .map_err(|e| ApplicationError::wrap("Could not open the recording file", e))?;
-                let reader = BufReader::new(file);
-                self.state = State::Playing(reader);
+                self.start_playing()?;
                 let State::Playing(ref mut recording_file) = self.state else {
                     unreachable!("We just assigned the state to playback but it's not assigned!");
                 };
                 Ok(Some(recording_file))
             }
         }
+    }
+
+    pub fn reset_playback(&mut self) -> Result<()> {
+        if let State::Playing(_) = self.state {
+            self.start_playing()?;
+        }
+        Ok(())
+    }
+
+    fn start_playing(&mut self) -> Result<()> {
+        let file = File::open(Self::RECORD_PATH)
+            .map_err(|e| ApplicationError::wrap("Could not open the recording file", e))?;
+        let reader = BufReader::new(file);
+        self.state = State::Playing(reader);
+        self.remaining_recordings = self.total_recordings;
+        Ok(())
     }
 }

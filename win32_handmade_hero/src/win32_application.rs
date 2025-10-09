@@ -26,8 +26,8 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    VIRTUAL_KEY, VK_A, VK_D, VK_DOWN, VK_E, VK_ESCAPE, VK_F4, VK_L, VK_LEFT, VK_Q, VK_RIGHT, VK_S,
-    VK_UP, VK_W,
+    GetKeyState, VIRTUAL_KEY, VK_A, VK_CONTROL, VK_D, VK_DOWN, VK_E, VK_ESCAPE, VK_F4, VK_L,
+    VK_LEFT, VK_Q, VK_RIGHT, VK_S, VK_UP, VK_W,
 };
 use windows::Win32::UI::Input::XboxController::{
     XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK,
@@ -50,6 +50,13 @@ use windows::core::{Error, PCWSTR, Result as Win32Result, w};
 const DEFAULT_REFRESH_RATE: u32 = 60;
 
 #[derive(Debug)]
+pub enum RecordingState {
+    None,
+    Recording,
+    Playing,
+}
+
+#[derive(Debug)]
 pub struct Win32Application {
     state: ApplicationState,
     window_handle: HWND,
@@ -59,7 +66,7 @@ pub struct Win32Application {
     sound_index: Option<u32>,
     sound_safety_bytes: u32,
     closing: bool,
-    recording: bool,
+    recording_state: RecordingState,
 }
 
 impl Win32Application {
@@ -73,7 +80,7 @@ impl Win32Application {
             sound_index: None,
             sound_safety_bytes: 0,
             closing: false,
-            recording: false,
+            recording_state: RecordingState::None,
         }
     }
 
@@ -225,7 +232,18 @@ impl Win32Application {
             }
         }
         if virtual_key == VK_L && is_down {
-            self.recording = !self.recording;
+            // Hitting 'L' begins a recording sessions.
+            // Hitting 'L' again causes the recording session to end.
+            // The recording will play back in an infinite loop until CTRL+L is hit.
+            let control_state = unsafe { GetKeyState(i32::from(VK_CONTROL.0)) };
+            let is_control_down = (control_state & (1 << 15)) != 0;
+            self.recording_state = match (&self.recording_state, is_control_down) {
+                (RecordingState::None | RecordingState::Playing, false) => {
+                    RecordingState::Recording
+                }
+                (RecordingState::Recording, false) => RecordingState::Playing,
+                (_, true) => RecordingState::None,
+            };
         }
         LRESULT(0)
     }
@@ -378,12 +396,16 @@ impl Win32Application {
             let application = loader.load()?;
             self.poll_controller_state();
 
-            if self.recording {
+            if let RecordingState::Recording = self.recording_state {
                 recorder
                     .record(self.state.input_state())
                     .unwrap_or_default(); // Ignore errors
-            } else if let Some(input_state) = recorder.playback().unwrap_or_default() {
-                *self.state.input_state_mut() = input_state;
+            } else if let RecordingState::Playing = self.recording_state {
+                if let Some(input_state) = recorder.playback().unwrap_or_default() {
+                    *self.state.input_state_mut() = input_state;
+                } else {
+                    recorder.reset_playback().unwrap_or_default(); // We miss a frame here
+                }
             }
             self.state.handle_input();
 
