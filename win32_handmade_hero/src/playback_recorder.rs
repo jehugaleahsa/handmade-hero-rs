@@ -14,6 +14,7 @@ enum State {
 #[derive(Debug, Default)]
 pub struct PlaybackRecorder {
     state: State,
+    recordings: usize,
 }
 
 impl PlaybackRecorder {
@@ -21,13 +22,17 @@ impl PlaybackRecorder {
 
     #[inline]
     pub fn new() -> Self {
-        Self { state: State::None }
+        Self {
+            state: State::None,
+            recordings: 0,
+        }
     }
 
     pub fn record(&mut self, input: &InputState) -> Result<()> {
         let writer = self.get_recording_file()?;
         bincode::encode_into_std_write(input, writer, bincode::config::standard())
             .map_err(|e| ApplicationError::wrap("Could not write to the recording file", e))?;
+        self.recordings += 1;
         Ok(())
     }
 
@@ -43,6 +48,7 @@ impl PlaybackRecorder {
                 .map_err(|e| ApplicationError::wrap("Could not create the recording file", e))?;
             let writer = BufWriter::new(file);
             self.state = State::Recording(writer);
+            self.recordings = 0;
             let State::Recording(ref mut recording_file) = self.state else {
                 unreachable!("We just assigned the state to recording but it's not assigned!");
             };
@@ -56,6 +62,7 @@ impl PlaybackRecorder {
             return Ok(None);
         };
         if let Ok(input) = bincode::decode_from_reader(reader, bincode::config::standard()) {
+            self.recordings -= 1;
             Ok(Some(input))
         } else {
             self.state = State::None;
@@ -64,6 +71,9 @@ impl PlaybackRecorder {
     }
 
     fn get_playback_file(&mut self) -> Result<Option<&mut BufReader<File>>> {
+        if self.recordings == 0 {
+            return Ok(None);
+        }
         match self.state {
             State::Playing(ref mut file) => Ok(Some(file)),
             State::None => Ok(None),

@@ -1,5 +1,5 @@
 use handmade_hero_interface::Application;
-use handmade_hero_interface::application_state::ApplicationState;
+use handmade_hero_interface::application_state::GameState;
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::pixel::Pixel;
 use handmade_hero_interface::render_context::RenderContext;
@@ -22,8 +22,8 @@ impl ApplicationPlugin {
         let player_top =
             (f32::from(context.player_y()) + -100f32 * (context.jump_time() * 2f32).sin()) as usize;
         let player_left = usize::from(context.player_x());
-        let player_bottom = player_top.saturating_add(usize::from(ApplicationState::PLAYER_HEIGHT));
-        let player_right = player_left.saturating_add(usize::from(ApplicationState::PLAYER_WIDTH));
+        let player_bottom = player_top.saturating_add(usize::from(GameState::PLAYER_HEIGHT));
+        let player_right = player_left.saturating_add(usize::from(GameState::PLAYER_WIDTH));
         let pitch = usize::from(context.width());
         for y in player_top..player_bottom {
             for x in player_left..player_right {

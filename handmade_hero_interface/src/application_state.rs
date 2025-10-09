@@ -1,6 +1,7 @@
 use crate::controller_state::ControllerState;
 use crate::input_state::InputState;
 use crate::stereo_sample::StereoSample;
+use bincode::{Decode, Encode};
 use std::f32::consts::PI;
 use std::ops::Neg;
 
@@ -10,8 +11,8 @@ pub const DEFAULT_VOLUME: i16 = 500;
 #[allow(clippy::cast_possible_truncation)]
 pub const BYTES_PER_SAMPLE: u32 = size_of::<StereoSample>() as u32;
 
-#[derive(Debug)]
-pub struct ApplicationState {
+#[derive(Debug, Encode, Decode)]
+pub struct GameState {
     x_offset: u16,
     y_offset: u16,
     sound_hertz: u32,
@@ -28,77 +29,33 @@ pub struct ApplicationState {
     jump_time: f32,
 }
 
-impl ApplicationState {
-    const FULL_CIRCLE: f32 = 2.0f32 * PI;
+impl GameState {
     pub const PLAYER_WIDTH: u16 = 10;
     pub const PLAYER_HEIGHT: u16 = 10;
 
+    #[inline]
     #[must_use]
-    pub fn new() -> Self {
-        Self {
-            x_offset: 0,
-            y_offset: 0,
-            sound_hertz: 256,
-            sound_theta: 0f32,
-            sound_samples_per_seconds: SAMPLES_PER_SECOND,
-            sound_bytes_per_sample: BYTES_PER_SAMPLE,
-            sound_bits_per_sample: BITS_PER_SAMPLE,
-            sound_channel_count: StereoSample::CHANNEL_COUNT,
-            sound_volume: DEFAULT_VOLUME,
-            player_x: 0,
-            player_y: 0,
-            width: 0,
-            height: 0,
-            jump_time: 0f32,
-        }
+    pub fn player_x(&self) -> u16 {
+        self.player_x
+    }
+
+    #[inline]
+    pub fn set_player_x(&mut self, value: u16) {
+        self.player_x = value.min(self.width - Self::PLAYER_WIDTH);
     }
 
     #[inline]
     #[must_use]
-    pub fn y_offset(&self) -> u16 {
-        self.y_offset
+    pub fn player_y(&self) -> u16 {
+        self.player_y
     }
 
     #[inline]
-    #[must_use]
-    pub fn x_offset(&self) -> u16 {
-        self.x_offset
+    pub fn set_player_y(&mut self, value: u16) {
+        self.player_y = value.min(self.height - Self::PLAYER_HEIGHT);
     }
 
-    #[inline]
-    #[must_use]
-    pub fn time_delta(&self) -> f32 {
-        Self::FULL_CIRCLE / self.calculate_wave_period()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sound_theta(&self) -> f32 {
-        self.sound_theta
-    }
-
-    #[inline]
-    pub fn advance_sound_theta(&mut self, amount: f32) {
-        self.sound_theta += amount;
-        if self.sound_theta >= Self::FULL_CIRCLE {
-            self.sound_theta -= Self::FULL_CIRCLE;
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sound_volume(&self) -> i16 {
-        self.sound_volume
-    }
-
-    pub fn handle_input(&mut self, input_state: &InputState) {
-        self.handle_keyboard_input(input_state.keyboard());
-        for controller in input_state.controllers() {
-            self.handle_controller_input(controller);
-        }
-    }
-
-    fn handle_keyboard_input(&mut self, keyboard: &ControllerState) {
+    pub fn handle_keyboard_input(&mut self, keyboard: &ControllerState) {
         if !keyboard.enabled() {
             return;
         }
@@ -106,21 +63,22 @@ impl ApplicationState {
         let shift_left = keyboard.left().half_transition_count();
         let shift_right = keyboard.right().half_transition_count();
         let shift_x = shift_right.cast_signed() - shift_left.cast_signed();
-        self.shift_x(shift_x.neg().saturating_mul(5));
 
         let shift_up = keyboard.up().half_transition_count();
         let shift_down = keyboard.down().half_transition_count();
         let shift_y = shift_up.cast_signed() - shift_down.cast_signed();
+
+        self.shift_x(shift_x.neg().saturating_mul(5));
         self.shift_y(shift_y.saturating_mul(5));
     }
 
-    fn handle_controller_input(&mut self, controller: &ControllerState) {
+    pub fn handle_controller_input(&mut self, controller: &ControllerState) {
         if !controller.enabled() {
             return;
         }
-        self.shift_x_using_controller(controller);
-        self.shift_y_using_controller(controller);
-        self.set_hertz_using_controller(controller);
+        Self::shift_x_using_controller(self, controller);
+        Self::shift_y_using_controller(self, controller);
+        Self::set_hertz_using_controller(self, controller);
 
         if controller.a().ended_down() && self.jump_time == 0f32 {
             self.jump();
@@ -203,97 +161,188 @@ impl ApplicationState {
     }
 
     #[inline]
+    pub fn jump(&mut self) {
+        if self.jump_time == 0f32 {
+            self.jump_time += 1.0f32;
+        }
+    }
+}
+
+#[derive(Debug, Encode, Decode)]
+pub struct ApplicationState {
+    input_state: InputState,
+    game_state: GameState,
+}
+
+impl ApplicationState {
+    const FULL_CIRCLE: f32 = 2.0f32 * PI;
+
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            input_state: InputState::default(),
+            game_state: GameState {
+                x_offset: 0,
+                y_offset: 0,
+                sound_hertz: 256,
+                sound_theta: 0f32,
+                sound_samples_per_seconds: SAMPLES_PER_SECOND,
+                sound_bytes_per_sample: BYTES_PER_SAMPLE,
+                sound_bits_per_sample: BITS_PER_SAMPLE,
+                sound_channel_count: StereoSample::CHANNEL_COUNT,
+                sound_volume: DEFAULT_VOLUME,
+                player_x: 0,
+                player_y: 0,
+                width: 0,
+                height: 0,
+                jump_time: 0f32,
+            },
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn input_state(&self) -> &InputState {
+        &self.input_state
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn input_state_mut(&mut self) -> &mut InputState {
+        &mut self.input_state
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn y_offset(&self) -> u16 {
+        self.game_state.y_offset
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn x_offset(&self) -> u16 {
+        self.game_state.x_offset
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn time_delta(&self) -> f32 {
+        Self::FULL_CIRCLE / self.calculate_wave_period()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sound_theta(&self) -> f32 {
+        self.game_state.sound_theta
+    }
+
+    #[inline]
+    pub fn advance_sound_theta(&mut self, amount: f32) {
+        self.game_state.sound_theta += amount;
+        if self.game_state.sound_theta >= Self::FULL_CIRCLE {
+            self.game_state.sound_theta -= Self::FULL_CIRCLE;
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sound_volume(&self) -> i16 {
+        self.game_state.sound_volume
+    }
+
+    pub fn handle_input(&mut self) {
+        let keyboard = self.input_state.keyboard();
+        self.game_state.handle_keyboard_input(keyboard);
+        for controller in self.input_state.controllers() {
+            self.game_state.handle_controller_input(controller);
+        }
+    }
+
+    #[inline]
     #[must_use]
     pub fn sound_channel_count(&self) -> u16 {
-        self.sound_channel_count
+        self.game_state.sound_channel_count
     }
 
     #[inline]
     #[must_use]
     pub fn sound_samples_per_second(&self) -> u32 {
-        self.sound_samples_per_seconds
+        self.game_state.sound_samples_per_seconds
     }
 
     #[inline]
     #[must_use]
     pub fn sound_bits_per_sample(&self) -> u16 {
-        self.sound_bits_per_sample
+        self.game_state.sound_bits_per_sample
     }
 
     #[inline]
     #[must_use]
     pub fn sound_bytes_per_sample(&self) -> u32 {
-        self.sound_bytes_per_sample
+        self.game_state.sound_bytes_per_sample
     }
 
     #[inline]
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn calculate_wave_period(&self) -> f32 {
-        self.sound_samples_per_seconds as f32 / self.sound_hertz as f32
+        self.game_state.sound_samples_per_seconds as f32 / self.game_state.sound_hertz as f32
     }
 
     #[inline]
     #[must_use]
     pub fn sound_buffer_size(&self) -> u32 {
-        self.sound_samples_per_seconds * self.sound_bytes_per_sample
+        self.game_state.sound_samples_per_seconds * self.game_state.sound_bytes_per_sample
     }
 
     #[inline]
     #[must_use]
     pub fn player_x(&self) -> u16 {
-        self.player_x
+        self.game_state.player_x()
     }
 
     #[inline]
     pub fn set_player_x(&mut self, value: u16) {
-        self.player_x = value.min(self.width - Self::PLAYER_WIDTH);
+        self.game_state.set_player_x(value);
     }
 
     #[inline]
     #[must_use]
     pub fn player_y(&self) -> u16 {
-        self.player_y
+        self.game_state.player_y()
     }
 
     #[inline]
     pub fn set_player_y(&mut self, value: u16) {
-        self.player_y = value.min(self.height - Self::PLAYER_HEIGHT);
+        self.game_state.set_player_y(value);
     }
 
     #[inline]
     #[must_use]
     pub fn width(&self) -> u16 {
-        self.width
+        self.game_state.width
     }
 
     #[inline]
     pub fn set_width(&mut self, value: u16) {
-        self.width = value;
+        self.game_state.width = value;
     }
 
     #[inline]
     #[must_use]
     pub fn height(&self) -> u16 {
-        self.height
+        self.game_state.height
     }
 
     #[inline]
     pub fn set_height(&mut self, value: u16) {
-        self.height = value;
-    }
-
-    #[inline]
-    pub fn jump(&mut self) {
-        if self.jump_time == 0f32 {
-            self.jump_time += 1.0f32;
-        }
+        self.game_state.height = value;
     }
 
     #[inline]
     #[must_use]
     pub fn jump_time(&self) -> f32 {
-        self.jump_time
+        self.game_state.jump_time
     }
 }
 

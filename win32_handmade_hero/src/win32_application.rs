@@ -6,10 +6,9 @@ use crate::performance_counter::PerformanceCounter;
 use crate::playback_recorder::PlaybackRecorder;
 use core::slice;
 use handmade_hero_interface::Application;
-use handmade_hero_interface::application_state::ApplicationState;
+use handmade_hero_interface::application_state::{ApplicationState, GameState};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
-use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::pixel::Pixel;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
@@ -58,7 +57,6 @@ pub struct Win32Application {
     sound_buffer: Option<Vec<StereoSample>>,
     sound_index: Option<u32>,
     sound_safety_bytes: u32,
-    input_state: InputState,
     closing: bool,
     recording: bool,
 }
@@ -73,7 +71,6 @@ impl Win32Application {
             sound_buffer: None,
             sound_index: None,
             sound_safety_bytes: 0,
-            input_state: InputState::default(),
             closing: false,
             recording: false,
         }
@@ -195,7 +192,7 @@ impl Win32Application {
             return self.destroy_window();
         }
 
-        let keyboard = self.input_state.keyboard_mut();
+        let keyboard = self.state.input_state_mut().keyboard_mut();
         let mapped_button = match virtual_key {
             VK_W | VK_UP => Some(keyboard.up_mut()),
             VK_A | VK_LEFT => Some(keyboard.left_mut()),
@@ -341,12 +338,12 @@ impl Win32Application {
             .state
             .width()
             .div(2)
-            .saturating_add(ApplicationState::PLAYER_WIDTH.div(2));
+            .saturating_add(GameState::PLAYER_WIDTH.div(2));
         let y_center = self
             .state
             .height()
             .div(2)
-            .saturating_add(ApplicationState::PLAYER_HEIGHT.div(2));
+            .saturating_add(GameState::PLAYER_HEIGHT.div(2));
         self.state.set_player_x(x_center);
         self.state.set_player_y(y_center);
 
@@ -369,11 +366,13 @@ impl Win32Application {
             self.poll_controller_state();
 
             if self.recording {
-                recorder.record(&self.input_state).unwrap_or_default(); // Ignore errors
+                recorder
+                    .record(self.state.input_state())
+                    .unwrap_or_default(); // Ignore errors
             } else if let Some(input_state) = recorder.playback().unwrap_or_default() {
-                self.input_state = input_state;
+                *self.state.input_state_mut() = input_state;
             }
-            self.state.handle_input(&self.input_state);
+            self.state.handle_input();
 
             if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
                 let mut context = RenderContext::new(&mut self.state, bitmap_buffer);
@@ -556,7 +555,8 @@ impl Win32Application {
             let mut controller_state = XINPUT_STATE::default();
             let result = unsafe { XInputGetState(controller_index, &raw mut controller_state) };
             let controller = self
-                .input_state
+                .state
+                .input_state_mut()
                 .get_or_insert_controller_mut(controller_index as usize);
             if result == ERROR_SUCCESS.0 {
                 let gamepad = &controller_state.Gamepad;
