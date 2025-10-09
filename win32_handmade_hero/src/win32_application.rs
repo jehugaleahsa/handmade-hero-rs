@@ -17,7 +17,7 @@ use std::ffi::c_void;
 use std::ops::Div;
 use std::time::Duration;
 use windows::Win32::Foundation::{
-    ERROR_SUCCESS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM,
+    COLORREF, ERROR_SUCCESS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT, TRUE, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BeginPaint, DEVMODEW, DIB_RGB_COLORS, ENUM_CURRENT_SETTINGS, EndPaint,
@@ -39,10 +39,11 @@ use windows::Win32::UI::Input::XboxController::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
-    DispatchMessageW, GWL_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, LoadCursorW, MSG,
-    PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW, SetWindowLongPtrW, TranslateMessage,
-    WINDOW_EX_STYLE, WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    DispatchMessageW, GWL_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, LWA_ALPHA,
+    LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW,
+    SetLayeredWindowAttributes, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP, WM_CLOSE,
+    WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WNDCLASSW, WS_EX_LAYERED, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 use windows::core::{Error, PCWSTR, Result as Win32Result, w};
 
@@ -78,13 +79,14 @@ impl Win32Application {
 
     pub fn create_window(&mut self, width: u16, height: u16) -> Result<()> {
         let instance = Self::get_instance()
-            .map_err(|e| ApplicationError::wrap("Could not retrieve the Windows handle.", e))?;
+            .map_err(|e| ApplicationError::wrap("Could not retrieve the Windows handle", e))?;
         let class_name = Self::create_window_class(instance)
-            .map_err(|e| ApplicationError::wrap("Failed to create the window class.", e))?;
+            .map_err(|e| ApplicationError::wrap("Failed to create the window class", e))?;
 
-        let window_handle = Self::create_win32_window(instance, class_name, self)
-            .map_err(|e| ApplicationError::wrap("Failed to create the window.", e))?;
-        self.window_handle = window_handle;
+        self.window_handle = Self::create_win32_window(instance, class_name, self)
+            .map_err(|e| ApplicationError::wrap("Failed to create the window", e))?;
+        self.set_transparency(true)
+            .map_err(|e| ApplicationError::wrap("Failed to display the window", e))?;
 
         self.resize_window(width, height);
 
@@ -150,7 +152,10 @@ impl Win32Application {
     ) -> LRESULT {
         match message {
             WM_CLOSE | WM_DESTROY => self.destroy_window(),
-            WM_PAINT => self.redraw_window(self.window_handle).unwrap_or(LRESULT(0)), // Ignore error
+            WM_ACTIVATEAPP => self
+                .set_transparency(w_param.0 == TRUE.0 as usize)
+                .unwrap_or(LRESULT(0)),
+            WM_PAINT => self.redraw_window().unwrap_or(LRESULT(0)), // Ignore error
             WM_SYSKEYDOWN | WM_SYSKEYUP | WM_KEYDOWN | WM_KEYUP => {
                 self.handle_key_press(w_param, l_param)
             }
@@ -158,13 +163,21 @@ impl Win32Application {
         }
     }
 
-    fn redraw_window(&mut self, window_handle: HWND) -> Win32Result<LRESULT> {
+    fn set_transparency(&self, is_active: bool) -> Win32Result<LRESULT> {
+        let alpha = if is_active { 0xFF } else { 0x40 };
+        unsafe {
+            SetLayeredWindowAttributes(self.window_handle, COLORREF::default(), alpha, LWA_ALPHA)?;
+        }
+        Ok(LRESULT(0))
+    }
+
+    fn redraw_window(&mut self) -> Win32Result<LRESULT> {
         let mut paint_struct = PAINTSTRUCT::default();
-        let device_context = unsafe { BeginPaint(window_handle, &raw mut paint_struct) };
-        self.write_buffer(device_context, window_handle)?;
+        let device_context = unsafe { BeginPaint(self.window_handle, &raw mut paint_struct) };
+        self.write_buffer(device_context, self.window_handle)?;
         unsafe {
             #[allow(unused_must_use)]
-            EndPaint(window_handle, &raw mut paint_struct);
+            EndPaint(self.window_handle, &raw mut paint_struct);
         }
         Ok(LRESULT(0))
     }
@@ -226,7 +239,7 @@ impl Win32Application {
             std::ptr::from_ref::<Win32Application>(application).cast::<c_void>();
         unsafe {
             CreateWindowExW(
-                WINDOW_EX_STYLE::default(),
+                WS_EX_TOPMOST | WS_EX_LAYERED,
                 class_name,
                 w!("Handmade Hero"),
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
