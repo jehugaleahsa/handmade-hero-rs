@@ -45,7 +45,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW,
     SetLayeredWindowAttributes, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP, WM_CLOSE,
     WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    WNDCLASSW, WS_EX_LAYERED, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    WNDCLASSW, WS_EX_LAYERED, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 use windows::core::{Error, PCWSTR, Result as Win32Result, w};
 
@@ -266,7 +266,7 @@ impl Win32Application {
         let application_pointer = std::ptr::from_ref::<Win32Application>(self).cast::<c_void>();
         unsafe {
             CreateWindowExW(
-                WS_EX_TOPMOST | WS_EX_LAYERED,
+                WS_EX_LAYERED,
                 class_name,
                 w!("Handmade Hero"),
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
