@@ -33,4 +33,9 @@ impl ButtonState {
     pub fn reset_half_transition_count(&mut self) {
         self.half_transition_count = 0;
     }
+
+    pub fn clear(&mut self) {
+        self.ended_down = false;
+        self.half_transition_count = 0;
+    }
 }

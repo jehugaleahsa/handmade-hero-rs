@@ -225,4 +225,19 @@ impl ControllerState {
     pub fn right_joystick_mut(&mut self) -> &mut JoystickState {
         &mut self.right_joystick
     }
+
+    pub fn clear(&mut self) {
+        self.a.clear();
+        self.b.clear();
+        self.x.clear();
+        self.y.clear();
+        self.left_shoulder.clear();
+        self.right_shoulder.clear();
+        self.up.clear();
+        self.down.clear();
+        self.left.clear();
+        self.right.clear();
+        self.start.clear();
+        self.back.clear();
+    }
 }

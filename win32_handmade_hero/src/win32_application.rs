@@ -240,13 +240,18 @@ impl Win32Application {
             // The recording will play back in an infinite loop until CTRL+L is hit.
             let control_state = unsafe { GetKeyState(i32::from(VK_CONTROL.0)) };
             let is_control_down = (control_state & (1 << 15)) != 0;
-            self.recording_state = match (&self.recording_state, is_control_down) {
+            match (&self.recording_state, is_control_down) {
                 (RecordingState::None | RecordingState::Playing, false) => {
-                    RecordingState::Recording
+                    self.recording_state = RecordingState::Recording;
                 }
-                (RecordingState::Recording, false) => RecordingState::Playing,
-                (_, true) => RecordingState::None,
-            };
+                (RecordingState::Recording, false) => {
+                    self.recording_state = RecordingState::Playing;
+                }
+                (_, true) => {
+                    self.recording_state = RecordingState::None;
+                    keyboard.clear();
+                }
+            }
         }
         LRESULT(0)
     }
