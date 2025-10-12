@@ -3,6 +3,7 @@ use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::input_state::InputState;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
+use std::path::PathBuf;
 
 #[derive(Debug, Default)]
 enum State {
@@ -14,17 +15,20 @@ enum State {
 
 #[derive(Debug, Default)]
 pub struct PlaybackRecorder {
+    recording_directory: PathBuf,
     state: State,
     total_recordings: usize,
     remaining_recordings: usize,
 }
 
 impl PlaybackRecorder {
-    const RECORD_PATH: &'static str = "recording.hmr";
+    const RECORD_FILE_NAME: &'static str = "recording.hmr";
 
     #[inline]
-    pub fn new() -> Self {
+    #[must_use]
+    pub fn new(recording_directory: impl Into<PathBuf>) -> Self {
         Self {
+            recording_directory: recording_directory.into(),
             state: State::None,
             total_recordings: 0,
             remaining_recordings: 0,
@@ -45,11 +49,12 @@ impl PlaybackRecorder {
         let recording_file = if let State::Recording(ref mut recording_file) = self.state {
             recording_file
         } else {
+            let file_path = self.recording_directory.join(Self::RECORD_FILE_NAME);
             let file = File::options()
                 .create(true)
                 .write(true)
                 .truncate(true)
-                .open(Self::RECORD_PATH)
+                .open(file_path)
                 .map_err(|e| ApplicationError::wrap("Could not create the recording file", e))?;
             let writer = BufWriter::new(file);
             self.state = State::Recording(writer);
@@ -104,7 +109,8 @@ impl PlaybackRecorder {
     }
 
     fn start_playing(&mut self) -> Result<()> {
-        let file = File::open(Self::RECORD_PATH)
+        let file_path = self.recording_directory.join(Self::RECORD_FILE_NAME);
+        let file = File::open(file_path)
             .map_err(|e| ApplicationError::wrap("Could not open the recording file", e))?;
         let reader = BufReader::new(file);
         self.state = State::Playing(reader);

@@ -34,14 +34,18 @@ impl Application for ApplicationStub {
 }
 
 pub struct ApplicationLoader {
+    plugin_directory: PathBuf,
     last_counter: usize,
     last_modified: Option<u64>,
     stub: Option<ApplicationStub>,
 }
 
 impl ApplicationLoader {
-    pub fn new() -> Self {
+    #[inline]
+    #[must_use]
+    pub fn new(plugin_directory: impl Into<PathBuf>) -> Self {
         Self {
+            plugin_directory: plugin_directory.into(),
             last_counter: 0,
             last_modified: None,
             stub: None,
@@ -49,20 +53,20 @@ impl ApplicationLoader {
     }
 
     pub fn load(&mut self) -> Result<&ApplicationStub> {
-        let current_directory = Self::current_directory()?;
-
-        let normal_name = current_directory.join(library_filename("handmade_hero_plugin"));
+        let normal_name = self
+            .plugin_directory
+            .join(library_filename("handmade_hero_plugin"));
         let metadata = std::fs::metadata(&normal_name).map_err(|e| {
             ApplicationError::wrap("Failed to get the application plugin file metadata", e)
         })?;
 
-        let mut running_name = current_directory.join(self.current_running_name());
+        let mut running_name = self.plugin_directory.join(self.current_running_name());
         let current_modified = metadata.last_write_time();
         if let Some(last_modified) = self.last_modified {
             if last_modified < current_modified {
                 while Self::copy_plugin_library(&normal_name, &running_name).is_err() {
                     self.last_counter += 1;
-                    running_name = current_directory.join(self.current_running_name());
+                    running_name = self.plugin_directory.join(self.current_running_name());
                 }
                 self.stub = None;
                 self.last_modified = Some(current_modified);
@@ -90,16 +94,6 @@ impl ApplicationLoader {
         Ok(application)
     }
 
-    fn current_directory() -> Result<PathBuf> {
-        let current_exe_path = std::env::current_exe().map_err(|e| {
-            ApplicationError::wrap("Failed to retrieve the current executable path", e)
-        })?;
-        let current_directory = current_exe_path.parent().ok_or_else(|| {
-            ApplicationError::new("Failed to retrieve the current executable parent directory")
-        })?;
-        Ok(current_directory.to_path_buf())
-    }
-
     fn current_running_name(&self) -> OsString {
         Self::running_name(self.last_counter)
     }
@@ -119,11 +113,9 @@ impl ApplicationLoader {
 impl Drop for ApplicationLoader {
     fn drop(&mut self) {
         self.stub = None;
-        if let Ok(current_directory) = Self::current_directory() {
-            for counter in 0..=self.last_counter {
-                let running_name = current_directory.join(Self::running_name(counter));
-                std::fs::remove_file(running_name).unwrap_or_default(); // Okay to fail
-            }
+        for counter in 0..=self.last_counter {
+            let running_name = self.plugin_directory.join(Self::running_name(counter));
+            std::fs::remove_file(running_name).unwrap_or_default(); // Okay to fail
         }
     }
 }

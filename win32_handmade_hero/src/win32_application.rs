@@ -16,6 +16,7 @@ use handmade_hero_interface::stereo_sample::StereoSample;
 use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::ops::Div;
+use std::path::PathBuf;
 use std::time::Duration;
 use windows::Win32::Foundation::{
     COLORREF, ERROR_SUCCESS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT, TRUE, WPARAM,
@@ -369,15 +370,17 @@ impl Win32Application {
         self.state.set_player_x(x_center);
         self.state.set_player_y(y_center);
 
-        let mut loader = ApplicationLoader::new();
+        let exe_directory = Self::exe_directory()?;
+        let mut loader = ApplicationLoader::new(&exe_directory);
+        let mut recorder = PlaybackRecorder::new(&exe_directory);
         let mut counter = PerformanceCounter::start();
-        let mut recorder = PlaybackRecorder::new();
         loop {
             let mut message = MSG::default();
             let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
             if message_result.0 < 0 || message.message == WM_QUIT {
                 return Ok(());
             }
+
             unsafe {
                 #[allow(unused_must_use)]
                 TranslateMessage(&raw const message);
@@ -440,6 +443,16 @@ impl Win32Application {
         let sound_bytes_per_second = sound_samples_per_second * sound_bytes_per_sample;
         let sound_bytes_per_game_hertz = sound_bytes_per_second / game_update_hertz;
         sound_bytes_per_game_hertz / 2
+    }
+
+    fn exe_directory() -> Result<PathBuf> {
+        let current_exe_path = std::env::current_exe().map_err(|e| {
+            ApplicationError::wrap("Failed to retrieve the current executable path", e)
+        })?;
+        let current_directory = current_exe_path.parent().ok_or_else(|| {
+            ApplicationError::new("Failed to retrieve the current executable parent directory")
+        })?;
+        Ok(current_directory.to_path_buf())
     }
 
     fn find_monitor_refresh_hertz() -> u32 {
