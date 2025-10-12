@@ -24,7 +24,6 @@ pub struct GameState {
     width: u16,
     height: u16,
     jump_time: f32,
-    sound_index: Option<u32>,
 }
 
 impl GameState {
@@ -50,7 +49,6 @@ impl GameState {
             width: 0,
             height: 0,
             jump_time: 0f32,
-            sound_index: None,
         }
     }
 
@@ -206,17 +204,6 @@ impl GameState {
     #[inline]
     pub fn set_jump_time(&mut self, value: f32) {
         self.jump_time = value;
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sound_index(&self) -> Option<u32> {
-        self.sound_index
-    }
-
-    #[inline]
-    pub fn set_sound_index(&mut self, value: Option<u32>) {
-        self.sound_index = value;
     }
 }
 

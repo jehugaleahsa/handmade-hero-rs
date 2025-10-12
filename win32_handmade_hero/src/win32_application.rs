@@ -66,6 +66,7 @@ pub struct Win32Application {
     bitmap_info: BITMAPINFO,
     bitmap_buffer: Option<Vec<Pixel>>,
     sound_buffer: Option<Vec<StereoSample>>,
+    sound_index: Option<u32>,
     sound_safety_bytes: u32,
     closing: bool,
     recording_state: RecordingState,
@@ -80,6 +81,7 @@ impl Win32Application {
             bitmap_info: BITMAPINFO::default(),
             bitmap_buffer: None,
             sound_buffer: None,
+            sound_index: None,
             sound_safety_bytes: 0,
             closing: false,
             recording_state: RecordingState::None,
@@ -390,6 +392,7 @@ impl Win32Application {
                 DispatchMessageW(&raw const message);
             };
 
+            let application = loader.load()?;
             self.poll_controller_state();
 
             if let RecordingState::Recording = self.recording_state {
@@ -403,8 +406,6 @@ impl Win32Application {
                     recorder.reset_playback().unwrap_or_default(); // We miss a frame here
                 }
             }
-
-            let application = loader.load()?;
             application.process_input(&self.input, &mut self.state);
 
             if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
@@ -412,7 +413,7 @@ impl Win32Application {
                 application.render(&mut context);
             }
 
-            if let Some(sound_index) = self.state.sound_index()
+            if let Some(sound_index) = self.sound_index
                 && let Some(ref mut sound_buffer) = sound_buffer
             {
                 self.fill_sound_buffer(
@@ -433,11 +434,10 @@ impl Win32Application {
             // play cursor is from the write cursor. We initialize the sound index
             // as a flag for sound to start being written now that the metrics are
             // recorded.
-            if self.state.sound_index().is_none()
+            if self.sound_index.is_none()
                 && let Some(ref sound_buffer) = sound_buffer
             {
-                self.state
-                    .set_sound_index(self.get_sample_index(sound_buffer));
+                self.sound_index = self.get_sample_index(sound_buffer);
             }
         }
     }
@@ -563,8 +563,7 @@ impl Win32Application {
         );
         let sample_count = u32::try_from(sample_count)
             .expect("The sound index could not be converted to an unsigned 32-bit integer.");
-        self.state
-            .set_sound_index(Some(sound_index.wrapping_add(sample_count)));
+        self.sound_index = Some(sound_index.wrapping_add(sample_count));
     }
 
     fn copy_sound_buffer(
