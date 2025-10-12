@@ -93,7 +93,8 @@ impl Win32Application {
         let class_name = Self::create_window_class(instance)
             .map_err(|e| ApplicationError::wrap("Failed to create the window class", e))?;
 
-        self.window_handle = Self::create_win32_window(instance, class_name, self)
+        self.window_handle = self
+            .create_win32_window(instance, class_name, width, height)
             .map_err(|e| ApplicationError::wrap("Failed to create the window", e))?;
         self.set_transparency(true)
             .map_err(|e| ApplicationError::wrap("Failed to display the window", e))?;
@@ -252,12 +253,13 @@ impl Win32Application {
     }
 
     fn create_win32_window(
+        &self,
         instance: HINSTANCE,
         class_name: PCWSTR,
-        application: &Win32Application,
+        width: u16,
+        height: u16,
     ) -> Win32Result<HWND> {
-        let application_pointer =
-            std::ptr::from_ref::<Win32Application>(application).cast::<c_void>();
+        let application_pointer = std::ptr::from_ref::<Win32Application>(self).cast::<c_void>();
         unsafe {
             CreateWindowExW(
                 WS_EX_TOPMOST | WS_EX_LAYERED,
@@ -266,8 +268,8 @@ impl Win32Application {
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
-                800,
-                600,
+                i32::from(width.cast_signed()),
+                i32::from(height.cast_signed()),
                 None,
                 None,
                 Some(instance),
@@ -298,8 +300,6 @@ impl Win32Application {
         let source_height = i32::from(self.state.height());
 
         let client_rectangle = Self::get_client_rectangle(window_handle)?;
-        let destination_width = Self::calculate_width(&client_rectangle);
-        let destination_height = Self::calculate_height(&client_rectangle);
 
         unsafe {
             let bitmap_data = bitmap_buffer.as_ptr().cast::<c_void>();
@@ -307,8 +307,8 @@ impl Win32Application {
                 device_context,
                 client_rectangle.left,
                 client_rectangle.top,
-                destination_width,
-                destination_height,
+                source_width,
+                source_height,
                 0,
                 0,
                 source_width,
@@ -326,18 +326,6 @@ impl Win32Application {
         let mut client_rectangle = RECT::default();
         unsafe { GetClientRect(window_handle, &raw mut client_rectangle)? };
         Ok(client_rectangle)
-    }
-
-    #[inline]
-    #[must_use]
-    fn calculate_width(rectangle: &RECT) -> i32 {
-        rectangle.right - rectangle.left
-    }
-
-    #[inline]
-    #[must_use]
-    fn calculate_height(rectangle: &RECT) -> i32 {
-        rectangle.bottom - rectangle.top
     }
 
     pub fn run(&mut self) -> Result<()> {

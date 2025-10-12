@@ -25,6 +25,6 @@ fn main() -> Result<()> {
 #[cfg(target_os = "windows")]
 fn run_windows() -> Result<()> {
     let mut windows_application = Win32Application::new();
-    windows_application.create_window(720, 480)?;
+    windows_application.create_window(1024, 720)?;
     windows_application.run()
 }
