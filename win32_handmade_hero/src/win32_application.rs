@@ -5,10 +5,11 @@ use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::performance_counter::PerformanceCounter;
 use crate::playback_recorder::PlaybackRecorder;
 use core::slice;
-use handmade_hero_interface::Application;
-use handmade_hero_interface::application_state::{ApplicationState, GameState};
+use handmade_hero_interface::application::Application;
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
+use handmade_hero_interface::game_state::GameState;
+use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::pixel::Pixel;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
@@ -58,7 +59,8 @@ pub enum RecordingState {
 
 #[derive(Debug)]
 pub struct Win32Application {
-    state: ApplicationState,
+    state: GameState,
+    input: InputState,
     window_handle: HWND,
     bitmap_info: BITMAPINFO,
     bitmap_buffer: Option<Vec<Pixel>>,
@@ -72,7 +74,8 @@ pub struct Win32Application {
 impl Win32Application {
     pub fn new() -> Win32Application {
         Win32Application {
-            state: ApplicationState::new(),
+            state: GameState::new(),
+            input: InputState::new(),
             window_handle: HWND::default(),
             bitmap_info: BITMAPINFO::default(),
             bitmap_buffer: None,
@@ -212,7 +215,7 @@ impl Win32Application {
             return self.destroy_window();
         }
 
-        let keyboard = self.state.input_state_mut().keyboard_mut();
+        let keyboard = self.input.keyboard_mut();
         let mapped_button = match virtual_key {
             VK_W | VK_UP => Some(keyboard.up_mut()),
             VK_A | VK_LEFT => Some(keyboard.left_mut()),
@@ -398,16 +401,16 @@ impl Win32Application {
 
             if let RecordingState::Recording = self.recording_state {
                 recorder
-                    .record(self.state.input_state())
+                    .record(&self.input, &self.state)
                     .unwrap_or_default(); // Ignore errors
             } else if let RecordingState::Playing = self.recording_state {
-                if let Some(input_state) = recorder.playback().unwrap_or_default() {
-                    *self.state.input_state_mut() = input_state;
+                if let Some(state) = recorder.playback().unwrap_or_default() {
+                    (self.input, self.state) = state;
                 } else {
                     recorder.reset_playback().unwrap_or_default(); // We miss a frame here
                 }
             }
-            self.state.handle_input();
+            application.process_input(&self.input, &mut self.state);
 
             if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
                 let mut context = RenderContext::new(&mut self.state, bitmap_buffer);
@@ -590,8 +593,7 @@ impl Win32Application {
             let mut controller_state = XINPUT_STATE::default();
             let result = unsafe { XInputGetState(controller_index, &raw mut controller_state) };
             let controller = self
-                .state
-                .input_state_mut()
+                .input
                 .get_or_insert_controller_mut(controller_index as usize);
             if result == ERROR_SUCCESS.0 {
                 let gamepad = &controller_state.Gamepad;

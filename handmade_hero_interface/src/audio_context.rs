@@ -1,16 +1,16 @@
-use crate::application_state::ApplicationState;
+use crate::game_state::GameState;
 use crate::stereo_sample::StereoSample;
 
 #[derive(Debug)]
 pub struct AudioContext<'a> {
-    state: &'a mut ApplicationState,
+    state: &'a mut GameState,
     sound_buffer: &'a mut [StereoSample],
 }
 
 impl<'a> AudioContext<'a> {
     #[inline]
     #[must_use]
-    pub fn new(state: &'a mut ApplicationState, sound_buffer: &'a mut [StereoSample]) -> Self {
+    pub fn new(state: &'a mut GameState, sound_buffer: &'a mut [StereoSample]) -> Self {
         Self {
             state,
             sound_buffer,

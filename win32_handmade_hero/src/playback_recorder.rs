@@ -1,4 +1,5 @@
 use crate::application_error::{ApplicationError, Result};
+use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::input_state::InputState;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -30,10 +31,12 @@ impl PlaybackRecorder {
         }
     }
 
-    pub fn record(&mut self, input: &InputState) -> Result<()> {
+    pub fn record(&mut self, input: &InputState, state: &GameState) -> Result<()> {
         let writer = self.get_recording_file()?;
-        bincode::encode_into_std_write(input, writer, bincode::config::standard())
-            .map_err(|e| ApplicationError::wrap("Could not write to the recording file", e))?;
+        bincode::encode_into_std_write((input, state), writer, bincode::config::standard())
+            .map_err(|e| {
+                ApplicationError::wrap("Could not write the state to the recording file", e)
+            })?;
         self.total_recordings += 1;
         Ok(())
     }
@@ -59,13 +62,13 @@ impl PlaybackRecorder {
         Ok(recording_file)
     }
 
-    pub fn playback(&mut self) -> Result<Option<InputState>> {
+    pub fn playback(&mut self) -> Result<Option<(InputState, GameState)>> {
         let Some(reader) = self.get_playback_file()? else {
             return Ok(None);
         };
-        if let Ok(input) = bincode::decode_from_reader(reader, bincode::config::standard()) {
+        if let Ok(state) = bincode::decode_from_reader(reader, bincode::config::standard()) {
             self.remaining_recordings -= 1;
-            Ok(Some(input))
+            Ok(Some(state))
         } else {
             self.state = State::None;
             Ok(None)
