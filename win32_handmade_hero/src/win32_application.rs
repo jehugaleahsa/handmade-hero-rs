@@ -336,10 +336,10 @@ impl Win32Application {
 
     pub fn run(&mut self) -> Result<()> {
         let monitor_refresh_hertz = Self::find_monitor_refresh_hertz();
-        let game_update_hertz = monitor_refresh_hertz / 2;
-
         #[allow(clippy::cast_precision_loss)]
-        let target_frame_duration = Duration::from_secs_f32(1.0f32 / game_update_hertz as f32);
+        let game_update_hertz = monitor_refresh_hertz as f32 / 2.0f32;
+
+        let target_frame_duration = Duration::from_secs_f32(1.0f32 / game_update_hertz);
         let is_sleep_granular = unsafe {
             // Set the Windows scheduler granularity to 1ms!
             timeBeginPeriod(1) == TIMERR_NOERROR
@@ -449,12 +449,18 @@ impl Win32Application {
         }
     }
 
-    fn calculate_sound_safety_bytes(&mut self, game_update_hertz: u32) -> u32 {
+    fn calculate_sound_safety_bytes(&mut self, game_update_hertz: f32) -> u32 {
         let sound_samples_per_second = self.state.sound_samples_per_second();
         let sound_bytes_per_sample = self.state.sound_bytes_per_sample();
         let sound_bytes_per_second = sound_samples_per_second * sound_bytes_per_sample;
-        let sound_bytes_per_game_hertz = sound_bytes_per_second / game_update_hertz;
-        sound_bytes_per_game_hertz / 2
+        #[allow(clippy::cast_precision_loss)]
+        let sound_bytes_per_game_hertz = sound_bytes_per_second as f32 / game_update_hertz;
+        let safety_bytes = sound_bytes_per_game_hertz / 3.0f32;
+        #[allow(clippy::cast_precision_loss)]
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        let safety_bytes = safety_bytes as u32;
+        safety_bytes
     }
 
     fn exe_directory() -> Result<PathBuf> {
@@ -493,7 +499,7 @@ impl Win32Application {
         application: &dyn Application,
         direct_sound_buffer: &mut DirectSoundBuffer<'_>,
         sound_index: u32,
-        game_update_hertz: u32,
+        game_update_hertz: f32,
         target_frame_duration: Duration,
         performance_counter: &PerformanceCounter,
     ) {
@@ -519,7 +525,11 @@ impl Win32Application {
             Duration::default()
         };
         let remaining_time_ratio = remaining_frame_time.div_duration_f32(target_frame_duration);
-        let bytes_per_frame = (samples_per_second * bytes_per_sample) / game_update_hertz;
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        #[allow(clippy::cast_precision_loss)]
+        let bytes_per_frame =
+            ((samples_per_second * bytes_per_sample) as f32 / game_update_hertz) as u32;
         #[allow(clippy::cast_precision_loss)]
         let remaining_bytes = remaining_time_ratio * bytes_per_frame as f32;
         #[allow(clippy::cast_sign_loss)]
