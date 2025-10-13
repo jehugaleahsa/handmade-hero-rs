@@ -1,8 +1,11 @@
 use crate::game_state::GameState;
+use crate::input_state::InputState;
+use crate::mouse_state::MouseState;
 use crate::pixel::Pixel;
 
 #[derive(Debug)]
 pub struct RenderContext<'a> {
+    input: &'a InputState,
     state: &'a mut GameState,
     bitmap_buffer: &'a mut [Pixel],
 }
@@ -10,8 +13,13 @@ pub struct RenderContext<'a> {
 impl<'a> RenderContext<'a> {
     #[inline]
     #[must_use]
-    pub fn new(state: &'a mut GameState, bitmap_buffer: &'a mut [Pixel]) -> Self {
+    pub fn new(
+        input: &'a InputState,
+        state: &'a mut GameState,
+        bitmap_buffer: &'a mut [Pixel],
+    ) -> Self {
         Self {
+            input,
             state,
             bitmap_buffer,
         }
@@ -57,6 +65,12 @@ impl<'a> RenderContext<'a> {
     #[must_use]
     pub fn jump_time(&self) -> f32 {
         self.state.jump_time()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn mouse(&self) -> &MouseState {
+        self.input.mouse()
     }
 
     #[inline]

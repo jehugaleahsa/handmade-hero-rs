@@ -1,8 +1,10 @@
 use crate::controller_state::ControllerState;
+use crate::mouse_state::MouseState;
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Encode, Decode)]
 pub struct InputState {
+    mouse: MouseState,
     keyboard: ControllerState,
     controllers: Vec<ControllerState>,
 }
@@ -17,9 +19,22 @@ impl InputState {
         keyboard.set_enabled(true);
 
         Self {
+            mouse: MouseState::default(),
             keyboard,
             controllers: Vec::new(),
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn mouse(&self) -> &MouseState {
+        &self.mouse
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn mouse_mut(&mut self) -> &mut MouseState {
+        &mut self.mouse
     }
 
     #[inline]

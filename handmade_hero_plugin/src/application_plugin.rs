@@ -1,5 +1,6 @@
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::audio_context::AudioContext;
+use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::input_state::InputState;
@@ -117,13 +118,43 @@ impl ApplicationPlugin {
         let player_bottom = player_top.saturating_add(usize::from(GameState::PLAYER_HEIGHT));
         let player_right = player_left.saturating_add(usize::from(GameState::PLAYER_WIDTH));
         let pitch = usize::from(context.width());
+        let pixel = Pixel::from_rgb(0xFF, 0xFF, 0x00);
         for y in player_top..player_bottom {
             for x in player_left..player_right {
                 let index = y * pitch + x;
-                let pixel = Pixel::from_rgb(0xFF, 0xFF, 0x00);
                 context.set_pixel(index, pixel);
             }
         }
+    }
+
+    fn render_mouse(context: &mut RenderContext<'_>) {
+        let mouse = context.mouse();
+        let player_height = u32::from(GameState::PLAYER_HEIGHT);
+        let mouse_top = u32::max(0, mouse.y().saturating_sub(player_height / 2));
+        let mouse_bottom = mouse_top.saturating_add(player_height);
+        let height = u32::from(context.height());
+        let mouse_bottom = u32::min(mouse_bottom, height);
+
+        let player_width = u32::from(GameState::PLAYER_WIDTH);
+        let mouse_left = u32::max(0, mouse.x().saturating_sub(player_width / 2));
+        let mouse_right = mouse_left.saturating_add(player_width);
+        let width = u32::from(context.width());
+        let mouse_right = u32::min(mouse_right, width);
+
+        let red = Self::intensity(*mouse.left());
+        let green = Self::intensity(*mouse.middle());
+        let blue = Self::intensity(*mouse.right());
+        let pixel = Pixel::from_rgb(red, green, blue);
+        for y in mouse_top..mouse_bottom {
+            for x in mouse_left..mouse_right {
+                let index = y * width + x;
+                context.set_pixel(index as usize, pixel);
+            }
+        }
+    }
+
+    fn intensity(button: ButtonState) -> u8 {
+        if button.ended_down() { 0xFF } else { 0x00 }
     }
 }
 
@@ -154,6 +185,7 @@ impl Application for ApplicationPlugin {
             }
         }
         Self::render_player(context);
+        Self::render_mouse(context);
     }
 
     fn write_sound(&self, context: &mut AudioContext<'_>) {

@@ -19,17 +19,18 @@ use std::ops::Div;
 use std::path::PathBuf;
 use std::time::Duration;
 use windows::Win32::Foundation::{
-    COLORREF, ERROR_SUCCESS, GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, RECT, TRUE, WPARAM,
+    COLORREF, ERROR_SUCCESS, FALSE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, TRUE, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BeginPaint, DEVMODEW, DIB_RGB_COLORS, ENUM_CURRENT_SETTINGS, EndPaint,
-    EnumDisplaySettingsW, GetDC, HDC, PAINTSTRUCT, ReleaseDC, SRCCOPY, StretchDIBits,
+    BI_RGB, BITMAPINFO, BeginPaint, ClientToScreen, DEVMODEW, DIB_RGB_COLORS,
+    ENUM_CURRENT_SETTINGS, EndPaint, EnumDisplaySettingsW, GetDC, HDC, PAINTSTRUCT, ReleaseDC,
+    SRCCOPY, StretchDIBits,
 };
 use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, VIRTUAL_KEY, VK_A, VK_CONTROL, VK_D, VK_DOWN, VK_E, VK_ESCAPE, VK_F4, VK_L,
-    VK_LEFT, VK_Q, VK_RIGHT, VK_S, VK_UP, VK_W,
+    VK_LBUTTON, VK_LEFT, VK_MBUTTON, VK_Q, VK_RBUTTON, VK_RIGHT, VK_S, VK_UP, VK_W,
 };
 use windows::Win32::UI::Input::XboxController::{
     XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK,
@@ -41,8 +42,8 @@ use windows::Win32::UI::Input::XboxController::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
-    DispatchMessageW, GWL_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, LWA_ALPHA,
-    LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW,
+    DispatchMessageW, GWL_USERDATA, GetClientRect, GetCursorPos, GetWindowLongPtrW, IDC_ARROW,
+    LWA_ALPHA, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW,
     SetLayeredWindowAttributes, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP, WM_CLOSE,
     WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
     WNDCLASSW, WS_EX_LAYERED, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
@@ -124,8 +125,7 @@ impl Win32Application {
 
         let register_result = unsafe { RegisterClassW(&raw const window_class) };
         if register_result == 0 {
-            let error = unsafe { GetLastError() };
-            return Err(Error::from(error));
+            return Err(Error::from_thread());
         }
         Ok(class_name)
     }
@@ -240,8 +240,7 @@ impl Win32Application {
             // Hitting 'L' begins a recording sessions.
             // Hitting 'L' again causes the recording session to end.
             // The recording will play back in an infinite loop until CTRL+L is hit.
-            let control_state = unsafe { GetKeyState(i32::from(VK_CONTROL.0)) };
-            let is_control_down = (control_state & (1 << 15)) != 0;
+            let is_control_down = Self::is_key_down(VK_CONTROL);
             match (&self.recording_state, is_control_down) {
                 (RecordingState::None | RecordingState::Playing, false) => {
                     self.recording_state = RecordingState::Recording;
@@ -256,6 +255,11 @@ impl Win32Application {
             }
         }
         LRESULT(0)
+    }
+
+    fn is_key_down(key: VIRTUAL_KEY) -> bool {
+        let control_state = unsafe { GetKeyState(i32::from(key.0)) };
+        (control_state & (1 << 15)) != 0
     }
 
     fn create_win32_window(
@@ -394,6 +398,7 @@ impl Win32Application {
 
             let application = loader.load()?;
             self.poll_controller_state();
+            self.capture_mouse_state().unwrap_or_default(); // Ignore errors
 
             // It seems our audio can't really use playback. The computation of how many bytes
             // to write depends on how fast the previous frame took to generate. Since this will
@@ -416,7 +421,7 @@ impl Win32Application {
             application.process_input(&self.input, &mut self.state);
 
             if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
-                let mut context = RenderContext::new(&mut self.state, bitmap_buffer);
+                let mut context = RenderContext::new(&self.input, &mut self.state, bitmap_buffer);
                 application.render(&mut context);
             }
 
@@ -711,6 +716,39 @@ impl Win32Application {
         } else {
             let threshold = f32::from(XINPUT_GAMEPAD_TRIGGER_THRESHOLD.0);
             (f32::from(amount) - threshold) / (f32::from(u8::MAX) - threshold)
+        }
+    }
+
+    fn capture_mouse_state(&mut self) -> Win32Result<()> {
+        let mut client_coordinate = POINT::default();
+        unsafe {
+            if ClientToScreen(self.window_handle, &raw mut client_coordinate) == FALSE {
+                return Err(Error::from_thread());
+            }
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let mut cursor_coordinate = POINT::default();
+        unsafe {
+            GetCursorPos(&raw mut cursor_coordinate)?;
+        }
+        let mouse = self.input.mouse_mut();
+        let x = cursor_coordinate.x - client_coordinate.x;
+        let y = cursor_coordinate.y - client_coordinate.y;
+        mouse.set_x(x.cast_unsigned());
+        mouse.set_y(y.cast_unsigned());
+        Self::set_mouse_button(mouse.left_mut(), VK_LBUTTON);
+        Self::set_mouse_button(mouse.middle_mut(), VK_MBUTTON);
+        Self::set_mouse_button(mouse.right_mut(), VK_RBUTTON);
+        Ok(())
+    }
+
+    fn set_mouse_button(button: &mut ButtonState, key: VIRTUAL_KEY) {
+        let is_down = Self::is_key_down(key);
+        if is_down {
+            button.set_ended_down(true);
+            button.increment_half_transition_count();
+        } else {
+            button.set_ended_down(false);
         }
     }
 }

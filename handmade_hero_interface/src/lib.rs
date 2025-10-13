@@ -5,6 +5,7 @@ pub mod controller_state;
 pub mod game_state;
 pub mod input_state;
 pub mod joystick_state;
+mod mouse_state;
 pub mod pixel;
 pub mod render_context;
 pub mod stereo_sample;
