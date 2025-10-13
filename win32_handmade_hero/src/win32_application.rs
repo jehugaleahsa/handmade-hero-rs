@@ -395,6 +395,12 @@ impl Win32Application {
             let application = loader.load()?;
             self.poll_controller_state();
 
+            // It seems our audio can't really use playback. The computation of how many bytes
+            // to write depends on how fast the previous frame took to generate. Since this will
+            // be different each frame, trying to restore the sound theta causes skipping and
+            // other sound artifacts. So we just capture theta upfront and restore it after.
+            // Hopefully this gets addressed in a later episode.
+            let sound_theta = self.state.sound_theta();
             if let RecordingState::Recording = self.recording_state {
                 recorder
                     .record(&self.input, &self.state)
@@ -402,6 +408,7 @@ impl Win32Application {
             } else if let RecordingState::Playing = self.recording_state {
                 if let Some(state) = recorder.playback().unwrap_or_default() {
                     (self.input, self.state) = state;
+                    self.state.set_sound_theta(sound_theta);
                 } else {
                     recorder.reset_playback().unwrap_or_default(); // We miss a frame here
                 }

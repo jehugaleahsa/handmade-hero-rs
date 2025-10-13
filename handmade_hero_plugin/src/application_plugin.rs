@@ -158,9 +158,9 @@ impl Application for ApplicationPlugin {
 
     fn write_sound(&self, context: &mut AudioContext<'_>) {
         let time_delta = context.time_delta();
+        let volume = f32::from(context.volume());
         for index in 0..context.sample_count() {
             let sine_value = context.theta().sin();
-            let volume = f32::from(context.volume());
             #[allow(clippy::cast_possible_truncation)]
             let sample_value = (sine_value * volume) as i16;
             let sample = StereoSample::from_left_right(sample_value, sample_value);

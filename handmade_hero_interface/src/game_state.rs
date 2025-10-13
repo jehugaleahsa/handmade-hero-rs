@@ -118,6 +118,11 @@ impl GameState {
     }
 
     #[inline]
+    pub fn set_sound_theta(&mut self, value: f32) {
+        self.sound_theta = value;
+    }
+
+    #[inline]
     pub fn advance_sound_theta(&mut self, amount: f32) {
         self.sound_theta += amount;
         if self.sound_theta >= Self::FULL_CIRCLE {
