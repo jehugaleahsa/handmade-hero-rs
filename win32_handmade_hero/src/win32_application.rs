@@ -800,14 +800,4 @@ fn wait_for_framerate(
     }
 
     counter.restart();
-
-    #[allow(clippy::cast_precision_loss)]
-    let ms_per_frame = time_elapsed.as_micros() as f32 / 1_000.0f32;
-    let frames_per_second = 1_000.0f32 / ms_per_frame;
-
-    let cycles_elapsed = metrics.elapsed_cycles();
-    #[allow(clippy::cast_precision_loss)]
-    let megacycles_elapsed = cycles_elapsed as f32 / 1_000_000.0f32;
-
-    println!("{ms_per_frame:.2}ms/f, {frames_per_second:.2}f/s, {megacycles_elapsed:.2}Mc/f");
 }
