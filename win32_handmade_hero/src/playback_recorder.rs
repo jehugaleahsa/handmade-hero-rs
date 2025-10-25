@@ -13,6 +13,12 @@ enum State {
     Playing(BufReader<File>),
 }
 
+#[derive(Debug)]
+pub struct PlaybackState {
+    pub input: InputState,
+    pub state: GameState,
+}
+
 #[derive(Debug, Default)]
 pub struct PlaybackRecorder {
     recording_directory: PathBuf,
@@ -67,13 +73,14 @@ impl PlaybackRecorder {
         Ok(recording_file)
     }
 
-    pub fn playback(&mut self) -> Result<Option<(InputState, GameState)>> {
+    pub fn playback(&mut self) -> Result<Option<PlaybackState>> {
         let Some(reader) = self.get_playback_file()? else {
             return Ok(None);
         };
-        if let Ok(state) = bincode::decode_from_reader(reader, bincode::config::standard()) {
+        if let Ok((input, state)) = bincode::decode_from_reader(reader, bincode::config::standard())
+        {
             self.remaining_recordings -= 1;
-            Ok(Some(state))
+            Ok(Some(PlaybackState { input, state }))
         } else {
             self.state = State::None;
             Ok(None)

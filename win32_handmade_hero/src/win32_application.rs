@@ -413,7 +413,7 @@ impl Win32Application {
                     .unwrap_or_default(); // Ignore errors
             } else if let RecordingState::Playing = self.recording_state {
                 if let Some(state) = recorder.playback().unwrap_or_default() {
-                    (self.input, self.state) = state;
+                    (self.input, self.state) = (state.input, state.state);
                     self.state.set_sound_theta(sound_theta);
                 } else {
                     recorder.reset_playback().unwrap_or_default(); // We miss a frame here
