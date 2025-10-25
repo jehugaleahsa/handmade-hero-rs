@@ -18,6 +18,7 @@ pub struct GameState {
     sound_volume: i16,
     width: u16,
     height: u16,
+    rendered: bool,
 }
 
 impl GameState {
@@ -34,6 +35,7 @@ impl GameState {
             sound_volume: DEFAULT_VOLUME,
             width: 0,
             height: 0,
+            rendered: false,
         }
     }
 
@@ -93,6 +95,17 @@ impl GameState {
     #[inline]
     pub fn set_height(&mut self, value: u16) {
         self.height = value;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn rendered(&self) -> bool {
+        self.rendered
+    }
+
+    #[inline]
+    pub fn set_rendered(&mut self) {
+        self.rendered = true;
     }
 }
 

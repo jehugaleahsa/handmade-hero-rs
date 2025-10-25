@@ -4,6 +4,7 @@ use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::pixel::Pixel;
 use handmade_hero_interface::render_context::RenderContext;
+use rand::Rng;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -68,10 +69,22 @@ impl Application for ApplicationPlugin {
         } = context;
         let width = f32::from(state.width());
         let height = f32::from(state.height());
-        let black = Pixel::from_rgb(0x00, 0x00, 0x00);
-        Self::render_rectangle(state, 0f32, 0f32, width, height, black, buffer);
-        let white = Pixel::from_rgb(0xFF, 0xFF, 0xFF);
-        Self::render_rectangle(state, 480f32, 270f32, 520f32, 310f32, white, buffer);
+        if !state.rendered() {
+            let black = Pixel::from_rgb(0x00, 0x00, 0x00);
+            Self::render_rectangle(state, 0f32, 0f32, width, height, black, buffer);
+            state.set_rendered();
+        }
+
+        let mut random = rand::rng();
+        let red = random.random_range(0x00..=0xFF);
+        let green = random.random_range(0x00..=0xFF);
+        let blue = random.random_range(0x00..=0xFF);
+        let pixel = Pixel::from_rgb(red, green, blue);
+        let min_x = random.random_range(-50f32..(width + 50f32));
+        let min_y = random.random_range(-50f32..(height + 50f32));
+        let max_x = min_x + random.random_range(0f32..100f32);
+        let max_y = min_y + random.random_range(0f32..100f32);
+        Self::render_rectangle(state, min_x, min_y, max_x, max_y, pixel, buffer);
     }
 
     fn write_sound(&self, _context: AudioContext<'_>) {}
