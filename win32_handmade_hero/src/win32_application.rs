@@ -16,7 +16,6 @@ use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use std::cmp::Ordering;
 use std::ffi::c_void;
-use std::ops::Div;
 use std::path::PathBuf;
 use std::time::Duration;
 use windows::Win32::Foundation::{
@@ -366,20 +365,6 @@ impl Win32Application {
             self.sound_safety_bytes = self.calculate_sound_safety_bytes(game_update_hertz);
         }
 
-        // Center player initially
-        let x_center = self
-            .state
-            .width()
-            .div(2)
-            .saturating_add(GameState::PLAYER_WIDTH.div(2));
-        let y_center = self
-            .state
-            .height()
-            .div(2)
-            .saturating_add(GameState::PLAYER_HEIGHT.div(2));
-        self.state.set_player_x(x_center);
-        self.state.set_player_y(y_center);
-
         let exe_directory = Self::exe_directory()?;
         let mut loader = ApplicationLoader::new(&exe_directory);
         let mut recorder = PlaybackRecorder::new(&exe_directory);
@@ -406,7 +391,6 @@ impl Win32Application {
             // be different each frame, trying to restore the sound theta causes skipping and
             // other sound artifacts. So we just capture theta upfront and restore it after.
             // Hopefully this gets addressed in a later episode.
-            let sound_theta = self.state.sound_theta();
             if let RecordingState::Recording = self.recording_state {
                 recorder
                     .record(&self.input, &self.state)
@@ -414,7 +398,6 @@ impl Win32Application {
             } else if let RecordingState::Playing = self.recording_state {
                 if let Some(state) = recorder.playback().unwrap_or_default() {
                     (self.input, self.state) = (state.input, state.state);
-                    self.state.set_sound_theta(sound_theta);
                 } else {
                     recorder.reset_playback().unwrap_or_default(); // We miss a frame here
                 }
