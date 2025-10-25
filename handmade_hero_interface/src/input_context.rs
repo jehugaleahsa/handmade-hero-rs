@@ -1,10 +1,8 @@
 use crate::game_state::GameState;
 use crate::input_state::InputState;
-use crate::pixel::Pixel;
 
 #[derive(Debug)]
-pub struct RenderContext<'a> {
+pub struct InputContext<'a> {
     pub input: &'a InputState,
     pub state: &'a mut GameState,
-    pub buffer: &'a mut [Pixel],
 }

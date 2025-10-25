@@ -9,6 +9,7 @@ use handmade_hero_interface::application::Application;
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::game_state::GameState;
+use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::pixel::Pixel;
 use handmade_hero_interface::render_context::RenderContext;
@@ -418,11 +419,19 @@ impl Win32Application {
                     recorder.reset_playback().unwrap_or_default(); // We miss a frame here
                 }
             }
-            application.process_input(&self.input, &mut self.state);
+            let context = InputContext {
+                input: &self.input,
+                state: &mut self.state,
+            };
+            application.process_input(context);
 
             if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
-                let mut context = RenderContext::new(&self.input, &mut self.state, bitmap_buffer);
-                application.render(&mut context);
+                let context = RenderContext {
+                    input: &self.input,
+                    state: &mut self.state,
+                    buffer: bitmap_buffer,
+                };
+                application.render(context);
             }
 
             if let Some(sound_index) = self.sound_index
@@ -460,7 +469,7 @@ impl Win32Application {
         let sound_bytes_per_second = sound_samples_per_second * sound_bytes_per_sample;
         #[allow(clippy::cast_precision_loss)]
         let sound_bytes_per_game_hertz = sound_bytes_per_second as f32 / game_update_hertz;
-        let safety_bytes = sound_bytes_per_game_hertz / 3.0f32;
+        let safety_bytes = sound_bytes_per_game_hertz / 2.0f32;
         #[allow(clippy::cast_precision_loss)]
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
@@ -562,8 +571,11 @@ impl Win32Application {
             .sound_buffer
             .get_or_insert_with(|| vec![StereoSample::default(); buffer_length as usize]);
         let sound_buffer = &mut sound_buffer[..sample_count];
-        let mut context = AudioContext::new(&mut self.state, sound_buffer);
-        application.write_sound(&mut context);
+        let context = AudioContext {
+            state: &mut self.state,
+            sound_buffer,
+        };
+        application.write_sound(context);
 
         let buffer_lock_guard = direct_sound_buffer.lock(write_offset, bytes_to_write);
         let Ok(buffer_lock_guard) = buffer_lock_guard else {

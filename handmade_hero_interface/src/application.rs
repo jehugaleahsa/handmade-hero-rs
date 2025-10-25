@@ -1,12 +1,11 @@
 use crate::audio_context::AudioContext;
-use crate::game_state::GameState;
-use crate::input_state::InputState;
+use crate::input_context::InputContext;
 use crate::render_context::RenderContext;
 
 pub trait Application {
-    fn process_input(&self, input: &InputState, state: &mut GameState);
+    fn process_input(&self, context: InputContext<'_>);
 
-    fn render(&self, context: &mut RenderContext<'_>);
+    fn render(&self, context: RenderContext<'_>);
 
-    fn write_sound(&self, context: &mut AudioContext<'_>);
+    fn write_sound(&self, context: AudioContext<'_>);
 }

@@ -1,8 +1,7 @@
 use crate::application_error::{ApplicationError, Result};
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::audio_context::AudioContext;
-use handmade_hero_interface::game_state::GameState;
-use handmade_hero_interface::input_state::InputState;
+use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::render_context::RenderContext;
 use libloading::{Library, Symbol, library_filename};
 use std::ffi::OsString;
@@ -18,17 +17,17 @@ pub struct ApplicationStub {
 
 impl Application for ApplicationStub {
     #[inline]
-    fn process_input(&self, input: &InputState, state: &mut GameState) {
-        self.application.process_input(input, state);
+    fn process_input(&self, context: InputContext<'_>) {
+        self.application.process_input(context);
     }
 
     #[inline]
-    fn render(&self, context: &mut RenderContext<'_>) {
+    fn render(&self, context: RenderContext<'_>) {
         self.application.render(context);
     }
 
     #[inline]
-    fn write_sound(&self, context: &mut AudioContext<'_>) {
+    fn write_sound(&self, context: AudioContext<'_>) {
         self.application.write_sound(context);
     }
 }

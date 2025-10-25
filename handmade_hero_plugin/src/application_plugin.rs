@@ -3,6 +3,7 @@ use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::game_state::GameState;
+use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::pixel::Pixel;
 use handmade_hero_interface::render_context::RenderContext;
@@ -109,36 +110,36 @@ impl ApplicationPlugin {
         state.set_sound_hertz(hertz);
     }
 
-    fn render_player(context: &mut RenderContext<'_>) {
+    fn render_player(state: &GameState, buffer: &mut [Pixel]) {
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         let player_top =
-            (f32::from(context.player_y()) + -100f32 * (context.jump_time() * 2f32).sin()) as usize;
-        let player_left = usize::from(context.player_x());
+            (f32::from(state.player_y()) + -100f32 * (state.jump_time() * 2f32).sin()) as usize;
+        let player_left = usize::from(state.player_x());
         let player_bottom = player_top.saturating_add(usize::from(GameState::PLAYER_HEIGHT));
         let player_right = player_left.saturating_add(usize::from(GameState::PLAYER_WIDTH));
-        let pitch = usize::from(context.width());
+        let pitch = usize::from(state.width());
         let pixel = Pixel::from_rgb(0xFF, 0xFF, 0x00);
         for y in player_top..player_bottom {
             for x in player_left..player_right {
                 let index = y * pitch + x;
-                context.set_pixel(index, pixel);
+                buffer[index] = pixel;
             }
         }
     }
 
-    fn render_mouse(context: &mut RenderContext<'_>) {
-        let mouse = context.mouse();
+    fn render_mouse(input: &InputState, state: &GameState, buffer: &mut [Pixel]) {
+        let mouse = input.mouse();
         let player_height = u32::from(GameState::PLAYER_HEIGHT);
         let mouse_top = u32::max(0, mouse.y().saturating_sub(player_height / 2));
         let mouse_bottom = mouse_top.saturating_add(player_height);
-        let height = u32::from(context.height());
+        let height = u32::from(state.height());
         let mouse_bottom = u32::min(mouse_bottom, height);
 
         let player_width = u32::from(GameState::PLAYER_WIDTH);
         let mouse_left = u32::max(0, mouse.x().saturating_sub(player_width / 2));
         let mouse_right = mouse_left.saturating_add(player_width);
-        let width = u32::from(context.width());
+        let width = u32::from(state.width());
         let mouse_right = u32::min(mouse_right, width);
 
         let red = Self::intensity(*mouse.left());
@@ -148,7 +149,8 @@ impl ApplicationPlugin {
         for y in mouse_top..mouse_bottom {
             for x in mouse_left..mouse_right {
                 let index = y * width + x;
-                context.set_pixel(index as usize, pixel);
+                let index = index as usize;
+                buffer[index] = pixel;
             }
         }
     }
@@ -159,18 +161,24 @@ impl ApplicationPlugin {
 }
 
 impl Application for ApplicationPlugin {
-    fn process_input(&self, input: &InputState, state: &mut GameState) {
+    fn process_input(&self, context: InputContext<'_>) {
+        let InputContext { input, state } = context;
         Self::handle_keyboard_input(input, state);
         for controller in input.controllers() {
             Self::handle_controller_input(controller, state);
         }
     }
 
-    fn render(&self, context: &mut RenderContext<'_>) {
-        let height = context.height();
-        let width = context.width();
-        let x_offset = context.x_offset();
-        let y_offset = context.y_offset();
+    fn render(&self, context: RenderContext<'_>) {
+        let RenderContext {
+            input,
+            state,
+            buffer,
+        } = context;
+        let height = state.height();
+        let width = state.width();
+        let x_offset = state.x_offset();
+        let y_offset = state.y_offset();
 
         let mut index = 0;
         for y in 0..height {
@@ -180,24 +188,27 @@ impl Application for ApplicationPlugin {
                     (y.wrapping_add(y_offset) & 0xFF) as u8,
                     (x.wrapping_add(x_offset) & 0xFF) as u8,
                 );
-                context.set_pixel(index, color);
+                buffer[index] = color;
                 index += 1;
             }
         }
-        Self::render_player(context);
-        Self::render_mouse(context);
+        Self::render_player(state, buffer);
+        Self::render_mouse(input, state, buffer);
     }
 
-    fn write_sound(&self, context: &mut AudioContext<'_>) {
-        let time_delta = context.time_delta();
-        let volume = f32::from(context.volume());
-        for index in 0..context.sample_count() {
-            let sine_value = context.theta().sin();
+    fn write_sound(&self, context: AudioContext<'_>) {
+        let AudioContext {
+            state,
+            sound_buffer,
+        } = context;
+        let time_delta = state.time_delta();
+        let volume = f32::from(state.sound_volume());
+        for sample in sound_buffer {
+            let sine_value = state.sound_theta().sin();
             #[allow(clippy::cast_possible_truncation)]
             let sample_value = (sine_value * volume) as i16;
-            let sample = StereoSample::from_left_right(sample_value, sample_value);
-            context.set_sample(index, sample);
-            context.advance_theta(time_delta);
+            *sample = StereoSample::from_left_right(sample_value, sample_value);
+            state.advance_sound_theta(time_delta);
         }
     }
 }
