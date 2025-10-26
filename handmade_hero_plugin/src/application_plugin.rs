@@ -1,9 +1,10 @@
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::audio_context::AudioContext;
+use handmade_hero_interface::f32_pixel::F32Pixel;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::input_context::InputContext;
-use handmade_hero_interface::pixel::Pixel;
 use handmade_hero_interface::render_context::RenderContext;
+use handmade_hero_interface::u8_pixel::U8Pixel;
 use rand::Rng;
 
 #[allow(dead_code)]
@@ -23,8 +24,8 @@ impl ApplicationPlugin {
         min_y: f32,
         max_x: f32,
         max_y: f32,
-        pixel: Pixel,
-        buffer: &mut [Pixel],
+        pixel: F32Pixel,
+        buffer: &mut [U8Pixel],
     ) {
         let width = f32::from(state.width());
         let height = f32::from(state.height());
@@ -38,6 +39,7 @@ impl ApplicationPlugin {
         }
 
         let pitch = usize::from(state.width());
+        let pixel = U8Pixel::from(pixel);
         let mut index = min_y * pitch + min_x;
         for _y in min_y..max_y {
             let row = index;
@@ -70,7 +72,8 @@ impl Application for ApplicationPlugin {
         let width = f32::from(state.width());
         let height = f32::from(state.height());
         if !state.rendered() {
-            let black = Pixel::from_rgb(0x00, 0x00, 0x00);
+            let black = U8Pixel::from_rgb(0x00, 0x00, 0x00);
+            let black = F32Pixel::from(black);
             Self::render_rectangle(state, 0f32, 0f32, width, height, black, buffer);
             state.set_rendered();
         }
@@ -79,7 +82,8 @@ impl Application for ApplicationPlugin {
         let red = random.random_range(0x00..=0xFF);
         let green = random.random_range(0x00..=0xFF);
         let blue = random.random_range(0x00..=0xFF);
-        let pixel = Pixel::from_rgb(red, green, blue);
+        let pixel = U8Pixel::from_rgb(red, green, blue);
+        let pixel = F32Pixel::from(pixel);
         let min_x = random.random_range(-50f32..(width + 50f32));
         let min_y = random.random_range(-50f32..(height + 50f32));
         let max_x = min_x + random.random_range(0f32..100f32);

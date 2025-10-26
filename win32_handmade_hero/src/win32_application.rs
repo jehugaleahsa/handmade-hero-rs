@@ -11,9 +11,9 @@ use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
-use handmade_hero_interface::pixel::Pixel;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
+use handmade_hero_interface::u8_pixel::U8Pixel;
 use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::path::PathBuf;
@@ -65,7 +65,7 @@ pub struct Win32Application {
     input: InputState,
     window_handle: HWND,
     bitmap_info: BITMAPINFO,
-    bitmap_buffer: Option<Vec<Pixel>>,
+    bitmap_buffer: Option<Vec<U8Pixel>>,
     sound_buffer: Option<Vec<StereoSample>>,
     sound_index: Option<u32>,
     sound_safety_bytes: u32,
@@ -144,12 +144,12 @@ impl Win32Application {
         let pixel_count = width as usize * height as usize;
         if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
             match pixel_count.cmp(&bitmap_buffer.len()) {
-                Ordering::Greater => bitmap_buffer.resize(pixel_count, Pixel::default()),
+                Ordering::Greater => bitmap_buffer.resize(pixel_count, U8Pixel::default()),
                 Ordering::Less => bitmap_buffer.truncate(pixel_count),
                 Ordering::Equal => {}
             }
         } else {
-            self.bitmap_buffer = Some(vec![Pixel::default(); pixel_count]);
+            self.bitmap_buffer = Some(vec![U8Pixel::default(); pixel_count]);
         }
 
         self.state.set_width(width);
