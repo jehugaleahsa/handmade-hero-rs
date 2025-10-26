@@ -263,13 +263,13 @@ impl Win32Application {
     }
 
     fn create_win32_window(
-        &self,
+        &mut self,
         instance: HINSTANCE,
         class_name: PCWSTR,
         width: u16,
         height: u16,
     ) -> Win32Result<HWND> {
-        let application_pointer = std::ptr::from_ref::<Win32Application>(self).cast::<c_void>();
+        let application_pointer = std::ptr::from_mut::<Win32Application>(self).cast::<c_void>();
         unsafe {
             CreateWindowExW(
                 WS_EX_LAYERED,
@@ -761,8 +761,8 @@ extern "system" fn window_procedure(
         return LRESULT(1); // Indicate we should proceed with creating the window.
     }
 
-    let application_pointer =
-        unsafe { GetWindowLongPtrW(window_handle, GWL_USERDATA) } as *mut Win32Application;
+    let application_pointer = unsafe { GetWindowLongPtrW(window_handle, GWL_USERDATA) };
+    let application_pointer = application_pointer as *mut Win32Application;
     if application_pointer.is_null() {
         // We're not initialized yet, so just let the default handler run.
         return unsafe { DefWindowProcW(window_handle, message, w_param, l_param) };
@@ -772,6 +772,13 @@ extern "system" fn window_procedure(
     // This allows us to maintain state about the application without relying on
     // global variables.
     let application = unsafe { &mut *application_pointer };
+    if application.window_handle != window_handle {
+        // Some of the messages passed to our application are not directed toward
+        // our window. We need to pass through the correct window handle for those
+        // messages or the window appears broken! I'll be curious to see if any
+        // behavior is broken if we ignore messages directed toward other windows.
+        return unsafe { DefWindowProcW(window_handle, message, w_param, l_param) };
+    }
     application.process_windows_message(message, w_param, l_param)
 }
 
