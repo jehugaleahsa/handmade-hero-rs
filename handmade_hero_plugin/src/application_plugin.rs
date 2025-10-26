@@ -32,20 +32,20 @@ impl ApplicationPlugin {
         let min_y = Self::round_and_bound(min_y, 0f32, height);
         let max_x = Self::round_and_bound(max_x, 0f32, width);
         let max_y = Self::round_and_bound(max_y, 0f32, height);
-        if min_x == max_x || min_y == max_y {
+        if min_x >= max_x {
+            // Avoid iterating over rows when there are no columns.
             return;
         }
 
         let pitch = usize::from(state.width());
-        let mut row_offset = min_y * pitch;
-        let mut index = row_offset + min_x;
+        let mut index = min_y * pitch + min_x;
         for _y in min_y..max_y {
+            let row = index;
             for _x in min_x..max_x {
                 buffer[index] = pixel;
                 index += 1;
             }
-            row_offset += pitch;
-            index = row_offset + min_x;
+            index = row + pitch;
         }
     }
 
