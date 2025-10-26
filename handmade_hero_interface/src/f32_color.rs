@@ -1,15 +1,15 @@
-use crate::u8_pixel::U8Pixel;
+use crate::u8_color::U8Color;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default)]
-pub struct F32Pixel {
+pub struct F32Color {
     red: f32,
     green: f32,
     blue: f32,
     alpha: f32,
 }
 
-impl F32Pixel {
+impl F32Color {
     #[inline]
     fn convert_to_f32(component: u8) -> f32 {
         f32::from(component) / f32::from(u8::MAX)
@@ -23,20 +23,20 @@ impl F32Pixel {
     }
 }
 
-impl From<F32Pixel> for U8Pixel {
+impl From<F32Color> for U8Color {
     #[inline]
-    fn from(value: F32Pixel) -> Self {
-        U8Pixel::from_rgb(
-            F32Pixel::convert_to_u8(value.red),
-            F32Pixel::convert_to_u8(value.green),
-            F32Pixel::convert_to_u8(value.blue),
+    fn from(value: F32Color) -> Self {
+        U8Color::from_rgb(
+            F32Color::convert_to_u8(value.red),
+            F32Color::convert_to_u8(value.green),
+            F32Color::convert_to_u8(value.blue),
         )
     }
 }
 
-impl From<U8Pixel> for F32Pixel {
+impl From<U8Color> for F32Color {
     #[inline]
-    fn from(value: U8Pixel) -> Self {
+    fn from(value: U8Color) -> Self {
         Self {
             red: Self::convert_to_f32(value.red()),
             green: Self::convert_to_f32(value.green()),
