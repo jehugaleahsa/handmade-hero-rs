@@ -1,4 +1,3 @@
-use crate::application_error::{ApplicationError, Result};
 use crate::application_loader::ApplicationLoader;
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
@@ -6,6 +5,7 @@ use crate::performance_counter::PerformanceCounter;
 use crate::playback_recorder::PlaybackRecorder;
 use core::slice;
 use handmade_hero_interface::application::Application;
+use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::game_state::GameState;

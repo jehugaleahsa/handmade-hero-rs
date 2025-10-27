@@ -1,4 +1,3 @@
-mod application_error;
 mod application_loader;
 mod performance_counter;
 mod playback_recorder;
@@ -12,7 +11,7 @@ mod direct_sound_buffer_lock_guard;
 #[cfg(target_os = "windows")]
 mod win32_application;
 
-use application_error::Result;
+use handmade_hero_interface::application_error::Result;
 
 #[cfg(target_os = "windows")]
 use win32_application::Win32Application;

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 bincode = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,4 +1,5 @@
 pub mod application;
+pub mod application_error;
 pub mod audio_context;
 pub mod button_state;
 pub mod controller_state;

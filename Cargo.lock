@@ -45,6 +45,7 @@ name = "handmade_hero_interface"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "thiserror",
 ]
 
 [[package]]
@@ -62,7 +63,6 @@ dependencies = [
  "bincode",
  "handmade_hero_interface",
  "libloading",
- "thiserror",
  "windows",
 ]
 
