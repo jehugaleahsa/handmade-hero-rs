@@ -62,14 +62,6 @@ impl Application for ApplicationPlugin {
         } = context;
         let width = f32::from(state.width());
         let height = f32::from(state.height());
-        if !state.rendered() {
-            let black = U8Color::from_rgb(0x00, 0x00, 0x00);
-            let black = F32Color::from(black);
-            let rectangle = Rectangle::new(0f32, 0f32, height, width);
-            Self::render_rectangle(state, &rectangle, black, buffer).unwrap_or_default(); // Ignore errors
-            state.set_rendered();
-        }
-
         let mut random = rand::rng();
         let red = random.random_range(0x00..=0xFF);
         let green = random.random_range(0x00..=0xFF);

@@ -103,6 +103,10 @@ impl Win32Application {
 
         self.resize_window(width, height);
 
+        // Initially clear the window to a black background
+        self.redraw_window()
+            .map_err(|e| ApplicationError::wrap("Failed to draw the window.", e))?;
+
         Ok(())
     }
 
@@ -351,11 +355,12 @@ impl Win32Application {
 
         let direct_sound = DirectSound::initialize(self.window_handle).ok();
         let mut sound_buffer = direct_sound.as_ref().and_then(|ds| {
+            let sound_state = self.state.sound();
             ds.create_buffer(
-                self.state.sound_channel_count(),
-                self.state.sound_samples_per_second(),
-                self.state.sound_bits_per_sample(),
-                self.state.sound_buffer_size(),
+                sound_state.channel_count(),
+                sound_state.samples_per_second(),
+                sound_state.bits_per_sample(),
+                sound_state.buffer_size(),
             )
             .ok()
         });
@@ -447,8 +452,9 @@ impl Win32Application {
     }
 
     fn calculate_sound_safety_bytes(&mut self, game_update_hertz: f32) -> u32 {
-        let sound_samples_per_second = self.state.sound_samples_per_second();
-        let sound_bytes_per_sample = self.state.sound_bytes_per_sample();
+        let sound_state = self.state.sound();
+        let sound_samples_per_second = sound_state.samples_per_second();
+        let sound_bytes_per_sample = sound_state.bytes_per_sample();
         let sound_bytes_per_second = sound_samples_per_second * sound_bytes_per_sample;
         #[allow(clippy::cast_precision_loss)]
         let sound_bytes_per_game_hertz = sound_bytes_per_second as f32 / game_update_hertz;
@@ -504,7 +510,8 @@ impl Win32Application {
             return;
         };
         let buffer_length = direct_sound_buffer.length();
-        let bytes_per_sample = self.state.sound_bytes_per_sample();
+        let sound_state = self.state.sound();
+        let bytes_per_sample = sound_state.bytes_per_sample();
         let write_offset = (sound_index * bytes_per_sample) % buffer_length;
 
         let safe_write_cursor = write_cursor
@@ -514,7 +521,7 @@ impl Win32Application {
             } else {
                 0
             };
-        let samples_per_second = self.state.sound_samples_per_second();
+        let samples_per_second = sound_state.samples_per_second();
         let frame_time_elapsed = performance_counter.metrics().elapsed_time();
         let remaining_frame_time = if target_frame_duration >= frame_time_elapsed {
             target_frame_duration - frame_time_elapsed
@@ -604,7 +611,8 @@ impl Win32Application {
 
     fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
         let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
-        let bytes_per_sample = self.state.sound_bytes_per_sample();
+        let sound_state = self.state.sound();
+        let bytes_per_sample = sound_state.bytes_per_sample();
         let sample_index = write_cursor / bytes_per_sample;
         Some(sample_index)
     }
