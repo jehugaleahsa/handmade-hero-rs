@@ -3,6 +3,7 @@ pub mod application_error;
 pub mod audio_context;
 pub mod button_state;
 pub mod controller_state;
+pub mod coordinate_2d;
 pub mod f32_color;
 pub mod game_state;
 pub mod input_context;
