@@ -101,7 +101,7 @@ impl Win32Application {
         self.set_transparency(true)
             .map_err(|e| ApplicationError::wrap("Failed to display the window", e))?;
 
-        self.resize_window(width, height);
+        self.resize_window()?;
 
         // Initially clear the window to a black background
         self.redraw_window()
@@ -134,18 +134,27 @@ impl Win32Application {
         Ok(class_name)
     }
 
-    fn resize_window(&mut self, width: u16, height: u16) {
+    fn resize_window(&mut self) -> Result<()> {
+        let client_rectangle = Self::get_client_rectangle(self.window_handle)
+            .map_err(|e| ApplicationError::wrap("Could not determine the client area", e))?;
+        let client_width = client_rectangle.right - client_rectangle.left;
+        let client_width = u16::try_from(client_width)
+            .map_err(|e| ApplicationError::wrap("Encountered an extreme client width", e))?;
+        let client_height = client_rectangle.bottom - client_rectangle.top;
+        let client_height = u16::try_from(client_height)
+            .map_err(|e| ApplicationError::wrap("Encountered an extreme client height", e))?;
+
         let header = &mut self.bitmap_info.bmiHeader;
         #[allow(clippy::cast_possible_truncation)]
         let header_size = size_of_val(header) as u32;
         header.biSize = header_size;
-        header.biWidth = i32::from(width);
-        header.biHeight = -i32::from(height);
+        header.biWidth = i32::from(client_width);
+        header.biHeight = -i32::from(client_height);
         header.biPlanes = 1;
         header.biBitCount = 32;
         header.biCompression = BI_RGB.0;
 
-        let pixel_count = usize::from(width) * usize::from(height);
+        let pixel_count = usize::from(client_width) * usize::from(client_height);
         if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
             match pixel_count.cmp(&bitmap_buffer.len()) {
                 Ordering::Greater => bitmap_buffer.resize(pixel_count, U8Color::default()),
@@ -156,8 +165,10 @@ impl Win32Application {
             self.bitmap_buffer = Some(vec![U8Color::default(); pixel_count]);
         }
 
-        self.state.set_width(width);
-        self.state.set_height(height);
+        self.state.set_width(client_width);
+        self.state.set_height(client_height);
+
+        Ok(())
     }
 
     fn process_windows_message(
@@ -190,7 +201,7 @@ impl Win32Application {
     fn redraw_window(&mut self) -> Win32Result<LRESULT> {
         let mut paint_struct = PAINTSTRUCT::default();
         let device_context = unsafe { BeginPaint(self.window_handle, &raw mut paint_struct) };
-        self.write_buffer(device_context, self.window_handle)?;
+        self.write_buffer(device_context)?;
         unsafe {
             #[allow(unused_must_use)]
             EndPaint(self.window_handle, &raw mut paint_struct);
@@ -298,22 +309,22 @@ impl Win32Application {
         }
 
         let device_context = unsafe { GetDC(Some(self.window_handle)) };
-        self.write_buffer(device_context, self.window_handle)
+        self.write_buffer(device_context)
             .map_err(|e| ApplicationError::wrap("Failed to write the render to the buffer.", e))?;
         unsafe { ReleaseDC(Some(self.window_handle), device_context) };
 
         Ok(())
     }
 
-    fn write_buffer(&mut self, device_context: HDC, window_handle: HWND) -> Win32Result<()> {
+    fn write_buffer(&mut self, device_context: HDC) -> Win32Result<()> {
         let Some(ref bitmap_buffer) = self.bitmap_buffer else {
             return Ok(());
         };
 
-        let source_width = self.bitmap_info.bmiHeader.biWidth.abs();
-        let source_height = self.bitmap_info.bmiHeader.biHeight.abs();
+        let source_width = i32::from(self.state.width());
+        let source_height = i32::from(self.state.height());
 
-        let client_rectangle = Self::get_client_rectangle(window_handle)?;
+        let client_rectangle = Self::get_client_rectangle(self.window_handle)?;
 
         unsafe {
             let bitmap_data = bitmap_buffer.as_ptr().cast::<c_void>();
