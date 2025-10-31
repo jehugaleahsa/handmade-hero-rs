@@ -145,7 +145,7 @@ impl Win32Application {
         header.biBitCount = 32;
         header.biCompression = BI_RGB.0;
 
-        let pixel_count = width as usize * height as usize;
+        let pixel_count = usize::from(width) * usize::from(height);
         if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
             match pixel_count.cmp(&bitmap_buffer.len()) {
                 Ordering::Greater => bitmap_buffer.resize(pixel_count, U8Color::default()),
@@ -310,19 +310,21 @@ impl Win32Application {
             return Ok(());
         };
 
-        let source_width = i32::from(self.state.width());
-        let source_height = i32::from(self.state.height());
+        let source_width = self.bitmap_info.bmiHeader.biWidth.abs();
+        let source_height = self.bitmap_info.bmiHeader.biHeight.abs();
 
         let client_rectangle = Self::get_client_rectangle(window_handle)?;
 
         unsafe {
             let bitmap_data = bitmap_buffer.as_ptr().cast::<c_void>();
+            let client_width = client_rectangle.right - client_rectangle.left;
+            let client_height = client_rectangle.bottom - client_rectangle.top;
             StretchDIBits(
                 device_context,
                 client_rectangle.left,
                 client_rectangle.top,
-                source_width,
-                source_height,
+                client_width,
+                client_height,
                 0,
                 0,
                 source_width,
@@ -388,25 +390,32 @@ impl Win32Application {
             };
 
             let application = loader.load()?;
-            self.poll_controller_state();
-            self.capture_mouse_state().unwrap_or_default(); // Ignore errors
 
             // It seems our audio can't really use playback. The computation of how many bytes
             // to write depends on how fast the previous frame took to generate. Since this will
             // be different each frame, trying to restore the sound theta causes skipping and
             // other sound artifacts. So we just capture theta upfront and restore it after.
             // Hopefully this gets addressed in a later episode.
-            if let RecordingState::Recording = self.recording_state {
-                recorder
-                    .record(&self.input, &self.state)
-                    .unwrap_or_default(); // Ignore errors
-            } else if let RecordingState::Playing = self.recording_state {
+            if let RecordingState::Playing = self.recording_state {
                 if let Some(state) = recorder.playback().unwrap_or_default() {
                     (self.input, self.state) = (state.input, state.state);
                 } else {
                     recorder.reset_playback().unwrap_or_default(); // We miss a frame here
                 }
+            } else {
+                self.poll_controller_state();
+                if let Ok(client_coordinates) = self.get_client_coordinate() {
+                    self.capture_mouse_state(client_coordinates)
+                        .unwrap_or_default(); // Ignore errors
+                }
+
+                if let RecordingState::Recording = self.recording_state {
+                    recorder
+                        .record(&self.input, &self.state)
+                        .unwrap_or_default(); // Ignore errors
+                }
             }
+
             let context = InputContext {
                 input: &self.input,
                 state: &mut self.state,
@@ -655,7 +664,7 @@ impl Win32Application {
                     gamepad.sThumbLX,
                     XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
                 ));
-                left_joystick.set_y(Self::thumb_stick_ratio(
+                left_joystick.set_y(-Self::thumb_stick_ratio(
                     gamepad.sThumbLY,
                     XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
                 ));
@@ -664,7 +673,7 @@ impl Win32Application {
                     gamepad.sThumbRX,
                     XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
                 ));
-                right_joystick.set_y(Self::thumb_stick_ratio(
+                right_joystick.set_y(-Self::thumb_stick_ratio(
                     gamepad.sThumbRY,
                     XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
                 ));
@@ -722,13 +731,7 @@ impl Win32Application {
         }
     }
 
-    fn capture_mouse_state(&mut self) -> Win32Result<()> {
-        let mut client_coordinate = POINT::default();
-        unsafe {
-            if ClientToScreen(self.window_handle, &raw mut client_coordinate) == FALSE {
-                return Err(Error::from_thread());
-            }
-        }
+    fn capture_mouse_state(&mut self, client_coordinate: POINT) -> Win32Result<()> {
         #[allow(clippy::cast_possible_truncation)]
         let mut cursor_coordinate = POINT::default();
         unsafe {
@@ -743,6 +746,16 @@ impl Win32Application {
         Self::set_mouse_button(mouse.middle_mut(), VK_MBUTTON);
         Self::set_mouse_button(mouse.right_mut(), VK_RBUTTON);
         Ok(())
+    }
+
+    fn get_client_coordinate(&self) -> Win32Result<POINT> {
+        unsafe {
+            let mut client_coordinate = POINT::default();
+            if ClientToScreen(self.window_handle, &raw mut client_coordinate) == FALSE {
+                return Err(Error::from_thread());
+            }
+            Ok(client_coordinate)
+        }
     }
 
     fn set_mouse_button(button: &mut ButtonState, key: VIRTUAL_KEY) {
