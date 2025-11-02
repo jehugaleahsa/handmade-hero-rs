@@ -6,6 +6,7 @@ use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::coordinate_2d::Coordinate2d;
 use handmade_hero_interface::f32_color::F32Color;
+use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::u8_color::U8Color;
@@ -87,6 +88,57 @@ impl ApplicationPlugin {
         }
         Ok(())
     }
+
+    fn render_tilemap(window_bounds: &Rectangle<f32>, buffer: &mut [U8Color]) -> Result<()> {
+        let tilemap: [[u32; 17]; 9] = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
+            [1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1],
+            [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+        ];
+        let black = F32Color::from(U8Color::from_rgb(0x00, 0x00, 0x00));
+        Self::render_rectangle(window_bounds, window_bounds, black, buffer).unwrap_or_default(); // Ignore errors
+
+        let white = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0xFF));
+        let grey = F32Color::from(U8Color::from_rgb(0xCC, 0xCC, 0xCC));
+        let upper_left_x = -30f32;
+        let upper_left_y = 0f32;
+        let tile_height = 56f32;
+        let tile_width = 58f32;
+        for (row_index, row) in tilemap.into_iter().enumerate() {
+            for (column_index, tile) in row.into_iter().enumerate() {
+                let color = if tile == 0 { grey } else { white };
+                #[allow(clippy::cast_precision_loss)]
+                let top = row_index as f32 * tile_height + upper_left_y;
+                #[allow(clippy::cast_precision_loss)]
+                let left = column_index as f32 * tile_width + upper_left_x;
+                let tile_rectangle = Rectangle::new(top, left, tile_height, tile_width);
+                Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn render_player(
+        state: &mut GameState,
+        window_bounds: &Rectangle<f32>,
+        buffer: &mut [U8Color],
+    ) -> Result<()> {
+        // We want the center of gravity to be the bottom middle of the rectangle.
+        // So we render the rectangle above the y position and halfway past the x position.
+        // The player's position is constrained while processing input.
+        let player_position = state.player();
+        let player_y = player_position.y() - Self::PLAYER_HEIGHT;
+        let player_x = player_position.x() - (Self::PLAYER_WIDTH / 2f32);
+        let player = Rectangle::new(player_y, player_x, Self::PLAYER_HEIGHT, Self::PLAYER_WIDTH);
+        let player_color = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0x00));
+        Self::render_rectangle(window_bounds, &player, player_color, buffer)
+    }
 }
 
 impl Application for ApplicationPlugin {
@@ -106,8 +158,8 @@ impl Application for ApplicationPlugin {
                 }
             }
         }
-        delta_x *= 10f32;
-        delta_y *= 10f32;
+        delta_x *= 5f32;
+        delta_y *= 5f32;
 
         let player = state.player();
         let max_height = f32::from(state.height());
@@ -133,18 +185,9 @@ impl Application for ApplicationPlugin {
         let width = f32::from(state.width());
         let height = f32::from(state.height());
         let window_bounds = Rectangle::new(0f32, 0f32, height, width);
-        let black = F32Color::from(U8Color::from_rgb(0x00, 0x00, 0x00));
-        Self::render_rectangle(&window_bounds, &window_bounds, black, buffer).unwrap_or_default(); // Ignore errors
 
-        // We want the center of gravity to be the bottom middle of the rectangle.
-        // So we render the rectangle above the y position and halfway past the x position.
-        // The player's position is constrained while processing input.
-        let player_position = state.player();
-        let player_y = player_position.y() - Self::PLAYER_HEIGHT;
-        let player_x = player_position.x() - (Self::PLAYER_WIDTH / 2f32);
-        let player = Rectangle::new(player_y, player_x, Self::PLAYER_HEIGHT, Self::PLAYER_WIDTH);
-        let player_color = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0x00));
-        Self::render_rectangle(&window_bounds, &player, player_color, buffer).unwrap_or_default(); // Ignore errors
+        Self::render_tilemap(&window_bounds, buffer).unwrap_or_default(); // Ignore errors
+        Self::render_player(state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
     }
 
     fn write_sound(&self, _context: AudioContext<'_>) {}
