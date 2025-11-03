@@ -104,8 +104,7 @@ impl Win32Application {
         self.resize_window()?;
 
         // Initially clear the window to a black background
-        self.redraw_window()
-            .map_err(|e| ApplicationError::wrap("Failed to draw the window.", e))?;
+        self.redraw_window();
 
         Ok(())
     }
@@ -182,7 +181,10 @@ impl Win32Application {
             WM_ACTIVATEAPP => self
                 .set_transparency(w_param.0 == TRUE.0 as usize)
                 .unwrap_or(LRESULT(0)),
-            WM_PAINT => self.redraw_window().unwrap_or(LRESULT(0)), // Ignore error
+            WM_PAINT => {
+                self.redraw_window();
+                LRESULT(0)
+            }
             WM_SYSKEYDOWN | WM_SYSKEYUP | WM_KEYDOWN | WM_KEYUP => {
                 self.handle_key_press(w_param, l_param)
             }
@@ -198,15 +200,14 @@ impl Win32Application {
         Ok(LRESULT(0))
     }
 
-    fn redraw_window(&mut self) -> Win32Result<LRESULT> {
+    fn redraw_window(&mut self) {
         let mut paint_struct = PAINTSTRUCT::default();
         let device_context = unsafe { BeginPaint(self.window_handle, &raw mut paint_struct) };
-        self.write_buffer(device_context)?;
+        self.write_buffer(device_context);
         unsafe {
             #[allow(unused_must_use)]
             EndPaint(self.window_handle, &raw mut paint_struct);
         }
-        Ok(LRESULT(0))
     }
 
     fn destroy_window(&mut self) -> LRESULT {
@@ -303,39 +304,32 @@ impl Win32Application {
         }
     }
 
-    fn update_display(&mut self) -> Result<()> {
+    fn update_display(&mut self) {
         if self.closing {
-            return Ok(());
+            return;
         }
 
         let device_context = unsafe { GetDC(Some(self.window_handle)) };
-        self.write_buffer(device_context)
-            .map_err(|e| ApplicationError::wrap("Failed to write the render to the buffer.", e))?;
+        self.write_buffer(device_context);
         unsafe { ReleaseDC(Some(self.window_handle), device_context) };
-
-        Ok(())
     }
 
-    fn write_buffer(&mut self, device_context: HDC) -> Win32Result<()> {
+    fn write_buffer(&mut self, device_context: HDC) {
         let Some(ref bitmap_buffer) = self.bitmap_buffer else {
-            return Ok(());
+            return;
         };
 
         let source_width = i32::from(self.state.width());
         let source_height = i32::from(self.state.height());
 
-        let client_rectangle = Self::get_client_rectangle(self.window_handle)?;
-
         unsafe {
             let bitmap_data = bitmap_buffer.as_ptr().cast::<c_void>();
-            let client_width = client_rectangle.right - client_rectangle.left;
-            let client_height = client_rectangle.bottom - client_rectangle.top;
             StretchDIBits(
                 device_context,
-                client_rectangle.left,
-                client_rectangle.top,
-                client_width,
-                client_height,
+                0,
+                0,
+                source_width,
+                source_height,
                 0,
                 0,
                 source_width,
@@ -346,7 +340,6 @@ impl Win32Application {
                 SRCCOPY,
             );
         }
-        Ok(())
     }
 
     fn get_client_rectangle(window_handle: HWND) -> Win32Result<RECT> {
@@ -361,6 +354,7 @@ impl Win32Application {
         let game_update_hertz = monitor_refresh_hertz as f32 / 2.0f32;
 
         let target_frame_duration = Duration::from_secs_f32(1.0f32 / game_update_hertz);
+        self.state.set_frame_duration(target_frame_duration);
         let is_sleep_granular = unsafe {
             // Set the Windows scheduler granularity to 1ms!
             timeBeginPeriod(1) == TIMERR_NOERROR
@@ -450,14 +444,13 @@ impl Win32Application {
                     sound_buffer,
                     sound_index,
                     game_update_hertz,
-                    target_frame_duration,
                     &counter,
                 );
             }
 
-            wait_for_framerate(&mut counter, target_frame_duration, is_sleep_granular);
+            self.wait_for_framerate(&mut counter, is_sleep_granular);
 
-            self.update_display()?;
+            self.update_display();
 
             // After a single frame, we have a better idea how far away the sound
             // play cursor is from the write cursor. We initialize the sound index
@@ -523,7 +516,6 @@ impl Win32Application {
         direct_sound_buffer: &mut DirectSoundBuffer<'_>,
         sound_index: u32,
         game_update_hertz: f32,
-        target_frame_duration: Duration,
         performance_counter: &PerformanceCounter,
     ) {
         let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
@@ -543,6 +535,7 @@ impl Win32Application {
             };
         let samples_per_second = sound_state.samples_per_second();
         let frame_time_elapsed = performance_counter.metrics().elapsed_time();
+        let target_frame_duration = self.state.frame_duration();
         let remaining_frame_time = if target_frame_duration >= frame_time_elapsed {
             target_frame_duration - frame_time_elapsed
         } else {
@@ -778,6 +771,25 @@ impl Win32Application {
             button.set_ended_down(false);
         }
     }
+
+    fn wait_for_framerate(&self, counter: &mut PerformanceCounter, is_sleep_granular: bool) {
+        let mut metrics = counter.metrics();
+        let mut time_elapsed = metrics.elapsed_time();
+        let frame_duration = self.state.frame_duration();
+        while time_elapsed < frame_duration {
+            if is_sleep_granular {
+                let remaining = frame_duration - time_elapsed;
+                #[allow(clippy::cast_possible_truncation)]
+                let remaining = Duration::from_millis(remaining.as_millis() as u64);
+                std::thread::sleep(remaining);
+            }
+
+            metrics = counter.metrics();
+            time_elapsed = metrics.elapsed_time();
+        }
+
+        counter.restart();
+    }
 }
 
 extern "system" fn window_procedure(
@@ -812,26 +824,4 @@ extern "system" fn window_procedure(
         return unsafe { DefWindowProcW(window_handle, message, w_param, l_param) };
     }
     application.process_windows_message(message, w_param, l_param)
-}
-
-fn wait_for_framerate(
-    counter: &mut PerformanceCounter,
-    target_duration: Duration,
-    is_sleep_granular: bool,
-) {
-    let mut metrics = counter.metrics();
-    let mut time_elapsed = metrics.elapsed_time();
-    while time_elapsed < target_duration {
-        if is_sleep_granular {
-            let remaining = target_duration - time_elapsed;
-            #[allow(clippy::cast_possible_truncation)]
-            let remaining = Duration::from_millis(remaining.as_millis() as u64);
-            std::thread::sleep(remaining);
-        }
-
-        metrics = counter.metrics();
-        time_elapsed = metrics.elapsed_time();
-    }
-
-    counter.restart();
 }

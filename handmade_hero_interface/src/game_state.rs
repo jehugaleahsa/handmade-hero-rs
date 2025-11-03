@@ -1,6 +1,7 @@
 use crate::coordinate_2d::Coordinate2d;
 use crate::sound_state::SoundState;
 use bincode::{Decode, Encode};
+use std::time::Duration;
 
 #[derive(Debug, Encode, Decode)]
 pub struct GameState {
@@ -8,6 +9,7 @@ pub struct GameState {
     height: u16,
     sound: SoundState,
     player: Coordinate2d,
+    frame_duration: Duration,
 }
 
 impl GameState {
@@ -21,6 +23,7 @@ impl GameState {
             height: 0,
             sound,
             player,
+            frame_duration: Duration::default(),
         }
     }
 
@@ -56,6 +59,17 @@ impl GameState {
     #[inline]
     pub fn set_height(&mut self, value: u16) {
         self.height = value;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn frame_duration(&self) -> Duration {
+        self.frame_duration
+    }
+
+    #[inline]
+    pub fn set_frame_duration(&mut self, value: Duration) {
+        self.frame_duration = value;
     }
 
     #[inline]

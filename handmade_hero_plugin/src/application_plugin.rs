@@ -158,8 +158,10 @@ impl Application for ApplicationPlugin {
                 }
             }
         }
-        delta_x *= 5f32;
-        delta_y *= 5f32;
+        let frame_duration = state.frame_duration().as_secs_f32();
+        let speed = frame_duration * 64f32;
+        delta_x *= speed;
+        delta_y *= speed;
 
         let player = state.player();
         let max_height = f32::from(state.height());
