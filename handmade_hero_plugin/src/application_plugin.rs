@@ -13,16 +13,33 @@ use handmade_hero_interface::u8_color::U8Color;
 
 #[allow(dead_code)]
 #[derive(Debug)]
-pub struct ApplicationPlugin;
+pub struct ApplicationPlugin {
+    tile_map: [[u32; 17]; 9],
+}
 
 impl ApplicationPlugin {
     const PLAYER_HEIGHT: f32 = 40f32;
     const PLAYER_WIDTH: f32 = 30f32;
+    const TILE_HEIGHT: f32 = 56f32;
+    const TILE_WIDTH: f32 = 58f32;
+    const X_OFFSET: f32 = 30f32;
 
     #[unsafe(no_mangle)]
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
-        Box::new(ApplicationPlugin)
+        Box::new(Self {
+            tile_map: [
+                [0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+                [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
+                [1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1],
+                [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1],
+                [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+                [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
+                [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+            ],
+        })
     }
 
     #[inline]
@@ -89,35 +106,22 @@ impl ApplicationPlugin {
         Ok(())
     }
 
-    fn render_tilemap(window_bounds: &Rectangle<f32>, buffer: &mut [U8Color]) -> Result<()> {
-        let tilemap: [[u32; 17]; 9] = [
-            [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-            [1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1],
-            [0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1],
-            [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
-            [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
-        ];
+    fn render_tilemap(&self, window_bounds: &Rectangle<f32>, buffer: &mut [U8Color]) -> Result<()> {
         let black = F32Color::from(U8Color::from_rgb(0x00, 0x00, 0x00));
         Self::render_rectangle(window_bounds, window_bounds, black, buffer).unwrap_or_default(); // Ignore errors
 
         let white = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0xFF));
         let grey = F32Color::from(U8Color::from_rgb(0xCC, 0xCC, 0xCC));
-        let upper_left_x = -30f32;
+        let upper_left_x = -Self::X_OFFSET;
         let upper_left_y = 0f32;
-        let tile_height = 56f32;
-        let tile_width = 58f32;
-        for (row_index, row) in tilemap.into_iter().enumerate() {
-            for (column_index, tile) in row.into_iter().enumerate() {
-                let color = if tile == 0 { grey } else { white };
+        for (row_index, row) in self.tile_map.iter().enumerate() {
+            for (column_index, tile) in row.iter().enumerate() {
+                let color = if *tile == 0 { grey } else { white };
                 #[allow(clippy::cast_precision_loss)]
-                let top = row_index as f32 * tile_height + upper_left_y;
+                let top = row_index as f32 * Self::TILE_HEIGHT + upper_left_y;
                 #[allow(clippy::cast_precision_loss)]
-                let left = column_index as f32 * tile_width + upper_left_x;
-                let tile_rectangle = Rectangle::new(top, left, tile_height, tile_width);
+                let left = column_index as f32 * Self::TILE_WIDTH + upper_left_x;
+                let tile_rectangle = Rectangle::new(top, left, Self::TILE_HEIGHT, Self::TILE_WIDTH);
                 Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
             }
         }
@@ -144,6 +148,13 @@ impl ApplicationPlugin {
 impl Application for ApplicationPlugin {
     fn process_input(&self, context: InputContext<'_>) {
         let InputContext { input, state } = context;
+        let player = state.player();
+        if player.x() == 0f32 && player.y() == 0f32 {
+            let player_position = Coordinate2d::from_x_y(Self::PLAYER_WIDTH / 2f32, 0f32);
+            state.set_player(player_position);
+            return;
+        }
+
         let keyboard = input.keyboard();
         let mut delta_x = Self::calculate_keyboard_delta_x(keyboard);
         let mut delta_y = Self::calculate_keyboard_delta_y(keyboard);
@@ -159,11 +170,14 @@ impl Application for ApplicationPlugin {
             }
         }
         let frame_duration = state.frame_duration().as_secs_f32();
-        let speed = frame_duration * 64f32;
+        let speed = frame_duration * 128f32;
         delta_x *= speed;
         delta_y *= speed;
 
-        let player = state.player();
+        if delta_x == 0f32 && delta_y == 0f32 {
+            return;
+        }
+
         let max_height = f32::from(state.height());
         let max_width = f32::from(state.width());
 
@@ -173,6 +187,31 @@ impl Application for ApplicationPlugin {
         let min_y = Self::PLAYER_HEIGHT;
         let max_y = max_height;
         let y = f32::clamp(player.y() + delta_y, min_y, max_y);
+
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        let player_tile_y = usize::clamp((y / Self::TILE_HEIGHT) as usize, 0, 8);
+
+        let x_center = x + Self::X_OFFSET;
+        let min_x = x_center - Self::PLAYER_WIDTH / 2f32 + 1f32;
+        let max_x = x_center + Self::PLAYER_WIDTH / 2f32 - 1f32;
+
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        let min_player_tile_x = usize::clamp((min_x / Self::TILE_WIDTH) as usize, 0, 15);
+        let min_tile = self.tile_map[player_tile_y][min_player_tile_x];
+        if min_tile != 0 {
+            return;
+        }
+
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        let max_player_tile_x = usize::clamp((max_x / Self::TILE_WIDTH) as usize, 0, 15);
+        let max_tile = self.tile_map[player_tile_y][max_player_tile_x];
+        if max_tile != 0 {
+            return;
+        }
+
         let player_position = Coordinate2d::from_x_y(x, y);
         state.set_player(player_position);
     }
@@ -188,7 +227,9 @@ impl Application for ApplicationPlugin {
         let height = f32::from(state.height());
         let window_bounds = Rectangle::new(0f32, 0f32, height, width);
 
-        Self::render_tilemap(&window_bounds, buffer).unwrap_or_default(); // Ignore errors
+        self.render_tilemap(&window_bounds, buffer)
+            .unwrap_or_default(); // Ignore errors
+
         Self::render_player(state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
     }
 

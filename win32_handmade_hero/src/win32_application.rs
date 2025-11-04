@@ -193,7 +193,7 @@ impl Win32Application {
     }
 
     fn set_transparency(&self, is_active: bool) -> Win32Result<LRESULT> {
-        let alpha = if is_active { 0xFF } else { 0x40 };
+        let alpha = if is_active { 0xFF } else { 0x90 };
         unsafe {
             SetLayeredWindowAttributes(self.window_handle, COLORREF::default(), alpha, LWA_ALPHA)?;
         }
