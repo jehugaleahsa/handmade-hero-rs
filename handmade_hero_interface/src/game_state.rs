@@ -1,4 +1,4 @@
-use crate::coordinate_2d::Coordinate2d;
+use crate::point_2d::Point2d;
 use crate::sound_state::SoundState;
 use bincode::{Decode, Encode};
 use std::time::Duration;
@@ -8,7 +8,7 @@ pub struct GameState {
     width: u16,
     height: u16,
     sound: SoundState,
-    player: Coordinate2d,
+    player: Point2d,
     frame_duration: Duration,
 }
 
@@ -17,7 +17,7 @@ impl GameState {
     #[must_use]
     pub fn new() -> Self {
         let sound = SoundState::new();
-        let player = Coordinate2d::default();
+        let player = Point2d::default();
         Self {
             width: 0,
             height: 0,
@@ -74,12 +74,12 @@ impl GameState {
 
     #[inline]
     #[must_use]
-    pub fn player(&self) -> Coordinate2d {
+    pub fn player(&self) -> Point2d {
         self.player
     }
 
     #[inline]
-    pub fn set_player(&mut self, player: Coordinate2d) {
+    pub fn set_player(&mut self, player: Point2d) {
         self.player = player;
     }
 }

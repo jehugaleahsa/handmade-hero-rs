@@ -1,6 +1,7 @@
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
+use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::render_context::RenderContext;
 use libloading::{Library, Symbol, library_filename};
@@ -17,17 +18,22 @@ pub struct ApplicationStub {
 
 impl Application for ApplicationStub {
     #[inline]
-    fn process_input(&self, context: InputContext<'_>) {
+    fn initialize(&mut self, context: InitializeContext<'_>) {
+        self.application.initialize(context);
+    }
+
+    #[inline]
+    fn process_input(&mut self, context: InputContext<'_>) {
         self.application.process_input(context);
     }
 
     #[inline]
-    fn render(&self, context: RenderContext<'_>) {
+    fn render(&mut self, context: RenderContext<'_>) {
         self.application.render(context);
     }
 
     #[inline]
-    fn write_sound(&self, context: AudioContext<'_>) {
+    fn write_sound(&mut self, context: AudioContext<'_>) {
         self.application.write_sound(context);
     }
 }
@@ -51,7 +57,7 @@ impl ApplicationLoader {
         }
     }
 
-    pub fn load(&mut self) -> Result<&ApplicationStub> {
+    pub fn load(&mut self) -> Result<&mut ApplicationStub> {
         let normal_name = self
             .plugin_directory
             .join(library_filename("handmade_hero_plugin"));

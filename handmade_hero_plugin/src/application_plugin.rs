@@ -5,10 +5,11 @@ use handmade_hero_interface::application_error::Result;
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::controller_state::ControllerState;
-use handmade_hero_interface::coordinate_2d::Coordinate2d;
 use handmade_hero_interface::f32_color::F32Color;
 use handmade_hero_interface::game_state::GameState;
+use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
+use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::u8_color::U8Color;
 
@@ -18,7 +19,8 @@ const TILE_COLUMNS: usize = 17;
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ApplicationPlugin {
-    tile_map: TileMap,
+    tile_maps: Vec<TileMap>,
+    tile_map_index: usize,
 }
 
 impl ApplicationPlugin {
@@ -28,25 +30,47 @@ impl ApplicationPlugin {
     #[unsafe(no_mangle)]
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
-        let mut tile_map = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
-        let source_tile_map: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        let mut tile_map_0 = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
+        let source_tile_map_0: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1],
+            [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
+            [1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
-        for (row_index, row) in source_tile_map.iter().enumerate() {
+        Self::load_tile_map(&mut tile_map_0, &source_tile_map_0);
+
+        let mut tile_map_1 = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
+        let source_tile_map_1: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+        ];
+        Self::load_tile_map(&mut tile_map_1, &source_tile_map_1);
+
+        Box::new(Self {
+            tile_map_index: 0,
+            tile_maps: vec![tile_map_0, tile_map_1],
+        })
+    }
+
+    fn load_tile_map(destination: &mut TileMap, source: &[[u32; TILE_COLUMNS]]) {
+        for (row_index, row) in source.iter().enumerate() {
             for (column_index, column) in row.iter().enumerate() {
                 let value = *column;
-                tile_map.set(row_index, column_index, value);
+                destination.set(row_index, column_index, value);
             }
         }
-        Box::new(Self { tile_map })
     }
 
     #[inline]
@@ -84,16 +108,17 @@ impl ApplicationPlugin {
         controller_state.left_joystick().y()
     }
 
-    fn is_traversable(&self, point: Coordinate2d) -> bool {
+    fn is_traversable(&self, point: Point2d) -> bool {
+        let tile_map = &self.tile_maps[self.tile_map_index];
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
-        let tile_x = (point.x() / self.tile_map.tile_width()) as usize;
-        let tile_x = usize::clamp(tile_x, 0, self.tile_map.columns() - 1);
+        let tile_x = (point.x() / tile_map.tile_width()) as usize;
+        let tile_x = usize::clamp(tile_x, 0, tile_map.columns() - 1);
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
-        let tile_y = (point.y() / self.tile_map.tile_height()) as usize;
-        let tile_y = usize::clamp(tile_y, 0, self.tile_map.rows() - 1);
-        let tile = self.tile_map.get(tile_y, tile_x);
+        let tile_y = (point.y() / tile_map.tile_height()) as usize;
+        let tile_y = usize::clamp(tile_y, 0, tile_map.rows() - 1);
+        let tile = tile_map.get(tile_y, tile_x);
         tile == 0
     }
 
@@ -132,22 +157,19 @@ impl ApplicationPlugin {
 
         let white = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0xFF));
         let grey = F32Color::from(U8Color::from_rgb(0xCC, 0xCC, 0xCC));
-        let upper_left_x = -self.tile_map.x_offset();
-        let upper_left_y = -self.tile_map.y_offset();
-        for row_index in 0..self.tile_map.rows() {
-            for column_index in 0..self.tile_map.columns() {
-                let tile = self.tile_map.get(row_index, column_index);
+        let tile_map = &self.tile_maps[self.tile_map_index];
+        let upper_left_x = -tile_map.x_offset();
+        let upper_left_y = -tile_map.y_offset();
+        for row_index in 0..tile_map.rows() {
+            for column_index in 0..tile_map.columns() {
+                let tile = tile_map.get(row_index, column_index);
                 let color = if tile == 0 { grey } else { white };
                 #[allow(clippy::cast_precision_loss)]
-                let top = row_index as f32 * self.tile_map.tile_height() + upper_left_y;
+                let top = row_index as f32 * tile_map.tile_height() + upper_left_y;
                 #[allow(clippy::cast_precision_loss)]
-                let left = column_index as f32 * self.tile_map.tile_width() + upper_left_x;
-                let tile_rectangle = Rectangle::new(
-                    top,
-                    left,
-                    self.tile_map.tile_height(),
-                    self.tile_map.tile_width(),
-                );
+                let left = column_index as f32 * tile_map.tile_width() + upper_left_x;
+                let tile_rectangle =
+                    Rectangle::new(top, left, tile_map.tile_height(), tile_map.tile_width());
                 Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
             }
         }
@@ -172,14 +194,15 @@ impl ApplicationPlugin {
 }
 
 impl Application for ApplicationPlugin {
-    fn process_input(&self, context: InputContext<'_>) {
+    fn initialize(&mut self, context: InitializeContext<'_>) {
+        let InitializeContext { state } = context;
+        let x = f32::from(state.width()) / 2f32;
+        let y = f32::from(state.height()) / 2f32;
+        state.set_player(Point2d::from_x_y(x, y));
+    }
+
+    fn process_input(&mut self, context: InputContext<'_>) {
         let InputContext { input, state } = context;
-        let player = state.player();
-        if player.x() == 0f32 && player.y() == 0f32 {
-            let player_position = Coordinate2d::from_x_y(Self::PLAYER_WIDTH / 2f32, 0f32);
-            state.set_player(player_position);
-            return;
-        }
 
         let keyboard = input.keyboard();
         let mut delta_x = Self::calculate_keyboard_delta_x(keyboard);
@@ -207,39 +230,54 @@ impl Application for ApplicationPlugin {
         let max_height = f32::from(state.height());
         let max_width = f32::from(state.width());
 
+        let player = state.player();
         let min_x = Self::PLAYER_WIDTH / 2f32;
         let max_x = max_width - Self::PLAYER_WIDTH / 2f32;
         let x = f32::clamp(player.x() + delta_x, min_x, max_x);
-        let min_y = Self::PLAYER_HEIGHT;
+        let min_y = 0f32;
         let max_y = max_height;
         let y = f32::clamp(player.y() + delta_y, min_y, max_y);
 
-        let y_offset = y + self.tile_map.y_offset();
+        if y == 0f32 && self.tile_map_index == 0 {
+            self.tile_map_index = 1;
+            let middle = f32::from(state.width()) / 2f32;
+            let bottom = f32::from(state.height());
+            state.set_player(Point2d::from_x_y(middle, bottom));
+            return;
+        } else if y >= f32::from(state.height()) && self.tile_map_index == 1 {
+            self.tile_map_index = 0;
+            let middle = f32::from(state.width()) / 2f32;
+            let top = Self::PLAYER_HEIGHT;
+            state.set_player(Point2d::from_x_y(middle, top));
+        }
+
+        let tile_map = &self.tile_maps[self.tile_map_index];
+        let y_offset = y + tile_map.y_offset();
         let min_y = y_offset - Self::PLAYER_HEIGHT / 4f32;
         let max_y = y_offset;
 
-        let x_offset = x + self.tile_map.x_offset();
+        let x_offset = x + tile_map.x_offset();
         let min_x = x_offset - Self::PLAYER_WIDTH / 2f32 + 1f32;
         let max_x = x_offset + Self::PLAYER_WIDTH / 2f32 - 1f32;
 
-        if !self.is_traversable(Coordinate2d::from_x_y(min_x, min_y)) {
+        if !self.is_traversable(Point2d::from_x_y(min_x, min_y)) {
             return;
         }
-        if !self.is_traversable(Coordinate2d::from_x_y(min_x, max_y)) {
+        if !self.is_traversable(Point2d::from_x_y(min_x, max_y)) {
             return;
         }
-        if !self.is_traversable(Coordinate2d::from_x_y(max_x, min_y)) {
+        if !self.is_traversable(Point2d::from_x_y(max_x, min_y)) {
             return;
         }
-        if !self.is_traversable(Coordinate2d::from_x_y(max_x, max_y)) {
+        if !self.is_traversable(Point2d::from_x_y(max_x, max_y)) {
             return;
         }
 
-        let player_position = Coordinate2d::from_x_y(x, y);
+        let player_position = Point2d::from_x_y(x, y);
         state.set_player(player_position);
     }
 
-    fn render(&self, context: RenderContext<'_>) {
+    fn render(&mut self, context: RenderContext<'_>) {
         let RenderContext {
             input: _input,
             state,
@@ -256,5 +294,5 @@ impl Application for ApplicationPlugin {
         Self::render_player(state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
     }
 
-    fn write_sound(&self, _context: AudioContext<'_>) {}
+    fn write_sound(&mut self, _context: AudioContext<'_>) {}
 }

@@ -1,12 +1,12 @@
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Encode, Decode, Default, Copy, Clone)]
-pub struct Coordinate2d {
+pub struct Point2d {
     x: f32,
     y: f32,
 }
 
-impl Coordinate2d {
+impl Point2d {
     #[inline]
     #[must_use]
     pub fn from_x_y(x: f32, y: f32) -> Self {

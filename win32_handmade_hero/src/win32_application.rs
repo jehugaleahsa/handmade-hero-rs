@@ -9,6 +9,7 @@ use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::game_state::GameState;
+use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::render_context::RenderContext;
@@ -402,6 +403,11 @@ impl Win32Application {
 
         let exe_directory = Self::exe_directory()?;
         let mut loader = ApplicationLoader::new(&exe_directory);
+        let initialize_context = InitializeContext {
+            state: &mut self.state,
+        };
+        loader.load()?.initialize(initialize_context);
+
         let mut recorder = PlaybackRecorder::new(&exe_directory);
         let mut counter = PerformanceCounter::start();
         loop {
@@ -535,7 +541,7 @@ impl Win32Application {
 
     fn fill_sound_buffer(
         &mut self,
-        application: &dyn Application,
+        application: &mut dyn Application,
         direct_sound_buffer: &mut DirectSoundBuffer<'_>,
         sound_index: u32,
         game_update_hertz: f32,
