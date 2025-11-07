@@ -22,9 +22,9 @@ use windows::Win32::Foundation::{
     COLORREF, ERROR_SUCCESS, FALSE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, TRUE, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BeginPaint, ClientToScreen, DEVMODEW, DIB_RGB_COLORS,
-    ENUM_CURRENT_SETTINGS, EndPaint, EnumDisplaySettingsW, GetDC, HDC, PAINTSTRUCT, ReleaseDC,
-    SRCCOPY, StretchDIBits,
+    BI_RGB, BITMAPINFO, BLACKNESS, BeginPaint, ClientToScreen, DEVMODEW, DIB_RGB_COLORS,
+    ENUM_CURRENT_SETTINGS, EndPaint, EnumDisplaySettingsW, GetDC, HDC, PAINTSTRUCT, PatBlt,
+    ReleaseDC, SRCCOPY, StretchDIBits,
 };
 use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -323,6 +323,29 @@ impl Win32Application {
         let source_height = i32::from(self.state.height());
 
         unsafe {
+            if let Ok(client_rectangle) = Self::get_client_rectangle(self.window_handle) {
+                let client_height = client_rectangle.bottom;
+                let client_width = client_rectangle.right;
+                #[allow(unused_must_use)]
+                PatBlt(
+                    device_context,
+                    source_width,
+                    0,
+                    client_width,
+                    client_height,
+                    BLACKNESS,
+                );
+                #[allow(unused_must_use)]
+                PatBlt(
+                    device_context,
+                    0,
+                    source_height,
+                    client_width,
+                    client_height,
+                    BLACKNESS,
+                );
+            }
+
             let bitmap_data = bitmap_buffer.as_ptr().cast::<c_void>();
             StretchDIBits(
                 device_context,

@@ -11,10 +11,13 @@ use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::u8_color::U8Color;
 
+const TILE_ROWS: usize = 9;
+const TILE_COLUMNS: usize = 17;
+
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ApplicationPlugin {
-    tile_map: [[u32; 17]; 9],
+    tile_map: [[u32; TILE_COLUMNS]; TILE_ROWS],
 }
 
 impl ApplicationPlugin {
@@ -22,22 +25,23 @@ impl ApplicationPlugin {
     const PLAYER_WIDTH: f32 = 30f32;
     const TILE_HEIGHT: f32 = 56f32;
     const TILE_WIDTH: f32 = 58f32;
-    const X_OFFSET: f32 = 30f32;
+    const X_OFFSET: f32 = 20f32;
+    const Y_OFFSET: f32 = 0f32;
 
     #[unsafe(no_mangle)]
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
         Box::new(Self {
             tile_map: [
-                [0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
-                [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-                [1, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1],
-                [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1],
-                [0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1],
-                [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
-                [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             ],
         })
     }
@@ -77,6 +81,19 @@ impl ApplicationPlugin {
         controller_state.left_joystick().y()
     }
 
+    fn is_traversable(&self, point: Coordinate2d) -> bool {
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        let tile_x = (point.x() / Self::TILE_WIDTH) as usize;
+        let tile_x = usize::clamp(tile_x, 0, TILE_COLUMNS - 1);
+        #[allow(clippy::cast_sign_loss)]
+        #[allow(clippy::cast_possible_truncation)]
+        let tile_y = (point.y() / Self::TILE_HEIGHT) as usize;
+        let tile_y = usize::clamp(tile_y, 0, TILE_ROWS - 1);
+        let tile = self.tile_map[tile_y][tile_x];
+        tile == 0
+    }
+
     fn render_rectangle(
         window_bounds: &Rectangle<f32>,
         rectangle: &Rectangle<f32>,
@@ -113,7 +130,7 @@ impl ApplicationPlugin {
         let white = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0xFF));
         let grey = F32Color::from(U8Color::from_rgb(0xCC, 0xCC, 0xCC));
         let upper_left_x = -Self::X_OFFSET;
-        let upper_left_y = 0f32;
+        let upper_left_y = -Self::Y_OFFSET;
         for (row_index, row) in self.tile_map.iter().enumerate() {
             for (column_index, tile) in row.iter().enumerate() {
                 let color = if *tile == 0 { grey } else { white };
@@ -188,27 +205,23 @@ impl Application for ApplicationPlugin {
         let max_y = max_height;
         let y = f32::clamp(player.y() + delta_y, min_y, max_y);
 
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        let player_tile_y = usize::clamp((y / Self::TILE_HEIGHT) as usize, 0, 8);
+        let min_y = y - Self::PLAYER_HEIGHT / 4f32;
+        let max_y = y;
 
         let x_center = x + Self::X_OFFSET;
         let min_x = x_center - Self::PLAYER_WIDTH / 2f32 + 1f32;
         let max_x = x_center + Self::PLAYER_WIDTH / 2f32 - 1f32;
 
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        let min_player_tile_x = usize::clamp((min_x / Self::TILE_WIDTH) as usize, 0, 15);
-        let min_tile = self.tile_map[player_tile_y][min_player_tile_x];
-        if min_tile != 0 {
+        if !self.is_traversable(Coordinate2d::from_x_y(min_x, min_y)) {
             return;
         }
-
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        let max_player_tile_x = usize::clamp((max_x / Self::TILE_WIDTH) as usize, 0, 15);
-        let max_tile = self.tile_map[player_tile_y][max_player_tile_x];
-        if max_tile != 0 {
+        if !self.is_traversable(Coordinate2d::from_x_y(min_x, max_y)) {
+            return;
+        }
+        if !self.is_traversable(Coordinate2d::from_x_y(max_x, min_y)) {
+            return;
+        }
+        if !self.is_traversable(Coordinate2d::from_x_y(max_x, max_y)) {
             return;
         }
 
