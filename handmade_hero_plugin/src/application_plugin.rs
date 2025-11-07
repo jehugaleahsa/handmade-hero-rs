@@ -1,4 +1,5 @@
 use crate::rectangle::Rectangle;
+use crate::tile_map::TileMap;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::Result;
 use handmade_hero_interface::audio_context::AudioContext;
@@ -17,33 +18,35 @@ const TILE_COLUMNS: usize = 17;
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ApplicationPlugin {
-    tile_map: [[u32; TILE_COLUMNS]; TILE_ROWS],
+    tile_map: TileMap,
 }
 
 impl ApplicationPlugin {
     const PLAYER_HEIGHT: f32 = 40f32;
     const PLAYER_WIDTH: f32 = 30f32;
-    const TILE_HEIGHT: f32 = 56f32;
-    const TILE_WIDTH: f32 = 58f32;
-    const X_OFFSET: f32 = 20f32;
-    const Y_OFFSET: f32 = 0f32;
 
     #[unsafe(no_mangle)]
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
-        Box::new(Self {
-            tile_map: [
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            ],
-        })
+        let mut tile_map = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
+        let source_tile_map: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ];
+        for (row_index, row) in source_tile_map.iter().enumerate() {
+            for (column_index, column) in row.iter().enumerate() {
+                let value = *column;
+                tile_map.set(row_index, column_index, value);
+            }
+        }
+        Box::new(Self { tile_map })
     }
 
     #[inline]
@@ -84,13 +87,13 @@ impl ApplicationPlugin {
     fn is_traversable(&self, point: Coordinate2d) -> bool {
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
-        let tile_x = (point.x() / Self::TILE_WIDTH) as usize;
-        let tile_x = usize::clamp(tile_x, 0, TILE_COLUMNS - 1);
+        let tile_x = (point.x() / self.tile_map.tile_width()) as usize;
+        let tile_x = usize::clamp(tile_x, 0, self.tile_map.columns() - 1);
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
-        let tile_y = (point.y() / Self::TILE_HEIGHT) as usize;
-        let tile_y = usize::clamp(tile_y, 0, TILE_ROWS - 1);
-        let tile = self.tile_map[tile_y][tile_x];
+        let tile_y = (point.y() / self.tile_map.tile_height()) as usize;
+        let tile_y = usize::clamp(tile_y, 0, self.tile_map.rows() - 1);
+        let tile = self.tile_map.get(tile_y, tile_x);
         tile == 0
     }
 
@@ -129,16 +132,22 @@ impl ApplicationPlugin {
 
         let white = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0xFF));
         let grey = F32Color::from(U8Color::from_rgb(0xCC, 0xCC, 0xCC));
-        let upper_left_x = -Self::X_OFFSET;
-        let upper_left_y = -Self::Y_OFFSET;
-        for (row_index, row) in self.tile_map.iter().enumerate() {
-            for (column_index, tile) in row.iter().enumerate() {
-                let color = if *tile == 0 { grey } else { white };
+        let upper_left_x = -self.tile_map.x_offset();
+        let upper_left_y = -self.tile_map.y_offset();
+        for row_index in 0..self.tile_map.rows() {
+            for column_index in 0..self.tile_map.columns() {
+                let tile = self.tile_map.get(row_index, column_index);
+                let color = if tile == 0 { grey } else { white };
                 #[allow(clippy::cast_precision_loss)]
-                let top = row_index as f32 * Self::TILE_HEIGHT + upper_left_y;
+                let top = row_index as f32 * self.tile_map.tile_height() + upper_left_y;
                 #[allow(clippy::cast_precision_loss)]
-                let left = column_index as f32 * Self::TILE_WIDTH + upper_left_x;
-                let tile_rectangle = Rectangle::new(top, left, Self::TILE_HEIGHT, Self::TILE_WIDTH);
+                let left = column_index as f32 * self.tile_map.tile_width() + upper_left_x;
+                let tile_rectangle = Rectangle::new(
+                    top,
+                    left,
+                    self.tile_map.tile_height(),
+                    self.tile_map.tile_width(),
+                );
                 Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
             }
         }
@@ -205,12 +214,13 @@ impl Application for ApplicationPlugin {
         let max_y = max_height;
         let y = f32::clamp(player.y() + delta_y, min_y, max_y);
 
-        let min_y = y - Self::PLAYER_HEIGHT / 4f32;
-        let max_y = y;
+        let y_offset = y + self.tile_map.y_offset();
+        let min_y = y_offset - Self::PLAYER_HEIGHT / 4f32;
+        let max_y = y_offset;
 
-        let x_center = x + Self::X_OFFSET;
-        let min_x = x_center - Self::PLAYER_WIDTH / 2f32 + 1f32;
-        let max_x = x_center + Self::PLAYER_WIDTH / 2f32 - 1f32;
+        let x_offset = x + self.tile_map.x_offset();
+        let min_x = x_offset - Self::PLAYER_WIDTH / 2f32 + 1f32;
+        let max_x = x_offset + Self::PLAYER_WIDTH / 2f32 - 1f32;
 
         if !self.is_traversable(Coordinate2d::from_x_y(min_x, min_y)) {
             return;
