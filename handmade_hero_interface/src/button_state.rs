@@ -26,7 +26,7 @@ impl ButtonState {
 
     #[inline]
     pub fn increment_half_transition_count(&mut self) {
-        self.half_transition_count += 1;
+        self.half_transition_count = self.half_transition_count.saturating_add(1);
     }
 
     #[inline]

@@ -15,6 +15,11 @@ use handmade_hero_interface::u8_color::U8Color;
 
 const TILE_ROWS: usize = 9;
 const TILE_COLUMNS: usize = 17;
+const SOUTH: usize = 0;
+const HUB: usize = 1;
+const WEST: usize = 2;
+const EAST: usize = 3;
+const NORTH: usize = 4;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -30,37 +35,79 @@ impl ApplicationPlugin {
     #[unsafe(no_mangle)]
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
-        let mut tile_map_0 = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
-        let source_tile_map_0: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
-            [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+        let mut south = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
+        let source_south: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+            [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1],
-            [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
-            [1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1],
+            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(&mut tile_map_0, &source_tile_map_0);
+        Self::load_tile_map(&mut south, &source_south);
 
-        let mut tile_map_1 = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
-        let source_tile_map_1: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+        let mut hub = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
+        let source_hub: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+            [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
+        ];
+        Self::load_tile_map(&mut hub, &source_hub);
+
+        let mut west = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
+        let source_west: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(&mut tile_map_1, &source_tile_map_1);
+        Self::load_tile_map(&mut west, &source_west);
+
+        let mut east = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
+        let source_east: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        ];
+        Self::load_tile_map(&mut east, &source_east);
+
+        let mut north = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
+        let source_north: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
+        ];
+        Self::load_tile_map(&mut north, &source_north);
 
         Box::new(Self {
-            tile_map_index: 0,
-            tile_maps: vec![tile_map_0, tile_map_1],
+            tile_map_index: SOUTH,
+            tile_maps: vec![south, hub, west, east, north],
         })
     }
 
@@ -238,17 +285,62 @@ impl Application for ApplicationPlugin {
         let max_y = max_height;
         let y = f32::clamp(player.y() + delta_y, min_y, max_y);
 
-        if y == 0f32 && self.tile_map_index == 0 {
-            self.tile_map_index = 1;
-            let middle = f32::from(state.width()) / 2f32;
-            let bottom = f32::from(state.height());
-            state.set_player(Point2d::from_x_y(middle, bottom));
-            return;
-        } else if y >= f32::from(state.height()) && self.tile_map_index == 1 {
-            self.tile_map_index = 0;
-            let middle = f32::from(state.width()) / 2f32;
-            let top = Self::PLAYER_HEIGHT;
-            state.set_player(Point2d::from_x_y(middle, top));
+        if y == 0f32 {
+            if self.tile_map_index == SOUTH {
+                self.tile_map_index = HUB;
+                let middle = f32::from(state.width()) / 2f32;
+                let bottom = f32::from(state.height());
+                state.set_player(Point2d::from_x_y(middle, bottom));
+                return;
+            } else if self.tile_map_index == HUB {
+                self.tile_map_index = NORTH;
+                let middle = f32::from(state.width()) / 2f32;
+                let bottom = f32::from(state.height());
+                state.set_player(Point2d::from_x_y(middle, bottom));
+                return;
+            }
+        } else if y >= f32::from(state.height()) {
+            if self.tile_map_index == HUB {
+                self.tile_map_index = SOUTH;
+                let middle = f32::from(state.width()) / 2f32;
+                let top = Self::PLAYER_HEIGHT;
+                state.set_player(Point2d::from_x_y(middle, top));
+                return;
+            } else if self.tile_map_index == NORTH {
+                self.tile_map_index = HUB;
+                let middle = f32::from(state.width()) / 2f32;
+                let top = Self::PLAYER_HEIGHT;
+                state.set_player(Point2d::from_x_y(middle, top));
+                return;
+            }
+        } else if x - Self::PLAYER_WIDTH / 2f32 <= 0f32 {
+            if self.tile_map_index == HUB {
+                self.tile_map_index = WEST;
+                let middle = f32::from(state.height()) / 2f32;
+                let right = f32::from(state.width()) - Self::PLAYER_WIDTH;
+                state.set_player(Point2d::from_x_y(right, middle));
+                return;
+            } else if self.tile_map_index == EAST {
+                self.tile_map_index = HUB;
+                let middle = f32::from(state.height()) / 2f32;
+                let right = f32::from(state.width()) - Self::PLAYER_WIDTH;
+                state.set_player(Point2d::from_x_y(right, middle));
+                return;
+            }
+        } else if x + Self::PLAYER_WIDTH / 2f32 >= f32::from(state.width()) {
+            if self.tile_map_index == HUB {
+                self.tile_map_index = EAST;
+                let middle = f32::from(state.height()) / 2f32;
+                let left = Self::PLAYER_WIDTH;
+                state.set_player(Point2d::from_x_y(left, middle));
+                return;
+            } else if self.tile_map_index == WEST {
+                self.tile_map_index = HUB;
+                let middle = f32::from(state.height()) / 2f32;
+                let left = Self::PLAYER_WIDTH;
+                state.set_player(Point2d::from_x_y(left, middle));
+                return;
+            }
         }
 
         let tile_map = &self.tile_maps[self.tile_map_index];
