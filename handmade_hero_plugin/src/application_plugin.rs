@@ -1,7 +1,7 @@
 use crate::rectangle::Rectangle;
 use crate::tile_map::TileMap;
 use handmade_hero_interface::application::Application;
-use handmade_hero_interface::application_error::Result;
+use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::controller_state::ControllerState;
@@ -9,12 +9,15 @@ use handmade_hero_interface::f32_color::F32Color;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
+use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::u8_color::U8Color;
+use std::collections::HashMap;
 
 const TILE_ROWS: usize = 9;
 const TILE_COLUMNS: usize = 17;
+
 const SOUTH: usize = 0;
 const HUB: usize = 1;
 const WEST: usize = 2;
@@ -24,7 +27,7 @@ const NORTH: usize = 4;
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ApplicationPlugin {
-    tile_maps: Vec<TileMap>,
+    tile_maps: HashMap<usize, TileMap>,
     tile_map_index: usize,
 }
 
@@ -107,7 +110,13 @@ impl ApplicationPlugin {
 
         Box::new(Self {
             tile_map_index: SOUTH,
-            tile_maps: vec![south, hub, west, east, north],
+            tile_maps: HashMap::from([
+                (SOUTH, south),
+                (HUB, hub),
+                (WEST, west),
+                (EAST, east),
+                (NORTH, north),
+            ]),
         })
     }
 
@@ -118,6 +127,42 @@ impl ApplicationPlugin {
                 destination.set(row_index, column_index, value);
             }
         }
+    }
+
+    fn calculate_delta_x_y(input: &InputState, state: &GameState) -> (f32, f32) {
+        let keyboard = input.keyboard();
+        let mut delta_x = Self::calculate_keyboard_delta_x(keyboard);
+        let mut delta_y = Self::calculate_keyboard_delta_y(keyboard);
+        if delta_x == 0f32 && delta_y == 0f32 {
+            for controller in input.controllers() {
+                if controller.enabled() {
+                    delta_x = Self::calculate_controller_delta_x(controller);
+                    delta_y = Self::calculate_controller_delta_y(controller);
+                    if delta_x != 0f32 || delta_y != 0f32 {
+                        break;
+                    }
+                }
+            }
+        }
+        let frame_duration = state.frame_duration().as_secs_f32();
+        let speed = frame_duration * 128f32;
+        delta_x *= speed;
+        delta_y *= speed;
+        (delta_x, delta_y)
+    }
+
+    fn calculate_player_x_y(state: &GameState, delta_x: f32, delta_y: f32) -> Point2d {
+        let max_height = f32::from(state.height());
+        let max_width = f32::from(state.width());
+
+        let player = state.player();
+        let min_x = Self::PLAYER_WIDTH / 2f32;
+        let max_x = max_width - Self::PLAYER_WIDTH / 2f32;
+        let x = f32::clamp(player.x() + delta_x, min_x, max_x);
+        let min_y = 0f32;
+        let max_y = max_height;
+        let y = f32::clamp(player.y() + delta_y, min_y, max_y);
+        Point2d::from_x_y(x, y)
     }
 
     #[inline]
@@ -156,7 +201,9 @@ impl ApplicationPlugin {
     }
 
     fn is_traversable(&self, point: Point2d) -> bool {
-        let tile_map = &self.tile_maps[self.tile_map_index];
+        let Some(tile_map) = &self.tile_maps.get(&self.tile_map_index) else {
+            return false;
+        };
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         let tile_x = (point.x() / tile_map.tile_width()) as usize;
@@ -204,7 +251,10 @@ impl ApplicationPlugin {
 
         let white = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0xFF));
         let grey = F32Color::from(U8Color::from_rgb(0xCC, 0xCC, 0xCC));
-        let tile_map = &self.tile_maps[self.tile_map_index];
+        let tile_map = self
+            .tile_maps
+            .get(&self.tile_map_index)
+            .ok_or_else(|| ApplicationError::new("Fell out of the world"))?;
         let upper_left_x = -tile_map.x_offset();
         let upper_left_y = -tile_map.y_offset();
         for row_index in 0..tile_map.rows() {
@@ -251,39 +301,14 @@ impl Application for ApplicationPlugin {
     fn process_input(&mut self, context: InputContext<'_>) {
         let InputContext { input, state } = context;
 
-        let keyboard = input.keyboard();
-        let mut delta_x = Self::calculate_keyboard_delta_x(keyboard);
-        let mut delta_y = Self::calculate_keyboard_delta_y(keyboard);
-        if delta_x == 0f32 && delta_y == 0f32 {
-            for controller in input.controllers() {
-                if controller.enabled() {
-                    delta_x = Self::calculate_controller_delta_x(controller);
-                    delta_y = Self::calculate_controller_delta_y(controller);
-                    if delta_x != 0f32 || delta_y != 0f32 {
-                        break;
-                    }
-                }
-            }
-        }
-        let frame_duration = state.frame_duration().as_secs_f32();
-        let speed = frame_duration * 128f32;
-        delta_x *= speed;
-        delta_y *= speed;
-
+        let (delta_x, delta_y) = Self::calculate_delta_x_y(input, state);
         if delta_x == 0f32 && delta_y == 0f32 {
             return;
         }
 
-        let max_height = f32::from(state.height());
-        let max_width = f32::from(state.width());
-
-        let player = state.player();
-        let min_x = Self::PLAYER_WIDTH / 2f32;
-        let max_x = max_width - Self::PLAYER_WIDTH / 2f32;
-        let x = f32::clamp(player.x() + delta_x, min_x, max_x);
-        let min_y = 0f32;
-        let max_y = max_height;
-        let y = f32::clamp(player.y() + delta_y, min_y, max_y);
+        let updated_position = Self::calculate_player_x_y(state, delta_x, delta_y);
+        let x = updated_position.x();
+        let y = updated_position.y();
 
         if y == 0f32 {
             if self.tile_map_index == SOUTH {
@@ -343,7 +368,10 @@ impl Application for ApplicationPlugin {
             }
         }
 
-        let tile_map = &self.tile_maps[self.tile_map_index];
+        let Some(tile_map) = self.tile_maps.get(&self.tile_map_index) else {
+            return;
+        };
+
         let y_offset = y + tile_map.y_offset();
         let min_y = y_offset - Self::PLAYER_HEIGHT / 4f32;
         let max_y = y_offset;
