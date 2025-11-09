@@ -1,5 +1,6 @@
 use crate::rectangle::Rectangle;
 use crate::tile_map::TileMap;
+use crate::world::World;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -15,20 +16,15 @@ use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::u8_color::U8Color;
 use std::collections::HashMap;
 
-const TILE_ROWS: usize = 9;
-const TILE_COLUMNS: usize = 17;
-
 const SOUTH: usize = 0;
 const HUB: usize = 1;
 const WEST: usize = 2;
 const EAST: usize = 3;
 const NORTH: usize = 4;
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ApplicationPlugin {
-    tile_maps: HashMap<usize, TileMap>,
-    tile_map_index: usize,
+    world: World,
 }
 
 impl ApplicationPlugin {
@@ -38,8 +34,19 @@ impl ApplicationPlugin {
     #[unsafe(no_mangle)]
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
-        let mut south = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
-        let source_south: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+        let mut world = World {
+            rows: World::TILE_ROWS,
+            columns: World::TILE_COLUMNS,
+            tile_height: 58f32,
+            tile_width: 56f32,
+            x_offset: 20f32,
+            y_offset: 0f32,
+            current_tile_map_id: SOUTH,
+            tile_maps: HashMap::new(),
+        };
+
+        let south = world.add_tile_map(SOUTH);
+        let source_south: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
@@ -50,10 +57,10 @@ impl ApplicationPlugin {
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(&mut south, &source_south);
+        Self::load_tile_map(south, &source_south);
 
-        let mut hub = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
-        let source_hub: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+        let hub = world.add_tile_map(HUB);
+        let source_hub: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
@@ -64,10 +71,10 @@ impl ApplicationPlugin {
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(&mut hub, &source_hub);
+        Self::load_tile_map(hub, &source_hub);
 
-        let mut west = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
-        let source_west: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+        let west = world.add_tile_map(WEST);
+        let source_west: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
@@ -78,10 +85,10 @@ impl ApplicationPlugin {
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(&mut west, &source_west);
+        Self::load_tile_map(west, &source_west);
 
-        let mut east = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
-        let source_east: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+        let east = world.add_tile_map(EAST);
+        let source_east: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
@@ -92,10 +99,10 @@ impl ApplicationPlugin {
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(&mut east, &source_east);
+        Self::load_tile_map(east, &source_east);
 
-        let mut north = TileMap::new(TILE_ROWS, TILE_COLUMNS, 58f32, 56f32, 20f32, 0f32);
-        let source_north: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
+        let north = world.add_tile_map(NORTH);
+        let source_north: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
@@ -106,21 +113,12 @@ impl ApplicationPlugin {
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(&mut north, &source_north);
+        Self::load_tile_map(north, &source_north);
 
-        Box::new(Self {
-            tile_map_index: SOUTH,
-            tile_maps: HashMap::from([
-                (SOUTH, south),
-                (HUB, hub),
-                (WEST, west),
-                (EAST, east),
-                (NORTH, north),
-            ]),
-        })
+        Box::new(Self { world })
     }
 
-    fn load_tile_map(destination: &mut TileMap, source: &[[u32; TILE_COLUMNS]]) {
+    fn load_tile_map(destination: &mut TileMap, source: &[[u32; World::TILE_COLUMNS]]) {
         for (row_index, row) in source.iter().enumerate() {
             for (column_index, column) in row.iter().enumerate() {
                 let value = *column;
@@ -201,17 +199,18 @@ impl ApplicationPlugin {
     }
 
     fn is_traversable(&self, point: Point2d) -> bool {
-        let Some(tile_map) = &self.tile_maps.get(&self.tile_map_index) else {
+        let world = &self.world;
+        let Some(tile_map) = &world.tile_maps.get(&world.current_tile_map_id) else {
             return false;
         };
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
-        let tile_x = (point.x() / tile_map.tile_width()) as usize;
-        let tile_x = usize::clamp(tile_x, 0, tile_map.columns() - 1);
+        let tile_x = (point.x() / world.tile_width) as usize;
+        let tile_x = usize::clamp(tile_x, 0, world.columns - 1);
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
-        let tile_y = (point.y() / tile_map.tile_height()) as usize;
-        let tile_y = usize::clamp(tile_y, 0, tile_map.rows() - 1);
+        let tile_y = (point.y() / world.tile_height) as usize;
+        let tile_y = usize::clamp(tile_y, 0, world.rows - 1);
         let tile = tile_map.get(tile_y, tile_x);
         tile == 0
     }
@@ -251,22 +250,22 @@ impl ApplicationPlugin {
 
         let white = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0xFF));
         let grey = F32Color::from(U8Color::from_rgb(0xCC, 0xCC, 0xCC));
-        let tile_map = self
+        let world = &self.world;
+        let tile_map = world
             .tile_maps
-            .get(&self.tile_map_index)
+            .get(&world.current_tile_map_id)
             .ok_or_else(|| ApplicationError::new("Fell out of the world"))?;
-        let upper_left_x = -tile_map.x_offset();
-        let upper_left_y = -tile_map.y_offset();
-        for row_index in 0..tile_map.rows() {
-            for column_index in 0..tile_map.columns() {
+        let upper_left_x = -world.x_offset;
+        let upper_left_y = -world.y_offset;
+        for row_index in 0..world.rows {
+            for column_index in 0..world.columns {
                 let tile = tile_map.get(row_index, column_index);
                 let color = if tile == 0 { grey } else { white };
                 #[allow(clippy::cast_precision_loss)]
-                let top = row_index as f32 * tile_map.tile_height() + upper_left_y;
+                let top = row_index as f32 * world.tile_height + upper_left_y;
                 #[allow(clippy::cast_precision_loss)]
-                let left = column_index as f32 * tile_map.tile_width() + upper_left_x;
-                let tile_rectangle =
-                    Rectangle::new(top, left, tile_map.tile_height(), tile_map.tile_width());
+                let left = column_index as f32 * world.tile_width + upper_left_x;
+                let tile_rectangle = Rectangle::new(top, left, world.tile_height, world.tile_width);
                 Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
             }
         }
@@ -310,57 +309,58 @@ impl Application for ApplicationPlugin {
         let x = updated_position.x();
         let y = updated_position.y();
 
+        let world = &mut self.world;
         if y == 0f32 {
-            if self.tile_map_index == SOUTH {
-                self.tile_map_index = HUB;
+            if world.current_tile_map_id == SOUTH {
+                world.current_tile_map_id = HUB;
                 let middle = f32::from(state.width()) / 2f32;
                 let bottom = f32::from(state.height());
                 state.set_player(Point2d::from_x_y(middle, bottom));
                 return;
-            } else if self.tile_map_index == HUB {
-                self.tile_map_index = NORTH;
+            } else if world.current_tile_map_id == HUB {
+                world.current_tile_map_id = NORTH;
                 let middle = f32::from(state.width()) / 2f32;
                 let bottom = f32::from(state.height());
                 state.set_player(Point2d::from_x_y(middle, bottom));
                 return;
             }
         } else if y >= f32::from(state.height()) {
-            if self.tile_map_index == HUB {
-                self.tile_map_index = SOUTH;
+            if world.current_tile_map_id == HUB {
+                world.current_tile_map_id = SOUTH;
                 let middle = f32::from(state.width()) / 2f32;
                 let top = Self::PLAYER_HEIGHT;
                 state.set_player(Point2d::from_x_y(middle, top));
                 return;
-            } else if self.tile_map_index == NORTH {
-                self.tile_map_index = HUB;
+            } else if world.current_tile_map_id == NORTH {
+                world.current_tile_map_id = HUB;
                 let middle = f32::from(state.width()) / 2f32;
                 let top = Self::PLAYER_HEIGHT;
                 state.set_player(Point2d::from_x_y(middle, top));
                 return;
             }
         } else if x - Self::PLAYER_WIDTH / 2f32 <= 0f32 {
-            if self.tile_map_index == HUB {
-                self.tile_map_index = WEST;
+            if world.current_tile_map_id == HUB {
+                world.current_tile_map_id = WEST;
                 let middle = f32::from(state.height()) / 2f32;
                 let right = f32::from(state.width()) - Self::PLAYER_WIDTH;
                 state.set_player(Point2d::from_x_y(right, middle));
                 return;
-            } else if self.tile_map_index == EAST {
-                self.tile_map_index = HUB;
+            } else if world.current_tile_map_id == EAST {
+                world.current_tile_map_id = HUB;
                 let middle = f32::from(state.height()) / 2f32;
                 let right = f32::from(state.width()) - Self::PLAYER_WIDTH;
                 state.set_player(Point2d::from_x_y(right, middle));
                 return;
             }
         } else if x + Self::PLAYER_WIDTH / 2f32 >= f32::from(state.width()) {
-            if self.tile_map_index == HUB {
-                self.tile_map_index = EAST;
+            if world.current_tile_map_id == HUB {
+                world.current_tile_map_id = EAST;
                 let middle = f32::from(state.height()) / 2f32;
                 let left = Self::PLAYER_WIDTH;
                 state.set_player(Point2d::from_x_y(left, middle));
                 return;
-            } else if self.tile_map_index == WEST {
-                self.tile_map_index = HUB;
+            } else if world.current_tile_map_id == WEST {
+                world.current_tile_map_id = HUB;
                 let middle = f32::from(state.height()) / 2f32;
                 let left = Self::PLAYER_WIDTH;
                 state.set_player(Point2d::from_x_y(left, middle));
@@ -368,15 +368,11 @@ impl Application for ApplicationPlugin {
             }
         }
 
-        let Some(tile_map) = self.tile_maps.get(&self.tile_map_index) else {
-            return;
-        };
-
-        let y_offset = y + tile_map.y_offset();
+        let y_offset = y + world.y_offset;
         let min_y = y_offset - Self::PLAYER_HEIGHT / 4f32;
         let max_y = y_offset;
 
-        let x_offset = x + tile_map.x_offset();
+        let x_offset = x + world.x_offset;
         let min_x = x_offset - Self::PLAYER_WIDTH / 2f32 + 1f32;
         let max_x = x_offset + Self::PLAYER_WIDTH / 2f32 - 1f32;
 
