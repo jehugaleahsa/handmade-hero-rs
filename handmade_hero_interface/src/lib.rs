@@ -14,4 +14,6 @@ pub mod point_2d;
 pub mod render_context;
 pub mod sound_state;
 pub mod stereo_sample;
+pub mod tile_map;
 pub mod u8_color;
+pub mod world;

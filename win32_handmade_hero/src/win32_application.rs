@@ -403,11 +403,6 @@ impl Win32Application {
 
         let exe_directory = Self::exe_directory()?;
         let mut loader = ApplicationLoader::new(&exe_directory);
-        let initialize_context = InitializeContext {
-            state: &mut self.state,
-        };
-        loader.load()?.initialize(initialize_context);
-
         let mut recorder = PlaybackRecorder::new(&exe_directory);
         let mut counter = PerformanceCounter::start();
         loop {
@@ -423,7 +418,10 @@ impl Win32Application {
                 DispatchMessageW(&raw const message);
             };
 
-            let application = loader.load()?;
+            let initialize_context = InitializeContext {
+                state: &mut self.state,
+            };
+            let application = loader.load(initialize_context)?;
 
             // It seems our audio can't really use playback. The computation of how many bytes
             // to write depends on how fast the previous frame took to generate. Since this will

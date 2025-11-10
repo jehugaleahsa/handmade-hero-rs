@@ -4,11 +4,11 @@ use crate::input_context::InputContext;
 use crate::render_context::RenderContext;
 
 pub trait Application {
-    fn initialize(&mut self, context: InitializeContext<'_>);
+    fn initialize(&self, context: InitializeContext<'_>);
 
-    fn process_input(&mut self, context: InputContext<'_>);
+    fn process_input(&self, context: InputContext<'_>);
 
-    fn render(&mut self, context: RenderContext<'_>);
+    fn render(&self, context: RenderContext<'_>);
 
-    fn write_sound(&mut self, context: AudioContext<'_>);
+    fn write_sound(&self, context: AudioContext<'_>);
 }

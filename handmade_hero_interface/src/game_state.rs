@@ -1,6 +1,8 @@
 use crate::point_2d::Point2d;
 use crate::sound_state::SoundState;
+use crate::world::{TileMapKey, World};
 use bincode::{Decode, Encode};
+use std::collections::HashMap;
 use std::time::Duration;
 
 #[derive(Debug, Encode, Decode)]
@@ -10,6 +12,7 @@ pub struct GameState {
     sound: SoundState,
     player: Point2d,
     frame_duration: Duration,
+    world: World,
 }
 
 impl GameState {
@@ -18,12 +21,23 @@ impl GameState {
     pub fn new() -> Self {
         let sound = SoundState::new();
         let player = Point2d::default();
+        let world = World {
+            rows: World::TILE_ROWS,
+            columns: World::TILE_COLUMNS,
+            tile_height: 58f32,
+            tile_width: 56f32,
+            x_offset: 20f32,
+            y_offset: 0f32,
+            current_tile_map_id: TileMapKey::Hub,
+            tile_maps: HashMap::new(),
+        };
         Self {
             width: 0,
             height: 0,
             sound,
             player,
             frame_duration: Duration::default(),
+            world,
         }
     }
 
@@ -81,6 +95,18 @@ impl GameState {
     #[inline]
     pub fn set_player(&mut self, player: Point2d) {
         self.player = player;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn world(&self) -> &World {
+        &self.world
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn world_mut(&mut self) -> &mut World {
+        &mut self.world
     }
 }
 

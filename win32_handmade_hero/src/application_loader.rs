@@ -18,22 +18,22 @@ pub struct ApplicationStub {
 
 impl Application for ApplicationStub {
     #[inline]
-    fn initialize(&mut self, context: InitializeContext<'_>) {
+    fn initialize(&self, context: InitializeContext<'_>) {
         self.application.initialize(context);
     }
 
     #[inline]
-    fn process_input(&mut self, context: InputContext<'_>) {
+    fn process_input(&self, context: InputContext<'_>) {
         self.application.process_input(context);
     }
 
     #[inline]
-    fn render(&mut self, context: RenderContext<'_>) {
+    fn render(&self, context: RenderContext<'_>) {
         self.application.render(context);
     }
 
     #[inline]
-    fn write_sound(&mut self, context: AudioContext<'_>) {
+    fn write_sound(&self, context: AudioContext<'_>) {
         self.application.write_sound(context);
     }
 }
@@ -57,7 +57,7 @@ impl ApplicationLoader {
         }
     }
 
-    pub fn load(&mut self) -> Result<&mut ApplicationStub> {
+    pub fn load(&mut self, context: InitializeContext<'_>) -> Result<&mut ApplicationStub> {
         let normal_name = self
             .plugin_directory
             .join(library_filename("handmade_hero_plugin"));
@@ -91,6 +91,7 @@ impl ApplicationLoader {
                     .expect("Could not load the application implementation")
             };
             let application = creator();
+            application.initialize(context);
             ApplicationStub {
                 application,
                 _library: library,

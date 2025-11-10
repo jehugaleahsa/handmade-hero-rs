@@ -1,6 +1,4 @@
 use crate::rectangle::Rectangle;
-use crate::tile_map::TileMap;
-use crate::world::World;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -13,118 +11,200 @@ use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::render_context::RenderContext;
+use handmade_hero_interface::tile_map::TileMap;
 use handmade_hero_interface::u8_color::U8Color;
-use std::collections::HashMap;
-
-const SOUTH: usize = 0;
-const HUB: usize = 1;
-const WEST: usize = 2;
-const EAST: usize = 3;
-const NORTH: usize = 4;
+use handmade_hero_interface::world::{TileMapKey, World};
 
 #[derive(Debug)]
-pub struct ApplicationPlugin {
-    world: World,
-}
+pub struct ApplicationPlugin {}
 
 impl ApplicationPlugin {
-    const PLAYER_HEIGHT: f32 = 40f32;
-    const PLAYER_WIDTH: f32 = 30f32;
+    pub const PLAYER_HEIGHT: f32 = 40f32;
+    pub const PLAYER_WIDTH: f32 = 30f32;
 
     #[unsafe(no_mangle)]
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
-        let mut world = World {
-            rows: World::TILE_ROWS,
-            columns: World::TILE_COLUMNS,
-            tile_height: 58f32,
-            tile_width: 56f32,
-            x_offset: 20f32,
-            y_offset: 0f32,
-            current_tile_map_id: SOUTH,
-            tile_maps: HashMap::new(),
-        };
+        Box::new(Self {})
+    }
 
-        let south = world.add_tile_map(SOUTH);
+    fn initialize_direct(state: &mut GameState) {
+        let x = f32::from(state.width()) / 2f32;
+        let y = f32::from(state.height()) / 2f32;
+        state.set_player(Point2d::from_x_y(x, y));
+
+        let world = state.world_mut();
+        let south = world.add_tile_map(TileMapKey::South);
+        Self::load_south_tile_map(south);
+        let hub = world.add_tile_map(TileMapKey::Hub);
+        Self::load_hub_tile_map(hub);
+        let west = world.add_tile_map(TileMapKey::West);
+        Self::load_west_tile_map(west);
+        let east = world.add_tile_map(TileMapKey::East);
+        Self::load_east_tile_map(east);
+        let north = world.add_tile_map(TileMapKey::North);
+        Self::load_north_tile_map(north);
+    }
+
+    fn load_south_tile_map(south: &mut TileMap) {
         let source_south: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(south, &source_south);
+        Self::load_tile_map(
+            south,
+            source_south.as_flattened(),
+            World::TILE_ROWS,
+            World::TILE_COLUMNS,
+        );
+    }
 
-        let hub = world.add_tile_map(HUB);
+    fn load_hub_tile_map(hub: &mut TileMap) {
         let source_hub: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(hub, &source_hub);
+        Self::load_tile_map(
+            hub,
+            source_hub.as_flattened(),
+            World::TILE_ROWS,
+            World::TILE_COLUMNS,
+        );
+    }
 
-        let west = world.add_tile_map(WEST);
+    fn load_west_tile_map(west: &mut TileMap) {
         let source_west: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(west, &source_west);
+        Self::load_tile_map(
+            west,
+            source_west.as_flattened(),
+            World::TILE_ROWS,
+            World::TILE_COLUMNS,
+        );
+    }
 
-        let east = world.add_tile_map(EAST);
+    fn load_east_tile_map(east: &mut TileMap) {
         let source_east: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(east, &source_east);
+        Self::load_tile_map(
+            east,
+            source_east.as_flattened(),
+            World::TILE_ROWS,
+            World::TILE_COLUMNS,
+        );
+    }
 
-        let north = world.add_tile_map(NORTH);
+    fn load_north_tile_map(north: &mut TileMap) {
         let source_north: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
         ];
-        Self::load_tile_map(north, &source_north);
-
-        Box::new(Self { world })
+        Self::load_tile_map(
+            north,
+            source_north.as_flattened(),
+            World::TILE_ROWS,
+            World::TILE_COLUMNS,
+        );
     }
 
-    fn load_tile_map(destination: &mut TileMap, source: &[[u32; World::TILE_COLUMNS]]) {
-        for (row_index, row) in source.iter().enumerate() {
-            for (column_index, column) in row.iter().enumerate() {
-                let value = *column;
+    fn load_tile_map(
+        destination: &mut TileMap,
+        source: &[u32],
+        row_count: usize,
+        column_count: usize,
+    ) {
+        let mut index = 0;
+        for row_index in 0..row_count {
+            for column_index in 0..column_count {
+                let value = source[index];
                 destination.set(row_index, column_index, value);
+                index += 1;
             }
         }
+    }
+
+    fn process_input_direct(input: &InputState, state: &mut GameState) {
+        let (delta_x, delta_y) = Self::calculate_delta_x_y(input, state);
+        if delta_x == 0f32 && delta_y == 0f32 {
+            return;
+        }
+
+        let updated_position = Self::calculate_player_x_y(state, delta_x, delta_y);
+        let x = updated_position.x();
+        let y = updated_position.y();
+
+        let width = f32::from(state.width());
+        let height = f32::from(state.height());
+        let world = state.world_mut();
+        if let Some(update_player) =
+            world.try_navigate(x, y, Self::PLAYER_WIDTH, Self::PLAYER_HEIGHT, width, height)
+        {
+            state.set_player(update_player);
+            return;
+        }
+
+        let y_offset = y + world.y_offset;
+        let min_y = y_offset - Self::PLAYER_HEIGHT / 4f32;
+        let max_y = y_offset;
+
+        let x_offset = x + world.x_offset;
+        let min_x = x_offset - Self::PLAYER_WIDTH / 2f32 + 1f32;
+        let max_x = x_offset + Self::PLAYER_WIDTH / 2f32 - 1f32;
+
+        if !world.is_traversable(Point2d::from_x_y(min_x, min_y)) {
+            return;
+        }
+        if !world.is_traversable(Point2d::from_x_y(min_x, max_y)) {
+            return;
+        }
+        if !world.is_traversable(Point2d::from_x_y(max_x, min_y)) {
+            return;
+        }
+        if !world.is_traversable(Point2d::from_x_y(max_x, max_y)) {
+            return;
+        }
+
+        let player_position = Point2d::from_x_y(x, y);
+        state.set_player(player_position);
     }
 
     fn calculate_delta_x_y(input: &InputState, state: &GameState) -> (f32, f32) {
@@ -154,8 +234,8 @@ impl ApplicationPlugin {
         let max_width = f32::from(state.width());
 
         let player = state.player();
-        let min_x = Self::PLAYER_WIDTH / 2f32;
-        let max_x = max_width - Self::PLAYER_WIDTH / 2f32;
+        let min_x = 0f32;
+        let max_x = max_width;
         let x = f32::clamp(player.x() + delta_x, min_x, max_x);
         let min_y = 0f32;
         let max_y = max_height;
@@ -198,21 +278,62 @@ impl ApplicationPlugin {
         controller_state.left_joystick().y()
     }
 
-    fn is_traversable(&self, point: Point2d) -> bool {
-        let world = &self.world;
-        let Some(tile_map) = &world.tile_maps.get(&world.current_tile_map_id) else {
-            return false;
+    fn render_direct(state: &GameState, buffer: &mut [U8Color]) {
+        let width = f32::from(state.width());
+        let height = f32::from(state.height());
+        let window_bounds = Rectangle::new(0f32, 0f32, height, width);
+
+        Self::render_tilemap(state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
+
+        Self::render_player(state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
+    }
+
+    fn render_tilemap(
+        state: &GameState,
+        window_bounds: &Rectangle<f32>,
+        buffer: &mut [U8Color],
+    ) -> Result<()> {
+        let black = F32Color::from(U8Color::from_rgb(0x00, 0x00, 0x00));
+        Self::render_rectangle(window_bounds, window_bounds, black, buffer).unwrap_or_default(); // Ignore errors
+
+        let white = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0xFF));
+        let grey = F32Color::from(U8Color::from_rgb(0xCC, 0xCC, 0xCC));
+        let world = state.world();
+        let Some(tile_map) = world.tile_maps.get(&world.current_tile_map_id) else {
+            return Err(ApplicationError::new("Fell out of the world"));
         };
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        let tile_x = (point.x() / world.tile_width) as usize;
-        let tile_x = usize::clamp(tile_x, 0, world.columns - 1);
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        let tile_y = (point.y() / world.tile_height) as usize;
-        let tile_y = usize::clamp(tile_y, 0, world.rows - 1);
-        let tile = tile_map.get(tile_y, tile_x);
-        tile == 0
+
+        let upper_left_x = -world.x_offset;
+        let upper_left_y = -world.y_offset;
+        for row_index in 0..world.rows {
+            for column_index in 0..world.columns {
+                let tile = tile_map.get(row_index, column_index);
+                let color = if tile == 0 { grey } else { white };
+                #[allow(clippy::cast_precision_loss)]
+                let top = row_index as f32 * world.tile_height + upper_left_y;
+                #[allow(clippy::cast_precision_loss)]
+                let left = column_index as f32 * world.tile_width + upper_left_x;
+                let tile_rectangle = Rectangle::new(top, left, world.tile_height, world.tile_width);
+                Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn render_player(
+        state: &GameState,
+        window_bounds: &Rectangle<f32>,
+        buffer: &mut [U8Color],
+    ) -> Result<()> {
+        // We want the center of gravity to be the bottom middle of the rectangle.
+        // So we render the rectangle above the y position and halfway past the x position.
+        // The player's position is constrained while processing input.
+        let player_position = state.player();
+        let player_y = player_position.y() - Self::PLAYER_HEIGHT;
+        let player_x = player_position.x() - (Self::PLAYER_WIDTH / 2f32);
+        let player = Rectangle::new(player_y, player_x, Self::PLAYER_HEIGHT, Self::PLAYER_WIDTH);
+        let player_color = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0x00));
+        Self::render_rectangle(window_bounds, &player, player_color, buffer)
     }
 
     fn render_rectangle(
@@ -243,172 +364,32 @@ impl ApplicationPlugin {
         }
         Ok(())
     }
-
-    fn render_tilemap(&self, window_bounds: &Rectangle<f32>, buffer: &mut [U8Color]) -> Result<()> {
-        let black = F32Color::from(U8Color::from_rgb(0x00, 0x00, 0x00));
-        Self::render_rectangle(window_bounds, window_bounds, black, buffer).unwrap_or_default(); // Ignore errors
-
-        let white = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0xFF));
-        let grey = F32Color::from(U8Color::from_rgb(0xCC, 0xCC, 0xCC));
-        let world = &self.world;
-        let tile_map = world
-            .tile_maps
-            .get(&world.current_tile_map_id)
-            .ok_or_else(|| ApplicationError::new("Fell out of the world"))?;
-        let upper_left_x = -world.x_offset;
-        let upper_left_y = -world.y_offset;
-        for row_index in 0..world.rows {
-            for column_index in 0..world.columns {
-                let tile = tile_map.get(row_index, column_index);
-                let color = if tile == 0 { grey } else { white };
-                #[allow(clippy::cast_precision_loss)]
-                let top = row_index as f32 * world.tile_height + upper_left_y;
-                #[allow(clippy::cast_precision_loss)]
-                let left = column_index as f32 * world.tile_width + upper_left_x;
-                let tile_rectangle = Rectangle::new(top, left, world.tile_height, world.tile_width);
-                Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn render_player(
-        state: &mut GameState,
-        window_bounds: &Rectangle<f32>,
-        buffer: &mut [U8Color],
-    ) -> Result<()> {
-        // We want the center of gravity to be the bottom middle of the rectangle.
-        // So we render the rectangle above the y position and halfway past the x position.
-        // The player's position is constrained while processing input.
-        let player_position = state.player();
-        let player_y = player_position.y() - Self::PLAYER_HEIGHT;
-        let player_x = player_position.x() - (Self::PLAYER_WIDTH / 2f32);
-        let player = Rectangle::new(player_y, player_x, Self::PLAYER_HEIGHT, Self::PLAYER_WIDTH);
-        let player_color = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0x00));
-        Self::render_rectangle(window_bounds, &player, player_color, buffer)
-    }
 }
 
 impl Application for ApplicationPlugin {
-    fn initialize(&mut self, context: InitializeContext<'_>) {
+    #[inline]
+    fn initialize(&self, context: InitializeContext<'_>) {
         let InitializeContext { state } = context;
-        let x = f32::from(state.width()) / 2f32;
-        let y = f32::from(state.height()) / 2f32;
-        state.set_player(Point2d::from_x_y(x, y));
+        Self::initialize_direct(state);
     }
 
-    fn process_input(&mut self, context: InputContext<'_>) {
+    #[inline]
+    fn process_input(&self, context: InputContext<'_>) {
         let InputContext { input, state } = context;
-
-        let (delta_x, delta_y) = Self::calculate_delta_x_y(input, state);
-        if delta_x == 0f32 && delta_y == 0f32 {
-            return;
-        }
-
-        let updated_position = Self::calculate_player_x_y(state, delta_x, delta_y);
-        let x = updated_position.x();
-        let y = updated_position.y();
-
-        let world = &mut self.world;
-        if y == 0f32 {
-            if world.current_tile_map_id == SOUTH {
-                world.current_tile_map_id = HUB;
-                let middle = f32::from(state.width()) / 2f32;
-                let bottom = f32::from(state.height());
-                state.set_player(Point2d::from_x_y(middle, bottom));
-                return;
-            } else if world.current_tile_map_id == HUB {
-                world.current_tile_map_id = NORTH;
-                let middle = f32::from(state.width()) / 2f32;
-                let bottom = f32::from(state.height());
-                state.set_player(Point2d::from_x_y(middle, bottom));
-                return;
-            }
-        } else if y >= f32::from(state.height()) {
-            if world.current_tile_map_id == HUB {
-                world.current_tile_map_id = SOUTH;
-                let middle = f32::from(state.width()) / 2f32;
-                let top = Self::PLAYER_HEIGHT;
-                state.set_player(Point2d::from_x_y(middle, top));
-                return;
-            } else if world.current_tile_map_id == NORTH {
-                world.current_tile_map_id = HUB;
-                let middle = f32::from(state.width()) / 2f32;
-                let top = Self::PLAYER_HEIGHT;
-                state.set_player(Point2d::from_x_y(middle, top));
-                return;
-            }
-        } else if x - Self::PLAYER_WIDTH / 2f32 <= 0f32 {
-            if world.current_tile_map_id == HUB {
-                world.current_tile_map_id = WEST;
-                let middle = f32::from(state.height()) / 2f32;
-                let right = f32::from(state.width()) - Self::PLAYER_WIDTH;
-                state.set_player(Point2d::from_x_y(right, middle));
-                return;
-            } else if world.current_tile_map_id == EAST {
-                world.current_tile_map_id = HUB;
-                let middle = f32::from(state.height()) / 2f32;
-                let right = f32::from(state.width()) - Self::PLAYER_WIDTH;
-                state.set_player(Point2d::from_x_y(right, middle));
-                return;
-            }
-        } else if x + Self::PLAYER_WIDTH / 2f32 >= f32::from(state.width()) {
-            if world.current_tile_map_id == HUB {
-                world.current_tile_map_id = EAST;
-                let middle = f32::from(state.height()) / 2f32;
-                let left = Self::PLAYER_WIDTH;
-                state.set_player(Point2d::from_x_y(left, middle));
-                return;
-            } else if world.current_tile_map_id == WEST {
-                world.current_tile_map_id = HUB;
-                let middle = f32::from(state.height()) / 2f32;
-                let left = Self::PLAYER_WIDTH;
-                state.set_player(Point2d::from_x_y(left, middle));
-                return;
-            }
-        }
-
-        let y_offset = y + world.y_offset;
-        let min_y = y_offset - Self::PLAYER_HEIGHT / 4f32;
-        let max_y = y_offset;
-
-        let x_offset = x + world.x_offset;
-        let min_x = x_offset - Self::PLAYER_WIDTH / 2f32 + 1f32;
-        let max_x = x_offset + Self::PLAYER_WIDTH / 2f32 - 1f32;
-
-        if !self.is_traversable(Point2d::from_x_y(min_x, min_y)) {
-            return;
-        }
-        if !self.is_traversable(Point2d::from_x_y(min_x, max_y)) {
-            return;
-        }
-        if !self.is_traversable(Point2d::from_x_y(max_x, min_y)) {
-            return;
-        }
-        if !self.is_traversable(Point2d::from_x_y(max_x, max_y)) {
-            return;
-        }
-
-        let player_position = Point2d::from_x_y(x, y);
-        state.set_player(player_position);
+        Self::process_input_direct(input, state);
     }
 
-    fn render(&mut self, context: RenderContext<'_>) {
+    #[inline]
+    fn render(&self, context: RenderContext<'_>) {
         let RenderContext {
             input: _input,
             state,
             buffer,
         } = context;
 
-        let width = f32::from(state.width());
-        let height = f32::from(state.height());
-        let window_bounds = Rectangle::new(0f32, 0f32, height, width);
-
-        self.render_tilemap(&window_bounds, buffer)
-            .unwrap_or_default(); // Ignore errors
-
-        Self::render_player(state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
+        Self::render_direct(state, buffer);
     }
 
-    fn write_sound(&mut self, _context: AudioContext<'_>) {}
+    #[inline]
+    fn write_sound(&self, _context: AudioContext<'_>) {}
 }

@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use bincode::{Decode, Encode};
+
+#[derive(Debug, Encode, Decode)]
 pub struct TileMap {
     tiles: Vec<u32>,
     columns: usize,
@@ -7,7 +9,7 @@ pub struct TileMap {
 impl TileMap {
     #[inline]
     #[must_use]
-    pub(crate) fn new(rows: usize, columns: usize) -> Self {
+    pub fn new(rows: usize, columns: usize) -> Self {
         let tiles = vec![0; rows * columns];
         Self { tiles, columns }
     }
