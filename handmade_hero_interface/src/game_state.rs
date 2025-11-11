@@ -1,10 +1,11 @@
 use crate::rectangle::Rectangle;
 use crate::sound_state::SoundState;
+use crate::units::si::length::pixel;
 use crate::world::{TileMapKey, World};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use uom::si::length::{Length, meter};
+use uom::si::f32::Length;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GameState {
@@ -21,9 +22,7 @@ impl GameState {
     #[must_use]
     pub fn new() -> Self {
         let sound = SoundState::new();
-        let tile_size_pixels = 60u32;
-        #[allow(clippy::cast_precision_loss)]
-        let tile_size = tile_size_pixels as f32;
+        let tile_size = 60f32;
         let x_offset = -(tile_size / 1.6f32);
         let y_offset = -(tile_size / 3.75f32);
         let world = World {
@@ -33,8 +32,7 @@ impl GameState {
             y_offset,
             current_tile_map_id: TileMapKey::Hub,
             tile_maps: HashMap::new(),
-            tile_size_meters: Length::new::<meter>(1.4f32),
-            tile_size_pixels,
+            tile_size: Length::new::<pixel>(tile_size),
         };
         let player = Rectangle::new(0f32, 0f32, tile_size, tile_size * 0.75f32);
         Self {

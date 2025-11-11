@@ -13,6 +13,7 @@ use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::tile_map::TileMap;
 use handmade_hero_interface::u8_color::U8Color;
+use handmade_hero_interface::units::si::length::pixel;
 use handmade_hero_interface::world::{TileMapKey, World};
 
 #[derive(Debug)]
@@ -305,7 +306,7 @@ impl ApplicationPlugin {
                 let tile = tile_map.get(row_index, column_index);
                 let color = if tile == 0 { grey } else { white };
                 #[allow(clippy::cast_precision_loss)]
-                let tile_size = world.tile_size_pixels as f32;
+                let tile_size = world.tile_size.get::<pixel>();
                 #[allow(clippy::cast_precision_loss)]
                 let top = row_index as f32 * tile_size + upper_left_y;
                 #[allow(clippy::cast_precision_loss)]

@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate uom;
+
 pub mod application;
 pub mod application_error;
 pub mod audio_context;
@@ -17,4 +20,5 @@ pub mod sound_state;
 pub mod stereo_sample;
 pub mod tile_map;
 pub mod u8_color;
+pub mod units;
 pub mod world;

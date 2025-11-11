@@ -1,6 +1,7 @@
 use crate::point_2d::Point2d;
 use crate::rectangle::Rectangle;
 use crate::tile_map::TileMap;
+use crate::units::si::length::pixel;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -25,8 +26,7 @@ pub struct World {
     pub current_tile_map_id: TileMapKey,
     pub x_offset: f32,
     pub y_offset: f32,
-    pub tile_size_meters: Length<SI<f32>, f32>,
-    pub tile_size_pixels: u32,
+    pub tile_size: Length<SI<f32>, f32>,
 }
 
 impl World {
@@ -141,15 +141,16 @@ impl World {
         let Some(tile_map) = &self.tile_maps.get(&self.current_tile_map_id) else {
             return false;
         };
+        let tile_size = self.tile_size.get::<pixel>();
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         #[allow(clippy::cast_precision_loss)]
-        let tile_x = (point.x() / self.tile_size_pixels as f32) as usize;
+        let tile_x = (point.x() / tile_size) as usize;
         let tile_x = usize::clamp(tile_x, 0, self.columns - 1);
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         #[allow(clippy::cast_precision_loss)]
-        let tile_y = (point.y() / self.tile_size_pixels as f32) as usize;
+        let tile_y = (point.y() / tile_size) as usize;
         let tile_y = usize::clamp(tile_y, 0, self.rows - 1);
         let tile = tile_map.get(tile_y, tile_x);
         tile == 0

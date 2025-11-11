@@ -9,7 +9,7 @@ members = [
 [workspace.dependencies]
 thiserror = { version = "2.0.17" }
 bincode = { version = "2.0.1", features = ["alloc", "std", "serde"] }
-uom = { version = "0.37.0", default-features = false, features = ["f32", "si", "std", "serde"] }
+uom = { version = "0.36.0", default-features = false, features = ["f32", "f64", "si", "std", "serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 
 [workspace.lints.rust]
