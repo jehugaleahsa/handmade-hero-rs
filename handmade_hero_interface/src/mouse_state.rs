@@ -1,7 +1,7 @@
 use crate::button_state::ButtonState;
-use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Encode, Decode)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct MouseState {
     x: u32,
     y: u32,

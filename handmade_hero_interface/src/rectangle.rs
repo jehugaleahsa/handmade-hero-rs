@@ -1,9 +1,9 @@
 use crate::application_error::{ApplicationError, Result};
 use crate::point_2d::Point2d;
-use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use std::ops::{Add, Sub};
 
-#[derive(Debug, Encode, Decode, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct Rectangle<T> {
     top: T,
     left: T,

@@ -1,8 +1,8 @@
 use crate::controller_state::ControllerState;
 use crate::mouse_state::MouseState;
-use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct InputState {
     mouse: MouseState,
     keyboard: ControllerState,

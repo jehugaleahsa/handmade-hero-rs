@@ -1,6 +1,6 @@
-use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TileMap {
     tiles: Vec<u32>,
     columns: usize,

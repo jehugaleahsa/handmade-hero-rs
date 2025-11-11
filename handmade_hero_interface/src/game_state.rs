@@ -1,11 +1,12 @@
 use crate::rectangle::Rectangle;
 use crate::sound_state::SoundState;
 use crate::world::{TileMapKey, World};
-use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
+use uom::si::length::{Length, meter};
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GameState {
     width: u16,
     height: u16,
@@ -32,7 +33,7 @@ impl GameState {
             y_offset,
             current_tile_map_id: TileMapKey::Hub,
             tile_maps: HashMap::new(),
-            tile_size_meters: 1.4f32,
+            tile_size_meters: Length::new::<meter>(1.4f32),
             tile_size_pixels,
         };
         let player = Rectangle::new(0f32, 0f32, tile_size, tile_size * 0.75f32);

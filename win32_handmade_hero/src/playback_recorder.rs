@@ -1,3 +1,4 @@
+use bincode::{Decode, Encode};
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::input_state::InputState;
@@ -12,6 +13,18 @@ enum State {
     Recording(BufWriter<File>),
     Playing(BufReader<File>),
 }
+
+#[derive(Debug, Encode)]
+struct PlaybackEncoding<'a>(
+    #[bincode(with_serde)] &'a InputState,
+    #[bincode(with_serde)] &'a GameState,
+);
+
+#[derive(Debug, Decode)]
+struct PlaybackDecoding(
+    #[bincode(with_serde)] InputState,
+    #[bincode(with_serde)] GameState,
+);
 
 #[derive(Debug)]
 pub struct PlaybackState {
@@ -43,10 +56,10 @@ impl PlaybackRecorder {
 
     pub fn record(&mut self, input: &InputState, state: &GameState) -> Result<()> {
         let writer = self.get_recording_file()?;
-        bincode::encode_into_std_write((input, state), writer, bincode::config::standard())
-            .map_err(|e| {
-                ApplicationError::wrap("Could not write the state to the recording file", e)
-            })?;
+        let recording = PlaybackEncoding(input, state);
+        bincode::encode_into_std_write(recording, writer, bincode::config::standard()).map_err(
+            |e| ApplicationError::wrap("Could not write the state to the recording file", e),
+        )?;
         self.total_recordings += 1;
         Ok(())
     }
@@ -77,7 +90,8 @@ impl PlaybackRecorder {
         let Some(reader) = self.get_playback_file()? else {
             return Ok(None);
         };
-        if let Ok((input, state)) = bincode::decode_from_reader(reader, bincode::config::standard())
+        if let Ok(PlaybackDecoding(input, state)) =
+            bincode::decode_from_reader(reader, bincode::config::standard())
         {
             self.remaining_recordings -= 1;
             Ok(Some(PlaybackState { input, state }))

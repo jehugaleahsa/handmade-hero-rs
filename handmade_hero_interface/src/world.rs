@@ -1,11 +1,13 @@
 use crate::point_2d::Point2d;
 use crate::rectangle::Rectangle;
 use crate::tile_map::TileMap;
-use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use uom::si::SI;
+use uom::si::length::Length;
 
-#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone, Encode, Decode)]
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
 pub enum TileMapKey {
     South,
     Hub,
@@ -14,7 +16,7 @@ pub enum TileMapKey {
     North,
 }
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct World {
     pub rows: usize,
@@ -23,7 +25,7 @@ pub struct World {
     pub current_tile_map_id: TileMapKey,
     pub x_offset: f32,
     pub y_offset: f32,
-    pub tile_size_meters: f32,
+    pub tile_size_meters: Length<SI<f32>, f32>,
     pub tile_size_pixels: u32,
 }
 

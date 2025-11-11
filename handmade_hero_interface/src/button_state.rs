@@ -1,6 +1,6 @@
-use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Copy, Clone, Encode, Decode)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 pub struct ButtonState {
     ended_down: bool,
     half_transition_count: u16,
