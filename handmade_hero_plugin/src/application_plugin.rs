@@ -2,8 +2,8 @@ use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
+use handmade_hero_interface::color::Color;
 use handmade_hero_interface::controller_state::ControllerState;
-use handmade_hero_interface::f32_color::F32Color;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
@@ -12,7 +12,6 @@ use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::tile_map::TileMap;
-use handmade_hero_interface::u8_color::U8Color;
 use handmade_hero_interface::units::si::length::pixel;
 use handmade_hero_interface::world::{TileMapKey, World};
 
@@ -274,7 +273,7 @@ impl ApplicationPlugin {
         controller_state.left_joystick().y()
     }
 
-    fn render_direct(state: &GameState, buffer: &mut [U8Color]) {
+    fn render_direct(state: &GameState, buffer: &mut [Color<u8>]) {
         let width = f32::from(state.width());
         let height = f32::from(state.height());
         let window_bounds = Rectangle::new(0f32, 0f32, height, width);
@@ -287,13 +286,13 @@ impl ApplicationPlugin {
     fn render_tilemap(
         state: &GameState,
         window_bounds: &Rectangle<f32>,
-        buffer: &mut [U8Color],
+        buffer: &mut [Color<u8>],
     ) -> Result<()> {
-        let black = F32Color::from(U8Color::from_rgb(0x00, 0x00, 0x00));
+        let black = Color::<f32>::from(Color::from_rgb(0x00, 0x00, 0x00));
         Self::render_rectangle(window_bounds, window_bounds, black, buffer).unwrap_or_default(); // Ignore errors
 
-        let white = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0xFF));
-        let grey = F32Color::from(U8Color::from_rgb(0xCC, 0xCC, 0xCC));
+        let white = Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF));
+        let grey = Color::from(Color::from_rgb(0xCC, 0xCC, 0xCC));
         let world = state.world();
         let Some(tile_map) = world.tile_maps.get(&world.current_tile_map_id) else {
             return Err(ApplicationError::new("Fell out of the world"));
@@ -321,7 +320,7 @@ impl ApplicationPlugin {
     fn render_player(
         state: &GameState,
         window_bounds: &Rectangle<f32>,
-        buffer: &mut [U8Color],
+        buffer: &mut [Color<u8>],
     ) -> Result<()> {
         // We want the center of gravity to be the bottom middle of the rectangle.
         // So we render the rectangle above the y position and halfway past the x position.
@@ -330,15 +329,15 @@ impl ApplicationPlugin {
         let player_y = player.top() - player.height();
         let player_x = player.left() - (player.width() / 2f32);
         let player = player.move_to(player_x, player_y);
-        let player_color = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0x00));
+        let player_color = Color::from(Color::from_rgb(0xFF, 0xFF, 0x00));
         Self::render_rectangle(window_bounds, &player, player_color, buffer)
     }
 
     fn render_rectangle(
         window_bounds: &Rectangle<f32>,
         rectangle: &Rectangle<f32>,
-        color: F32Color,
-        buffer: &mut [U8Color],
+        color: Color<f32>,
+        buffer: &mut [Color<u8>],
     ) -> Result<()> {
         let rectangle = rectangle.bound_to(window_bounds);
         let rectangle = rectangle.round_to_usize()?;
@@ -350,7 +349,7 @@ impl ApplicationPlugin {
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         let pitch = window_bounds.width() as usize;
-        let color = U8Color::from(color);
+        let color = Color::from(color);
         let mut index = rectangle.top() * pitch + rectangle.left();
         for _y in rectangle.top()..rectangle.bottom() {
             let row = index;
