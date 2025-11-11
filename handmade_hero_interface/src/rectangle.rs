@@ -112,6 +112,8 @@ where
 }
 
 impl Rectangle<f32> {
+    /// # Errors
+    /// An error is returned if any of the `f32` positions cannot be converted to a `usize`.
     #[inline]
     pub fn round_to_usize(&self) -> Result<Rectangle<usize>> {
         let top = Self::round_safe(self.top)?;
