@@ -1,4 +1,3 @@
-use crate::rectangle::Rectangle;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -10,6 +9,7 @@ use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::point_2d::Point2d;
+use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::tile_map::TileMap;
 use handmade_hero_interface::u8_color::U8Color;
@@ -19,9 +19,6 @@ use handmade_hero_interface::world::{TileMapKey, World};
 pub struct ApplicationPlugin {}
 
 impl ApplicationPlugin {
-    pub const PLAYER_HEIGHT: f32 = 40f32;
-    pub const PLAYER_WIDTH: f32 = 30f32;
-
     #[unsafe(no_mangle)]
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
@@ -31,7 +28,8 @@ impl ApplicationPlugin {
     fn initialize_direct(state: &mut GameState) {
         let x = f32::from(state.width()) / 2f32;
         let y = f32::from(state.height()) / 2f32;
-        state.set_player(Point2d::from_x_y(x, y));
+        let new_player = state.player().move_to(x, y);
+        state.set_player(new_player);
 
         let world = state.world_mut();
         let south = world.add_tile_map(TileMapKey::South);
@@ -168,28 +166,26 @@ impl ApplicationPlugin {
             return;
         }
 
-        let updated_position = Self::calculate_player_x_y(state, delta_x, delta_y);
-        let x = updated_position.x();
-        let y = updated_position.y();
-
+        // Handle the player moving off the screen through a doorway.
+        let updated_player = Self::calculate_player_x_y(state, delta_x, delta_y);
         let width = f32::from(state.width());
         let height = f32::from(state.height());
         let world = state.world_mut();
-        if let Some(update_player) =
-            world.try_navigate(x, y, Self::PLAYER_WIDTH, Self::PLAYER_HEIGHT, width, height)
-        {
-            state.set_player(update_player);
+        if let Some(updated_player) = world.try_navigate(updated_player, width, height) {
+            state.set_player(updated_player);
             return;
         }
 
-        let y_offset = y + world.y_offset;
-        let min_y = y_offset - Self::PLAYER_HEIGHT / 4f32;
+        // Check that the player isn't trying to walk through a wall.
+        let x = updated_player.left();
+        let y = updated_player.top();
+        let y_offset = y - world.y_offset;
+        let min_y = y_offset - updated_player.height() / 4f32;
         let max_y = y_offset;
 
-        let x_offset = x + world.x_offset;
-        let min_x = x_offset - Self::PLAYER_WIDTH / 2f32 + 1f32;
-        let max_x = x_offset + Self::PLAYER_WIDTH / 2f32 - 1f32;
-
+        let x_offset = x - world.x_offset;
+        let min_x = x_offset - updated_player.width() / 2f32 + 1f32;
+        let max_x = x_offset + updated_player.width() / 2f32 - 1f32;
         if !world.is_traversable(Point2d::from_x_y(min_x, min_y)) {
             return;
         }
@@ -203,8 +199,7 @@ impl ApplicationPlugin {
             return;
         }
 
-        let player_position = Point2d::from_x_y(x, y);
-        state.set_player(player_position);
+        state.set_player(updated_player);
     }
 
     fn calculate_delta_x_y(input: &InputState, state: &GameState) -> (f32, f32) {
@@ -229,18 +224,18 @@ impl ApplicationPlugin {
         (delta_x, delta_y)
     }
 
-    fn calculate_player_x_y(state: &GameState, delta_x: f32, delta_y: f32) -> Point2d {
+    fn calculate_player_x_y(state: &GameState, delta_x: f32, delta_y: f32) -> Rectangle<f32> {
         let max_height = f32::from(state.height());
         let max_width = f32::from(state.width());
 
         let player = state.player();
         let min_x = 0f32;
         let max_x = max_width;
-        let x = f32::clamp(player.x() + delta_x, min_x, max_x);
+        let x = f32::clamp(player.left() + delta_x, min_x, max_x);
         let min_y = 0f32;
         let max_y = max_height;
-        let y = f32::clamp(player.y() + delta_y, min_y, max_y);
-        Point2d::from_x_y(x, y)
+        let y = f32::clamp(player.top() + delta_y, min_y, max_y);
+        player.move_to(x, y)
     }
 
     #[inline]
@@ -303,17 +298,19 @@ impl ApplicationPlugin {
             return Err(ApplicationError::new("Fell out of the world"));
         };
 
-        let upper_left_x = -world.x_offset;
-        let upper_left_y = -world.y_offset;
+        let upper_left_x = world.x_offset;
+        let upper_left_y = world.y_offset;
         for row_index in 0..world.rows {
             for column_index in 0..world.columns {
                 let tile = tile_map.get(row_index, column_index);
                 let color = if tile == 0 { grey } else { white };
                 #[allow(clippy::cast_precision_loss)]
-                let top = row_index as f32 * world.tile_height + upper_left_y;
+                let tile_size = world.tile_size_pixels as f32;
                 #[allow(clippy::cast_precision_loss)]
-                let left = column_index as f32 * world.tile_width + upper_left_x;
-                let tile_rectangle = Rectangle::new(top, left, world.tile_height, world.tile_width);
+                let top = row_index as f32 * tile_size + upper_left_y;
+                #[allow(clippy::cast_precision_loss)]
+                let left = column_index as f32 * tile_size + upper_left_x;
+                let tile_rectangle = Rectangle::new(top, left, tile_size, tile_size);
                 Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
             }
         }
@@ -328,10 +325,10 @@ impl ApplicationPlugin {
         // We want the center of gravity to be the bottom middle of the rectangle.
         // So we render the rectangle above the y position and halfway past the x position.
         // The player's position is constrained while processing input.
-        let player_position = state.player();
-        let player_y = player_position.y() - Self::PLAYER_HEIGHT;
-        let player_x = player_position.x() - (Self::PLAYER_WIDTH / 2f32);
-        let player = Rectangle::new(player_y, player_x, Self::PLAYER_HEIGHT, Self::PLAYER_WIDTH);
+        let player = state.player();
+        let player_y = player.top() - player.height();
+        let player_x = player.left() - (player.width() / 2f32);
+        let player = player.move_to(player_x, player_y);
         let player_color = F32Color::from(U8Color::from_rgb(0xFF, 0xFF, 0x00));
         Self::render_rectangle(window_bounds, &player, player_color, buffer)
     }

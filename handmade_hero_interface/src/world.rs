@@ -1,4 +1,5 @@
 use crate::point_2d::Point2d;
+use crate::rectangle::Rectangle;
 use crate::tile_map::TileMap;
 use bincode::{Decode, Encode};
 use std::collections::HashMap;
@@ -20,10 +21,10 @@ pub struct World {
     pub columns: usize,
     pub tile_maps: HashMap<TileMapKey, TileMap>,
     pub current_tile_map_id: TileMapKey,
-    pub tile_width: f32,
-    pub tile_height: f32,
     pub x_offset: f32,
     pub y_offset: f32,
+    pub tile_size_meters: f32,
+    pub tile_size_pixels: u32,
 }
 
 impl World {
@@ -41,32 +42,33 @@ impl World {
 
     pub fn try_navigate(
         &mut self,
-        x: f32,
-        y: f32,
-        player_width: f32,
-        player_height: f32,
+        player: Rectangle<f32>,
         width: f32,
         height: f32,
-    ) -> Option<Point2d> {
-        let player_middle = player_width / 2f32;
-        if y <= 0f32 {
-            self.try_navigate_north(x, y, height)
-        } else if y >= height {
-            self.try_navigate_south(x, player_height)
-        } else if x - player_middle <= 0f32 {
-            self.try_navigate_west(x, y, player_width, width)
-        } else if x + player_middle >= width {
-            self.try_navigate_east(y, player_width)
+    ) -> Option<Rectangle<f32>> {
+        let player_middle = player.width() / 2f32;
+        if player.top() <= 0f32 {
+            self.try_navigate_north(player, height)
+        } else if player.top() >= height {
+            self.try_navigate_south(player)
+        } else if player.left() - player_middle <= 0f32 {
+            self.try_navigate_west(player, width)
+        } else if player.left() + player_middle >= width {
+            self.try_navigate_east(player)
         } else {
             None
         }
     }
 
-    fn try_navigate_north(&mut self, x: f32, y: f32, height: f32) -> Option<Point2d> {
+    fn try_navigate_north(
+        &mut self,
+        player: Rectangle<f32>,
+        height: f32,
+    ) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_north_tile_map() {
             self.current_tile_map_id = new_tile_map_id;
-            let bottom = height + y;
-            Some(Point2d::from_x_y(x, bottom))
+            let bottom = height + player.top();
+            Some(player.move_to(player.left(), bottom))
         } else {
             None
         }
@@ -80,10 +82,10 @@ impl World {
         }
     }
 
-    fn try_navigate_south(&mut self, x: f32, player_height: f32) -> Option<Point2d> {
+    fn try_navigate_south(&mut self, player: Rectangle<f32>) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_south_tile_map() {
             self.current_tile_map_id = new_tile_map_id;
-            Some(Point2d::from_x_y(x, player_height))
+            Some(player.move_to(player.left(), player.height()))
         } else {
             None
         }
@@ -97,17 +99,11 @@ impl World {
         }
     }
 
-    fn try_navigate_west(
-        &mut self,
-        x: f32,
-        y: f32,
-        player_width: f32,
-        width: f32,
-    ) -> Option<Point2d> {
+    fn try_navigate_west(&mut self, player: Rectangle<f32>, width: f32) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_west_tile_map() {
             self.current_tile_map_id = new_tile_map_id;
-            let right = width + (x - player_width);
-            Some(Point2d::from_x_y(right, y))
+            let right = width + (player.left() - player.width());
+            Some(player.move_to(right, player.top()))
         } else {
             None
         }
@@ -121,10 +117,10 @@ impl World {
         }
     }
 
-    fn try_navigate_east(&mut self, y: f32, player_width: f32) -> Option<Point2d> {
+    fn try_navigate_east(&mut self, player: Rectangle<f32>) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_east_tile_map() {
             self.current_tile_map_id = new_tile_map_id;
-            Some(Point2d::from_x_y(player_width, y))
+            Some(player.move_to(player.width(), player.top()))
         } else {
             None
         }
@@ -139,17 +135,19 @@ impl World {
     }
 
     #[must_use]
-    pub fn is_traversable(&self, point: Point2d) -> bool {
+    pub fn is_traversable(&self, point: Point2d<f32>) -> bool {
         let Some(tile_map) = &self.tile_maps.get(&self.current_tile_map_id) else {
             return false;
         };
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
-        let tile_x = (point.x() / self.tile_width) as usize;
+        #[allow(clippy::cast_precision_loss)]
+        let tile_x = (point.x() / self.tile_size_pixels as f32) as usize;
         let tile_x = usize::clamp(tile_x, 0, self.columns - 1);
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
-        let tile_y = (point.y() / self.tile_height) as usize;
+        #[allow(clippy::cast_precision_loss)]
+        let tile_y = (point.y() / self.tile_size_pixels as f32) as usize;
         let tile_y = usize::clamp(tile_y, 0, self.rows - 1);
         let tile = tile_map.get(tile_y, tile_x);
         tile == 0

@@ -1,4 +1,4 @@
-use crate::point_2d::Point2d;
+use crate::rectangle::Rectangle;
 use crate::sound_state::SoundState;
 use crate::world::{TileMapKey, World};
 use bincode::{Decode, Encode};
@@ -10,7 +10,7 @@ pub struct GameState {
     width: u16,
     height: u16,
     sound: SoundState,
-    player: Point2d,
+    player: Rectangle<f32>,
     frame_duration: Duration,
     world: World,
 }
@@ -20,17 +20,22 @@ impl GameState {
     #[must_use]
     pub fn new() -> Self {
         let sound = SoundState::new();
-        let player = Point2d::default();
+        let tile_size_pixels = 60u32;
+        #[allow(clippy::cast_precision_loss)]
+        let tile_size = tile_size_pixels as f32;
+        let x_offset = -(tile_size / 1.6f32);
+        let y_offset = -(tile_size / 3.75f32);
         let world = World {
             rows: World::TILE_ROWS,
             columns: World::TILE_COLUMNS,
-            tile_height: 58f32,
-            tile_width: 56f32,
-            x_offset: 20f32,
-            y_offset: 0f32,
+            x_offset,
+            y_offset,
             current_tile_map_id: TileMapKey::Hub,
             tile_maps: HashMap::new(),
+            tile_size_meters: 1.4f32,
+            tile_size_pixels,
         };
+        let player = Rectangle::new(0f32, 0f32, tile_size, tile_size * 0.75f32);
         Self {
             width: 0,
             height: 0,
@@ -88,12 +93,12 @@ impl GameState {
 
     #[inline]
     #[must_use]
-    pub fn player(&self) -> Point2d {
+    pub fn player(&self) -> Rectangle<f32> {
         self.player
     }
 
     #[inline]
-    pub fn set_player(&mut self, player: Point2d) {
+    pub fn set_player(&mut self, player: Rectangle<f32>) {
         self.player = player;
     }
 

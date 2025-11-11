@@ -1,7 +1,9 @@
-use handmade_hero_interface::application_error::{ApplicationError, Result};
+use crate::application_error::{ApplicationError, Result};
+use crate::point_2d::Point2d;
+use bincode::{Decode, Encode};
 use std::ops::{Add, Sub};
 
-#[derive(Debug)]
+#[derive(Debug, Encode, Decode, Copy, Clone)]
 pub struct Rectangle<T> {
     top: T,
     left: T,
@@ -59,6 +61,25 @@ where
     #[must_use]
     pub fn height(&self) -> T {
         self.bottom - self.top
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn move_to(&self, x: T, y: T) -> Self {
+        let right = x + self.width();
+        let bottom = y + self.height();
+        Self {
+            top: y,
+            left: x,
+            right,
+            bottom,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn move_to_point(&self, point: Point2d<T>) -> Self {
+        self.move_to(point.x(), point.y())
     }
 }
 

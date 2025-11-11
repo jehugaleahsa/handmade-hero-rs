@@ -11,6 +11,7 @@ pub mod input_state;
 pub mod joystick_state;
 pub mod mouse_state;
 pub mod point_2d;
+pub mod rectangle;
 pub mod render_context;
 pub mod sound_state;
 pub mod stereo_sample;

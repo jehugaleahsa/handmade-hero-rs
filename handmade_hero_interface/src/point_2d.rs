@@ -1,27 +1,30 @@
 use bincode::{Decode, Encode};
 
 #[derive(Debug, Encode, Decode, Default, Copy, Clone)]
-pub struct Point2d {
-    x: f32,
-    y: f32,
+pub struct Point2d<T> {
+    x: T,
+    y: T,
 }
 
-impl Point2d {
+impl<T> Point2d<T>
+where
+    T: Copy,
+{
     #[inline]
     #[must_use]
-    pub fn from_x_y(x: f32, y: f32) -> Self {
+    pub fn from_x_y(x: T, y: T) -> Self {
         Self { x, y }
     }
 
     #[inline]
     #[must_use]
-    pub fn x(self) -> f32 {
+    pub fn x(self) -> T {
         self.x
     }
 
     #[inline]
     #[must_use]
-    pub fn y(self) -> f32 {
+    pub fn y(self) -> T {
         self.y
     }
 }
