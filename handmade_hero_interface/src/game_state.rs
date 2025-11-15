@@ -1,19 +1,20 @@
 use crate::rectangle::Rectangle;
 use crate::sound_state::SoundState;
-use crate::units::si::length::pixel;
+use crate::units::si::length::{Length, pixel};
+use crate::units::si::time::Time;
 use crate::world::{TileMapKey, World};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
-use uom::si::f32::Length;
+use uom::num::Zero;
+use uom::si::length::meter;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GameState {
-    width: u16,
-    height: u16,
+    width: Length,
+    height: Length,
     sound: SoundState,
     player: Rectangle<f32>,
-    frame_duration: Duration,
+    frame_duration: Time,
     world: World,
 }
 
@@ -22,7 +23,7 @@ impl GameState {
     #[must_use]
     pub fn new() -> Self {
         let sound = SoundState::new();
-        let tile_size = 60f32;
+        let tile_size = Length::new::<meter>(1.4f32);
         let x_offset = -(tile_size / 1.6f32);
         let y_offset = -(tile_size / 3.75f32);
         let world = World {
@@ -32,15 +33,20 @@ impl GameState {
             y_offset,
             current_tile_map_id: TileMapKey::Hub,
             tile_maps: HashMap::new(),
-            tile_size: Length::new::<pixel>(tile_size),
+            tile_size,
         };
-        let player = Rectangle::new(0f32, 0f32, tile_size, tile_size * 0.75f32);
+        let player = Rectangle::new(
+            0f32,
+            0f32,
+            tile_size.get::<pixel>(),
+            (tile_size * 0.75f32).get::<pixel>(),
+        );
         Self {
-            width: 0,
-            height: 0,
+            width: Length::zero(),
+            height: Length::zero(),
             sound,
             player,
-            frame_duration: Duration::default(),
+            frame_duration: Time::zero(),
             world,
         }
     }
@@ -59,34 +65,34 @@ impl GameState {
 
     #[inline]
     #[must_use]
-    pub fn width(&self) -> u16 {
+    pub fn width(&self) -> Length {
         self.width
     }
 
     #[inline]
-    pub fn set_width(&mut self, value: u16) {
+    pub fn set_width(&mut self, value: Length) {
         self.width = value;
     }
 
     #[inline]
     #[must_use]
-    pub fn height(&self) -> u16 {
+    pub fn height(&self) -> Length {
         self.height
     }
 
     #[inline]
-    pub fn set_height(&mut self, value: u16) {
+    pub fn set_height(&mut self, value: Length) {
         self.height = value;
     }
 
     #[inline]
     #[must_use]
-    pub fn frame_duration(&self) -> Duration {
+    pub fn frame_duration(&self) -> Time {
         self.frame_duration
     }
 
     #[inline]
-    pub fn set_frame_duration(&mut self, value: Duration) {
+    pub fn set_frame_duration(&mut self, value: Time) {
         self.frame_duration = value;
     }
 

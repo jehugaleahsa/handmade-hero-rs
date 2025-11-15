@@ -1,12 +1,10 @@
 use crate::point_2d::Point2d;
 use crate::rectangle::Rectangle;
 use crate::tile_map::TileMap;
-use crate::units::si::length::pixel;
+use crate::units::si::length::{Length, pixel};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use uom::si::SI;
-use uom::si::length::Length;
 
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
 pub enum TileMapKey {
@@ -24,9 +22,9 @@ pub struct World {
     pub columns: usize,
     pub tile_maps: HashMap<TileMapKey, TileMap>,
     pub current_tile_map_id: TileMapKey,
-    pub x_offset: f32,
-    pub y_offset: f32,
-    pub tile_size: Length<SI<f32>, f32>,
+    pub x_offset: Length,
+    pub y_offset: Length,
+    pub tile_size: Length,
 }
 
 impl World {

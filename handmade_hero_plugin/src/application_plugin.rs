@@ -12,8 +12,10 @@ use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::tile_map::TileMap;
-use handmade_hero_interface::units::si::length::pixel;
+use handmade_hero_interface::units::si::length::{Length, pixel};
+use handmade_hero_interface::units::si::time::Time;
 use handmade_hero_interface::world::{TileMapKey, World};
+use uom::si::time::second;
 
 #[derive(Debug)]
 pub struct ApplicationPlugin {}
@@ -26,9 +28,9 @@ impl ApplicationPlugin {
     }
 
     fn initialize_direct(state: &mut GameState) {
-        let x = f32::from(state.width()) / 2f32;
-        let y = f32::from(state.height()) / 2f32;
-        let new_player = state.player().move_to(x, y);
+        let x = state.width() / 2f32;
+        let y = state.height() / 2f32 + Length::new::<pixel>(state.player().height()) / 2f32;
+        let new_player = state.player().move_to(x.get::<pixel>(), y.get::<pixel>());
         state.set_player(new_player);
 
         let world = state.world_mut();
@@ -168,8 +170,8 @@ impl ApplicationPlugin {
 
         // Handle the player moving off the screen through a doorway.
         let updated_player = Self::calculate_player_x_y(state, delta_x, delta_y);
-        let width = f32::from(state.width());
-        let height = f32::from(state.height());
+        let width = state.width().get::<pixel>();
+        let height = state.height().get::<pixel>();
         let world = state.world_mut();
         if let Some(updated_player) = world.try_navigate(updated_player, width, height) {
             state.set_player(updated_player);
@@ -179,11 +181,11 @@ impl ApplicationPlugin {
         // Check that the player isn't trying to walk through a wall.
         let x = updated_player.left();
         let y = updated_player.top();
-        let y_offset = y - world.y_offset;
+        let y_offset = y - world.y_offset.get::<pixel>();
         let min_y = y_offset - updated_player.height() / 4f32;
         let max_y = y_offset;
 
-        let x_offset = x - world.x_offset;
+        let x_offset = x - world.x_offset.get::<pixel>();
         let min_x = x_offset - updated_player.width() / 2f32 + 1f32;
         let max_x = x_offset + updated_player.width() / 2f32 - 1f32;
         if !world.is_traversable(Point2d::from_x_y(min_x, min_y)) {
@@ -217,24 +219,26 @@ impl ApplicationPlugin {
                 }
             }
         }
-        let frame_duration = state.frame_duration().as_secs_f32();
-        let speed = frame_duration * 128f32;
-        delta_x *= speed;
-        delta_y *= speed;
+        let frame_duration = state.frame_duration();
+        let max_speed = Length::new::<pixel>(128f32) / Time::new::<second>(1f32);
+        let max_distance = frame_duration * max_speed;
+        let max_distance_px = max_distance.get::<pixel>();
+        delta_x *= max_distance_px;
+        delta_y *= max_distance_px;
         (delta_x, delta_y)
     }
 
     fn calculate_player_x_y(state: &GameState, delta_x: f32, delta_y: f32) -> Rectangle<f32> {
-        let max_height = f32::from(state.height());
-        let max_width = f32::from(state.width());
+        let max_height = state.height();
+        let max_width = state.width();
 
         let player = state.player();
         let min_x = 0f32;
         let max_x = max_width;
-        let x = f32::clamp(player.left() + delta_x, min_x, max_x);
+        let x = f32::clamp(player.left() + delta_x, min_x, max_x.get::<pixel>());
         let min_y = 0f32;
         let max_y = max_height;
-        let y = f32::clamp(player.top() + delta_y, min_y, max_y);
+        let y = f32::clamp(player.top() + delta_y, min_y, max_y.get::<pixel>());
         player.move_to(x, y)
     }
 
@@ -264,19 +268,19 @@ impl ApplicationPlugin {
     #[inline]
     #[must_use]
     fn calculate_controller_delta_x(controller: &ControllerState) -> f32 {
-        controller.left_joystick().x()
+        controller.left_joystick().x_ratio()
     }
 
     #[inline]
     #[must_use]
     fn calculate_controller_delta_y(controller_state: &ControllerState) -> f32 {
-        controller_state.left_joystick().y()
+        controller_state.left_joystick().y_ratio()
     }
 
     fn render_direct(state: &GameState, buffer: &mut [Color<u8>]) {
-        let width = f32::from(state.width());
-        let height = f32::from(state.height());
-        let window_bounds = Rectangle::new(0f32, 0f32, height, width);
+        let width = state.width();
+        let height = state.height();
+        let window_bounds = Rectangle::new(0f32, 0f32, height.get::<pixel>(), width.get::<pixel>());
 
         Self::render_tilemap(state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
 
@@ -288,8 +292,8 @@ impl ApplicationPlugin {
         window_bounds: &Rectangle<f32>,
         buffer: &mut [Color<u8>],
     ) -> Result<()> {
-        let black = Color::<f32>::from(Color::from_rgb(0x00, 0x00, 0x00));
-        Self::render_rectangle(window_bounds, window_bounds, black, buffer).unwrap_or_default(); // Ignore errors
+        //let black = Color::<f32>::from(Color::from_rgb(0x00, 0x00, 0x00));
+        //Self::render_rectangle(window_bounds, window_bounds, black, buffer).unwrap_or_default(); // Ignore errors
 
         let white = Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF));
         let grey = Color::from(Color::from_rgb(0xCC, 0xCC, 0xCC));
@@ -304,13 +308,19 @@ impl ApplicationPlugin {
             for column_index in 0..world.columns {
                 let tile = tile_map.get(row_index, column_index);
                 let color = if tile == 0 { grey } else { white };
+                let tile_size = world.tile_size;
                 #[allow(clippy::cast_precision_loss)]
-                let tile_size = world.tile_size.get::<pixel>();
+                let row_index = row_index as f32;
                 #[allow(clippy::cast_precision_loss)]
-                let top = row_index as f32 * tile_size + upper_left_y;
-                #[allow(clippy::cast_precision_loss)]
-                let left = column_index as f32 * tile_size + upper_left_x;
-                let tile_rectangle = Rectangle::new(top, left, tile_size, tile_size);
+                let column_index = column_index as f32;
+                let top = row_index * tile_size + upper_left_y;
+                let left = column_index * tile_size + upper_left_x;
+                let tile_rectangle = Rectangle::new(
+                    top.get::<pixel>(),
+                    left.get::<pixel>(),
+                    tile_size.get::<pixel>(),
+                    tile_size.get::<pixel>(),
+                );
                 Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
             }
         }

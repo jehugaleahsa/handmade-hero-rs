@@ -15,10 +15,14 @@ use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
+use handmade_hero_interface::units::si::length::pixel;
 use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::path::PathBuf;
 use std::time::Duration;
+use uom::si::f32::Time;
+use uom::si::length::Length;
+use uom::si::time::second;
 use windows::Win32::Foundation::{
     COLORREF, ERROR_SUCCESS, FALSE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, TRUE, WPARAM,
 };
@@ -165,8 +169,10 @@ impl Win32Application {
             self.bitmap_buffer = Some(vec![Color::default(); pixel_count]);
         }
 
-        self.state.set_width(client_width);
-        self.state.set_height(client_height);
+        self.state
+            .set_width(Length::new::<pixel>(f32::from(client_width)));
+        self.state
+            .set_height(Length::new::<pixel>(f32::from(client_height)));
 
         Ok(())
     }
@@ -320,8 +326,10 @@ impl Win32Application {
             return;
         };
 
-        let source_width = i32::from(self.state.width());
-        let source_height = i32::from(self.state.height());
+        #[allow(clippy::cast_possible_truncation)]
+        let source_width = self.state.width().get::<pixel>() as i32;
+        #[allow(clippy::cast_possible_truncation)]
+        let source_height = self.state.height().get::<pixel>() as i32;
 
         unsafe {
             if let Ok(client_rectangle) = Self::get_client_rectangle(self.window_handle) {
@@ -378,7 +386,8 @@ impl Win32Application {
         let game_update_hertz = monitor_refresh_hertz as f32 / 2.0f32;
 
         let target_frame_duration = Duration::from_secs_f32(1.0f32 / game_update_hertz);
-        self.state.set_frame_duration(target_frame_duration);
+        self.state
+            .set_frame_duration(Time::new::<second>(target_frame_duration.as_secs_f32()));
         let is_sleep_granular = unsafe {
             // Set the Windows scheduler granularity to 1ms!
             timeBeginPeriod(1) == TIMERR_NOERROR
@@ -562,7 +571,8 @@ impl Win32Application {
             };
         let samples_per_second = sound_state.samples_per_second();
         let frame_time_elapsed = performance_counter.metrics().elapsed_time();
-        let target_frame_duration = self.state.frame_duration();
+        let target_frame_duration =
+            Duration::from_secs_f32(self.state.frame_duration().get::<second>());
         let remaining_frame_time = if target_frame_duration >= frame_time_elapsed {
             target_frame_duration - frame_time_elapsed
         } else {
@@ -691,20 +701,20 @@ impl Win32Application {
                 );
 
                 let left_joystick = controller.left_joystick_mut();
-                left_joystick.set_x(Self::thumb_stick_ratio(
+                left_joystick.set_x_ratio(Self::thumb_stick_ratio(
                     gamepad.sThumbLX,
                     XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
                 ));
-                left_joystick.set_y(-Self::thumb_stick_ratio(
+                left_joystick.set_y_ratio(-Self::thumb_stick_ratio(
                     gamepad.sThumbLY,
                     XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
                 ));
                 let right_joystick = controller.right_joystick_mut();
-                right_joystick.set_x(Self::thumb_stick_ratio(
+                right_joystick.set_x_ratio(Self::thumb_stick_ratio(
                     gamepad.sThumbRX,
                     XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
                 ));
-                right_joystick.set_y(-Self::thumb_stick_ratio(
+                right_joystick.set_y_ratio(-Self::thumb_stick_ratio(
                     gamepad.sThumbRY,
                     XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
                 ));
@@ -802,7 +812,7 @@ impl Win32Application {
     fn wait_for_framerate(&self, counter: &mut PerformanceCounter, is_sleep_granular: bool) {
         let mut metrics = counter.metrics();
         let mut time_elapsed = metrics.elapsed_time();
-        let frame_duration = self.state.frame_duration();
+        let frame_duration = Duration::from_secs_f32(self.state.frame_duration().get::<second>());
         while time_elapsed < frame_duration {
             if is_sleep_granular {
                 let remaining = frame_duration - time_elapsed;
