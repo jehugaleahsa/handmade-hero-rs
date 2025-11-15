@@ -81,6 +81,23 @@ where
     pub fn move_to_point(&self, point: Point2d<T>) -> Self {
         self.move_to(point.x(), point.y())
     }
+
+    #[must_use]
+    #[inline]
+    pub fn contains_point(&self, point: Point2d<T>) -> bool {
+        point.x() >= self.left
+            && point.x() < self.right
+            && point.y() >= self.top
+            && point.y() < self.bottom
+    }
+
+    #[must_use]
+    pub fn overlaps(&self, other: &Self) -> bool {
+        self.contains_point(Point2d::from_x_y(other.left, other.top))
+            || self.contains_point(Point2d::from_x_y(other.left, other.bottom))
+            || self.contains_point(Point2d::from_x_y(other.right, other.top))
+            || self.contains_point(Point2d::from_x_y(other.right, other.bottom))
+    }
 }
 
 impl<T> Rectangle<T>

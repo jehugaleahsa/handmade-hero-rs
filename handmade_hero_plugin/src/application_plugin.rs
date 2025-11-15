@@ -292,22 +292,21 @@ impl ApplicationPlugin {
         window_bounds: &Rectangle<f32>,
         buffer: &mut [Color<u8>],
     ) -> Result<()> {
-        //let black = Color::<f32>::from(Color::from_rgb(0x00, 0x00, 0x00));
-        //Self::render_rectangle(window_bounds, window_bounds, black, buffer).unwrap_or_default(); // Ignore errors
-
-        let white = Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF));
-        let grey = Color::from(Color::from_rgb(0xCC, 0xCC, 0xCC));
         let world = state.world();
         let Some(tile_map) = world.tile_maps.get(&world.current_tile_map_id) else {
             return Err(ApplicationError::new("Fell out of the world"));
         };
 
+        let white = Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF));
+        let grey = Color::from(Color::from_rgb(0xCC, 0xCC, 0xCC));
+        let black = Color::from(Color::from_rgb(0x00, 0x00, 0x00));
         let upper_left_x = world.x_offset;
         let upper_left_y = world.y_offset;
+        let player = state.player();
+        let player_center = Point2d::from_x_y(player.left(), player.top());
         for row_index in 0..world.rows {
             for column_index in 0..world.columns {
                 let tile = tile_map.get(row_index, column_index);
-                let color = if tile == 0 { grey } else { white };
                 let tile_size = world.tile_size;
                 #[allow(clippy::cast_precision_loss)]
                 let row_index = row_index as f32;
@@ -321,6 +320,13 @@ impl ApplicationPlugin {
                     tile_size.get::<pixel>(),
                     tile_size.get::<pixel>(),
                 );
+                let color = if tile_rectangle.contains_point(player_center) {
+                    black
+                } else if tile == 0 {
+                    grey
+                } else {
+                    white
+                };
                 Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
             }
         }

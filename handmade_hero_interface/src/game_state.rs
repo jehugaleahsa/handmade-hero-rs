@@ -38,7 +38,7 @@ impl GameState {
         let player = Rectangle::new(
             0f32,
             0f32,
-            tile_size.get::<pixel>(),
+            (tile_size * 0.9f32).get::<pixel>(),
             (tile_size * 0.75f32).get::<pixel>(),
         );
         Self {
