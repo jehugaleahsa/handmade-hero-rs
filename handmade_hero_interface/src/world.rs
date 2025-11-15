@@ -134,23 +134,39 @@ impl World {
         }
     }
 
+    /// Indicates whether all four corners of the rectangle fall within a
+    /// traversable tile.
     #[must_use]
-    pub fn is_traversable(&self, point: Point2d<f32>) -> bool {
-        let Some(tile_map) = &self.tile_maps.get(&self.current_tile_map_id) else {
-            return false;
-        };
+    pub fn is_traversable_rectangle(&self, bounds: Rectangle<f32>) -> bool {
+        self.is_traversable_point(bounds.top_left())
+            && self.is_traversable_point(bounds.bottom_left())
+            && self.is_traversable_point(bounds.top_right())
+            && self.is_traversable_point(bounds.bottom_right())
+    }
+
+    /// Indicates whether the point falls within a traversable tile.
+    #[must_use]
+    pub fn is_traversable_point(&self, point: Point2d<f32>) -> bool {
+        self.get_tile_map(point).is_some_and(|tile| tile == 0)
+    }
+
+    #[must_use]
+    pub fn get_tile_map(&self, point: Point2d<f32>) -> Option<u32> {
+        let tile_map = self.tile_maps.get(&self.current_tile_map_id)?;
         let tile_size = self.tile_size.get::<pixel>();
+
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         #[allow(clippy::cast_precision_loss)]
         let tile_x = (point.x() / tile_size) as usize;
         let tile_x = usize::clamp(tile_x, 0, self.columns - 1);
+
         #[allow(clippy::cast_sign_loss)]
         #[allow(clippy::cast_possible_truncation)]
         #[allow(clippy::cast_precision_loss)]
         let tile_y = (point.y() / tile_size) as usize;
         let tile_y = usize::clamp(tile_y, 0, self.rows - 1);
-        let tile = tile_map.get(tile_y, tile_x);
-        tile == 0
+
+        tile_map.get(tile_y, tile_x)
     }
 }

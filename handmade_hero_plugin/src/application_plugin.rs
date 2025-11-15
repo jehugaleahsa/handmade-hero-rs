@@ -8,13 +8,13 @@ use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
-use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::tile_map::TileMap;
 use handmade_hero_interface::units::si::length::{Length, pixel};
 use handmade_hero_interface::units::si::time::Time;
 use handmade_hero_interface::world::{TileMapKey, World};
+use uom::si::length::meter;
 use uom::si::time::second;
 
 #[derive(Debug)]
@@ -156,7 +156,7 @@ impl ApplicationPlugin {
         for row_index in 0..row_count {
             for column_index in 0..column_count {
                 let value = source[index];
-                destination.set(row_index, column_index, value);
+                destination[(row_index, column_index)] = value;
                 index += 1;
             }
         }
@@ -182,22 +182,15 @@ impl ApplicationPlugin {
         let x = updated_player.left();
         let y = updated_player.top();
         let y_offset = y - world.y_offset.get::<pixel>();
-        let min_y = y_offset - updated_player.height() / 4f32;
-        let max_y = y_offset;
-
         let x_offset = x - world.x_offset.get::<pixel>();
-        let min_x = x_offset - updated_player.width() / 2f32 + 1f32;
-        let max_x = x_offset + updated_player.width() / 2f32 - 1f32;
-        if !world.is_traversable(Point2d::from_x_y(min_x, min_y)) {
-            return;
-        }
-        if !world.is_traversable(Point2d::from_x_y(min_x, max_y)) {
-            return;
-        }
-        if !world.is_traversable(Point2d::from_x_y(max_x, min_y)) {
-            return;
-        }
-        if !world.is_traversable(Point2d::from_x_y(max_x, max_y)) {
+        let bound_height = updated_player.height() / 4f32;
+        let player_bounds = Rectangle::new(
+            y_offset - bound_height,
+            x_offset - updated_player.width() / 2f32,
+            bound_height,
+            updated_player.width(),
+        );
+        if !world.is_traversable_rectangle(player_bounds) {
             return;
         }
 
@@ -220,7 +213,7 @@ impl ApplicationPlugin {
             }
         }
         let frame_duration = state.frame_duration();
-        let max_speed = Length::new::<pixel>(128f32) / Time::new::<second>(1f32);
+        let max_speed = Length::new::<meter>(3f32) / Time::new::<second>(1f32);
         let max_distance = frame_duration * max_speed;
         let max_distance_px = max_distance.get::<pixel>();
         delta_x *= max_distance_px;
@@ -302,12 +295,12 @@ impl ApplicationPlugin {
         let black = Color::from(Color::from_rgb(0x00, 0x00, 0x00));
         let upper_left_x = world.x_offset;
         let upper_left_y = world.y_offset;
+        let tile_size = world.tile_size;
         let player = state.player();
-        let player_center = Point2d::from_x_y(player.left(), player.top());
+        let player_center = player.top_left();
         for row_index in 0..world.rows {
             for column_index in 0..world.columns {
-                let tile = tile_map.get(row_index, column_index);
-                let tile_size = world.tile_size;
+                let tile = tile_map[(row_index, column_index)];
                 #[allow(clippy::cast_precision_loss)]
                 let row_index = row_index as f32;
                 #[allow(clippy::cast_precision_loss)]

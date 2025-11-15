@@ -93,10 +93,34 @@ where
 
     #[must_use]
     pub fn overlaps(&self, other: &Self) -> bool {
-        self.contains_point(Point2d::from_x_y(other.left, other.top))
-            || self.contains_point(Point2d::from_x_y(other.left, other.bottom))
-            || self.contains_point(Point2d::from_x_y(other.right, other.top))
-            || self.contains_point(Point2d::from_x_y(other.right, other.bottom))
+        self.contains_point(other.top_left())
+            || self.contains_point(other.bottom_left())
+            || self.contains_point(other.top_right())
+            || self.contains_point(other.bottom_right())
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn top_left(&self) -> Point2d<T> {
+        Point2d::from_x_y(self.left, self.top)
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn bottom_left(&self) -> Point2d<T> {
+        Point2d::from_x_y(self.left, self.bottom)
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn top_right(&self) -> Point2d<T> {
+        Point2d::from_x_y(self.right, self.top)
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn bottom_right(&self) -> Point2d<T> {
+        Point2d::from_x_y(self.right, self.bottom)
     }
 }
 

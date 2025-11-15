@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::ops::{Index, IndexMut};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TileMap {
@@ -16,14 +17,28 @@ impl TileMap {
 
     #[inline]
     #[must_use]
-    pub fn get(&self, row: usize, column: usize) -> u32 {
+    pub fn get(&self, row: usize, column: usize) -> Option<u32> {
         let index = row * self.columns + column;
-        self.tiles[index]
+        self.tiles.get(index).copied()
     }
+}
+
+impl Index<(usize, usize)> for TileMap {
+    type Output = u32;
 
     #[inline]
-    pub fn set(&mut self, row: usize, column: usize, value: u32) {
+    fn index(&self, index: (usize, usize)) -> &Self::Output {
+        let (row, column) = index;
         let index = row * self.columns + column;
-        self.tiles[index] = value;
+        &self.tiles[index]
+    }
+}
+
+impl IndexMut<(usize, usize)> for TileMap {
+    #[inline]
+    fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
+        let (row, column) = index;
+        let index = row * self.columns + column;
+        &mut self.tiles[index]
     }
 }
