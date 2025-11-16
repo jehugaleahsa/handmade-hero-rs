@@ -25,7 +25,7 @@ impl GameState {
         let sound = SoundState::new();
         let tile_size = Length::new::<meter>(1.4f32);
         let x_offset = -(tile_size / 1.6f32);
-        let y_offset = -(tile_size / 3.75f32);
+        let y_offset = -(tile_size / 3.5f32);
         let world = World {
             rows: World::TILE_ROWS,
             columns: World::TILE_COLUMNS,

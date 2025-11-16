@@ -46,29 +46,23 @@ impl World {
         width: f32,
         height: f32,
     ) -> Option<Rectangle<f32>> {
-        let player_middle = player.width() / 2f32;
-        if player.top() <= 0f32 {
-            self.try_navigate_north(player, height)
-        } else if player.top() >= height {
-            self.try_navigate_south(player)
-        } else if player.left() - player_middle <= 0f32 {
+        if player.bottom() >= height {
+            self.try_navigate_north(player)
+        } else if player.top() <= 0f32 {
+            self.try_navigate_south(player, height)
+        } else if player.right() <= 0f32 {
             self.try_navigate_west(player, width)
-        } else if player.left() + player_middle >= width {
+        } else if player.left() >= width {
             self.try_navigate_east(player)
         } else {
             None
         }
     }
 
-    fn try_navigate_north(
-        &mut self,
-        player: Rectangle<f32>,
-        height: f32,
-    ) -> Option<Rectangle<f32>> {
+    fn try_navigate_north(&mut self, player: Rectangle<f32>) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_north_tile_map() {
             self.current_tile_map_id = new_tile_map_id;
-            let bottom = height + player.top();
-            Some(player.move_to(player.left(), bottom))
+            Some(player.moved_to(player.left(), 0f32))
         } else {
             None
         }
@@ -82,10 +76,14 @@ impl World {
         }
     }
 
-    fn try_navigate_south(&mut self, player: Rectangle<f32>) -> Option<Rectangle<f32>> {
+    fn try_navigate_south(
+        &mut self,
+        player: Rectangle<f32>,
+        height: f32,
+    ) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_south_tile_map() {
             self.current_tile_map_id = new_tile_map_id;
-            Some(player.move_to(player.left(), player.height()))
+            Some(player.moved_to(player.left(), height - player.height()))
         } else {
             None
         }
@@ -102,8 +100,8 @@ impl World {
     fn try_navigate_west(&mut self, player: Rectangle<f32>, width: f32) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_west_tile_map() {
             self.current_tile_map_id = new_tile_map_id;
-            let right = width + (player.left() - player.width());
-            Some(player.move_to(right, player.top()))
+            let left = width - player.width();
+            Some(player.moved_to(left, player.bottom()))
         } else {
             None
         }
@@ -120,7 +118,7 @@ impl World {
     fn try_navigate_east(&mut self, player: Rectangle<f32>) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_east_tile_map() {
             self.current_tile_map_id = new_tile_map_id;
-            Some(player.move_to(player.width(), player.top()))
+            Some(player.moved_to(player.width(), player.bottom()))
         } else {
             None
         }

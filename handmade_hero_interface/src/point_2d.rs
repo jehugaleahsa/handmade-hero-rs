@@ -1,6 +1,6 @@
-use bincode::{Decode, Encode};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Encode, Decode, Default, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Default, Copy, Clone)]
 pub struct Point2d<T> {
     x: T,
     y: T,

@@ -61,9 +61,14 @@ impl ApplicationLoader {
         let normal_name = self
             .plugin_directory
             .join(library_filename("handmade_hero_plugin"));
-        let metadata = std::fs::metadata(&normal_name).map_err(|e| {
-            ApplicationError::wrap("Failed to get the application plugin file metadata", e)
-        })?;
+        let old_name = self
+            .plugin_directory
+            .join(library_filename("handmade_hero_plugin_old"));
+        let metadata = std::fs::metadata(&normal_name)
+            .or_else(|_| std::fs::metadata(&old_name))
+            .map_err(|e| {
+                ApplicationError::wrap("Failed to get the application plugin file metadata", e)
+            })?;
 
         let mut running_name = self.plugin_directory.join(self.current_running_name());
         let current_modified = metadata.last_write_time();
