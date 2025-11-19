@@ -1,6 +1,6 @@
-use crate::rectangle::Rectangle;
+use crate::player::Player;
 use crate::sound_state::SoundState;
-use crate::units::si::length::{Length, pixel};
+use crate::units::si::length::Length;
 use crate::units::si::time::Time;
 use crate::world::{TileMapKey, World};
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ pub struct GameState {
     width: Length,
     height: Length,
     sound: SoundState,
-    player: Rectangle<f32>,
+    player: Player,
     frame_duration: Time,
     world: World,
 }
@@ -26,21 +26,17 @@ impl GameState {
         let tile_size = Length::new::<meter>(1.4f32);
         let x_offset = -(tile_size / 1.6f32);
         let y_offset = -(tile_size / 3.5f32);
+        let current_tile_map_key = TileMapKey { x: 0, y: 0 };
         let world = World {
             rows: World::TILE_ROWS,
             columns: World::TILE_COLUMNS,
             x_offset,
             y_offset,
-            current_tile_map_key: TileMapKey { x: 0, y: 0 }, // Origin
+            current_tile_map_key, // Origin
             tile_maps: HashMap::new(),
             tile_size,
         };
-        let player = Rectangle::new(
-            0f32,
-            0f32,
-            (tile_size * 0.9f32).get::<pixel>(),
-            (tile_size * 0.75f32).get::<pixel>(),
-        );
+        let player = Player::new(current_tile_map_key, tile_size);
         Self {
             width: Length::zero(),
             height: Length::zero(),
@@ -98,13 +94,14 @@ impl GameState {
 
     #[inline]
     #[must_use]
-    pub fn player(&self) -> Rectangle<f32> {
-        self.player
+    pub fn player(&self) -> &Player {
+        &self.player
     }
 
     #[inline]
-    pub fn set_player(&mut self, player: Rectangle<f32>) {
-        self.player = player;
+    #[must_use]
+    pub fn player_mut(&mut self) -> &mut Player {
+        &mut self.player
     }
 
     #[inline]
