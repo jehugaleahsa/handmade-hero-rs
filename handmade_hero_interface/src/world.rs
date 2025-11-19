@@ -7,12 +7,9 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
-pub enum TileMapKey {
-    South,
-    Hub,
-    West,
-    East,
-    North,
+pub struct TileMapKey {
+    pub x: isize,
+    pub y: isize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -21,7 +18,7 @@ pub struct World {
     pub rows: usize,
     pub columns: usize,
     pub tile_maps: HashMap<TileMapKey, TileMap>,
-    pub current_tile_map_id: TileMapKey,
+    pub current_tile_map_key: TileMapKey,
     pub x_offset: Length,
     pub y_offset: Length,
     pub tile_size: Length,
@@ -60,8 +57,8 @@ impl World {
     }
 
     fn try_navigate_north(&mut self, player: Rectangle<f32>) -> Option<Rectangle<f32>> {
-        if let Some(new_tile_map_id) = self.find_north_tile_map() {
-            self.current_tile_map_id = new_tile_map_id;
+        if let Some(new_tile_map_key) = self.find_north_tile_map() {
+            self.current_tile_map_key = new_tile_map_key;
             Some(player.moved_to(player.left(), 0f32))
         } else {
             None
@@ -69,10 +66,12 @@ impl World {
     }
 
     fn find_north_tile_map(&self) -> Option<TileMapKey> {
-        match self.current_tile_map_id {
-            TileMapKey::South => Some(TileMapKey::Hub),
-            TileMapKey::Hub => Some(TileMapKey::North),
-            _ => None,
+        let TileMapKey { x, y } = self.current_tile_map_key;
+        let north_key = TileMapKey { x, y: y + 1 };
+        if self.tile_maps.contains_key(&north_key) {
+            Some(north_key)
+        } else {
+            None
         }
     }
 
@@ -82,7 +81,7 @@ impl World {
         height: f32,
     ) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_south_tile_map() {
-            self.current_tile_map_id = new_tile_map_id;
+            self.current_tile_map_key = new_tile_map_id;
             Some(player.moved_to(player.left(), height - player.height()))
         } else {
             None
@@ -90,16 +89,18 @@ impl World {
     }
 
     fn find_south_tile_map(&self) -> Option<TileMapKey> {
-        match self.current_tile_map_id {
-            TileMapKey::Hub => Some(TileMapKey::South),
-            TileMapKey::North => Some(TileMapKey::Hub),
-            _ => None,
+        let TileMapKey { x, y } = self.current_tile_map_key;
+        let south_key = TileMapKey { x, y: y - 1 };
+        if self.tile_maps.contains_key(&south_key) {
+            Some(south_key)
+        } else {
+            None
         }
     }
 
     fn try_navigate_west(&mut self, player: Rectangle<f32>, width: f32) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_west_tile_map() {
-            self.current_tile_map_id = new_tile_map_id;
+            self.current_tile_map_key = new_tile_map_id;
             let left = width - player.width();
             Some(player.moved_to(left, player.bottom()))
         } else {
@@ -108,16 +109,18 @@ impl World {
     }
 
     fn find_west_tile_map(&self) -> Option<TileMapKey> {
-        match self.current_tile_map_id {
-            TileMapKey::Hub => Some(TileMapKey::West),
-            TileMapKey::East => Some(TileMapKey::Hub),
-            _ => None,
+        let TileMapKey { x, y } = self.current_tile_map_key;
+        let west_key = TileMapKey { x: x - 1, y };
+        if self.tile_maps.contains_key(&west_key) {
+            Some(west_key)
+        } else {
+            None
         }
     }
 
     fn try_navigate_east(&mut self, player: Rectangle<f32>) -> Option<Rectangle<f32>> {
         if let Some(new_tile_map_id) = self.find_east_tile_map() {
-            self.current_tile_map_id = new_tile_map_id;
+            self.current_tile_map_key = new_tile_map_id;
             Some(player.moved_to(player.width(), player.bottom()))
         } else {
             None
@@ -125,10 +128,12 @@ impl World {
     }
 
     fn find_east_tile_map(&self) -> Option<TileMapKey> {
-        match self.current_tile_map_id {
-            TileMapKey::Hub => Some(TileMapKey::East),
-            TileMapKey::West => Some(TileMapKey::Hub),
-            _ => None,
+        let TileMapKey { x, y } = self.current_tile_map_key;
+        let east_key = TileMapKey { x: x + 1, y };
+        if self.tile_maps.contains_key(&east_key) {
+            Some(east_key)
+        } else {
+            None
         }
     }
 
@@ -150,7 +155,7 @@ impl World {
 
     #[must_use]
     pub fn get_tile_map(&self, point: Point2d<f32>) -> Option<u32> {
-        let tile_map = self.tile_maps.get(&self.current_tile_map_id)?;
+        let tile_map = self.tile_maps.get(&self.current_tile_map_key)?;
         let tile_size = self.tile_size.get::<pixel>();
 
         #[allow(clippy::cast_sign_loss)]

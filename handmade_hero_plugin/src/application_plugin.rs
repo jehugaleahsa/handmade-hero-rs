@@ -38,15 +38,15 @@ impl ApplicationPlugin {
         state.set_player(new_player);
 
         let world = state.world_mut();
-        let south = world.add_tile_map(TileMapKey::South);
-        Self::load_south_tile_map(south);
-        let hub = world.add_tile_map(TileMapKey::Hub);
+        let hub = world.add_tile_map(TileMapKey { x: 0, y: 0 }); // Origin
         Self::load_hub_tile_map(hub);
-        let west = world.add_tile_map(TileMapKey::West);
+        let south = world.add_tile_map(TileMapKey { x: 0, y: -1 });
+        Self::load_south_tile_map(south);
+        let west = world.add_tile_map(TileMapKey { x: -1, y: 0 });
         Self::load_west_tile_map(west);
-        let east = world.add_tile_map(TileMapKey::East);
+        let east = world.add_tile_map(TileMapKey { x: 1, y: 0 });
         Self::load_east_tile_map(east);
-        let north = world.add_tile_map(TileMapKey::North);
+        let north = world.add_tile_map(TileMapKey { x: 0, y: 1 });
         Self::load_north_tile_map(north);
     }
 
@@ -271,7 +271,7 @@ impl ApplicationPlugin {
         buffer: &mut [Color<u8>],
     ) -> Result<()> {
         let world = state.world();
-        let Some(tile_map) = world.tile_maps.get(&world.current_tile_map_id) else {
+        let Some(tile_map) = world.tile_maps.get(&world.current_tile_map_key) else {
             return Err(ApplicationError::new("Fell out of the world"));
         };
 

@@ -31,7 +31,7 @@ impl GameState {
             columns: World::TILE_COLUMNS,
             x_offset,
             y_offset,
-            current_tile_map_id: TileMapKey::Hub,
+            current_tile_map_key: TileMapKey { x: 0, y: 0 }, // Origin
             tile_maps: HashMap::new(),
             tile_size,
         };
