@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::ops::Add;
 
 #[derive(Debug, Serialize, Deserialize, Default, Copy, Clone)]
 pub struct Point2d<T> {
@@ -26,5 +27,19 @@ where
     #[must_use]
     pub fn y(self) -> T {
         self.y
+    }
+}
+
+impl<T> Point2d<T>
+where
+    T: Copy + Add<Output = T>,
+{
+    #[inline]
+    #[must_use]
+    pub fn shifted(&self, delta_x: T, delta_y: T) -> Self {
+        Self {
+            x: self.x + delta_x,
+            y: self.y + delta_y,
+        }
     }
 }

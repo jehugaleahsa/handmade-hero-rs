@@ -20,5 +20,8 @@ pub mod render_context;
 pub mod sound_state;
 pub mod stereo_sample;
 pub mod tile_map;
+pub mod tile_map_coordinate;
+pub mod tile_map_key;
 pub mod units;
 pub mod world;
+pub mod world_coordinate;

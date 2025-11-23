@@ -1,5 +1,5 @@
 use handmade_hero_interface::application::Application;
-use handmade_hero_interface::application_error::{ApplicationError, Result};
+use handmade_hero_interface::application_error::Result;
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::color::Color;
@@ -12,9 +12,12 @@ use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::tile_map::TileMap;
+use handmade_hero_interface::tile_map_key::TileMapKey;
 use handmade_hero_interface::units::si::length::{Length, pixel};
 use handmade_hero_interface::units::si::time::Time;
-use handmade_hero_interface::world::{TileMapKey, World};
+use handmade_hero_interface::world::World;
+use handmade_hero_interface::world_coordinate::WorldCoordinate;
+use std::cmp::Ordering;
 use uom::si::length::meter;
 use uom::si::time::second;
 
@@ -29,14 +32,22 @@ impl ApplicationPlugin {
     }
 
     fn initialize_direct(state: &mut GameState) {
-        let player_bounds = state.player().render_bounds();
-        let width = state.width().get::<pixel>() + player_bounds.width() / 1.5f32;
-        let height = state.height().get::<pixel>() - player_bounds.height() / 3.5f32;
-        let x = width / 2f32;
+        // Put the player somewhere in the middle
+        let width = state.width().get::<pixel>();
+        let height = state.height().get::<pixel>();
+        let x = width / 2f32 + state.player().render_bounds().width() / 3f32;
         let y = height / 2f32;
-        let new_player_bounds = player_bounds.moved_to(x, y);
-        state.player_mut().set_render_bounds(new_player_bounds);
+        let tile_map_coordinates = state
+            .world()
+            .get_tile_map_coordinate(Point2d::from_x_y(x, y));
+        let new_coordinates = WorldCoordinate::new(
+            state.world(),
+            state.player().tile_map_key(),
+            tile_map_coordinates,
+        );
+        state.player_mut().set_coordinates(new_coordinates);
 
+        // Load the world tile maps
         let world = state.world_mut();
         let hub = world.add_tile_map(TileMapKey { x: 0, y: 0 }); // Origin
         Self::load_hub_tile_map(hub);
@@ -176,25 +187,14 @@ impl ApplicationPlugin {
             return;
         }
 
-        // Handle the player moving off the screen through a doorway.
-        let updated_player_bounds = state.player().render_bounds().shifted(delta_x, delta_y);
-        let width = state.width().get::<pixel>();
-        let height = state.height().get::<pixel>();
-        let world = state.world_mut();
-        if let Some(updated_player) = world.try_navigate(updated_player_bounds, width, height) {
-            state.player_mut().set_render_bounds(updated_player);
+        let world = state.world();
+        let old_coordinates = state.player().coordinate();
+        let new_coordinates = old_coordinates.shifted(delta_x, delta_y);
+        if !world.is_traversable(&new_coordinates, state.player().collision_bounds()) {
             return;
         }
 
-        // Check that the player isn't trying to walk through a wall.
-        let bound_height = updated_player_bounds.height() / 4f32;
-        let player_bounds =
-            updated_player_bounds.resized(bound_height, updated_player_bounds.width());
-        if !world.is_traversable_rectangle(player_bounds) {
-            return;
-        }
-
-        state.player_mut().set_render_bounds(updated_player_bounds);
+        state.player_mut().set_coordinates(new_coordinates);
     }
 
     fn calculate_delta_x_y(input: &InputState, state: &GameState) -> (f32, f32) {
@@ -271,11 +271,6 @@ impl ApplicationPlugin {
         window_bounds: &Rectangle<f32>,
         buffer: &mut [Color<u8>],
     ) -> Result<()> {
-        let world = state.world();
-        let Some(tile_map) = world.tile_maps.get(&world.current_tile_map_key) else {
-            return Err(ApplicationError::new("Fell out of the world"));
-        };
-
         // When rendering the tile map, our goal is to keep the player relatively close to the
         // center of the screen. We also want to transition between tile maps smoothly, without
         // suddenly jumping the user to a completely new screen. The player can also see surrounding
@@ -294,19 +289,24 @@ impl ApplicationPlugin {
         // When this happens, we switch our strategy, rendering more of the current tile map. This
         // means once the player gets past the center, they will no longer stay in the center and
         // start moving toward the outer edge. This avoids rendering a bunch of emptiness.
-        let white = Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF));
-        let grey = Color::from(Color::from_rgb(0xCC, 0xCC, 0xCC));
-        let black = Color::from(Color::from_rgb(0x00, 0x00, 0x00));
-        let height = state.height();
+        let world = state.world();
+        let player_coordinate = state.player().coordinate();
+        let tile_map_x = player_coordinate.tile_map_key().x();
+        let tile_x = player_coordinate.tile_x();
+        let tile_map_y = player_coordinate.tile_map_key().y();
+        let tile_y = player_coordinate.tile_y();
+        let (start_tile_map_x, start_tile_x) =
+            Self::determine_start(tile_map_x, tile_x, world.columns());
+        let (start_tile_map_y, start_tile_y) =
+            Self::determine_start(tile_map_y, tile_y, world.rows());
+
         let tile_size = world.tile_size;
-        let player_bounds = state.player().render_bounds();
-        let player_center = Point2d::from_x_y(
-            player_bounds.left() + player_bounds.width() / 2f32,
-            player_bounds.bottom(),
-        );
+        let mut tile_map_y = start_tile_map_y;
+        let mut tile_y = start_tile_y;
         for row_index in 0..world.rows {
+            let mut tile_map_x = start_tile_map_x;
+            let mut tile_x = start_tile_x;
             for column_index in 0..world.columns {
-                let tile = tile_map[(row_index, column_index)];
                 #[allow(clippy::cast_precision_loss)]
                 let row_index = row_index as f32;
                 #[allow(clippy::cast_precision_loss)]
@@ -319,25 +319,68 @@ impl ApplicationPlugin {
                     tile_size.get::<pixel>(),
                     tile_size.get::<pixel>(),
                 );
-                let color = if tile_rectangle.contains_point(player_center) {
-                    black
-                } else if tile == 0 {
-                    grey
-                } else {
-                    white
+
+                let tile_map_key = TileMapKey {
+                    x: tile_map_x,
+                    y: tile_map_y,
                 };
+                let color = Self::determine_tile_color(
+                    world,
+                    player_coordinate,
+                    tile_map_key,
+                    tile_x,
+                    tile_y,
+                );
                 let tile_rectangle = tile_rectangle.moved_to(
                     tile_rectangle.left(),
-                    height.get::<pixel>() - tile_rectangle.top(),
+                    state.height().get::<pixel>() - tile_rectangle.top(),
                 );
                 let tile_rectangle = tile_rectangle.shifted(
                     world.x_offset.get::<pixel>(),
                     -world.y_offset.get::<pixel>(),
                 );
                 Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
+
+                tile_x += 1;
+                if tile_x >= world.columns {
+                    tile_map_x += 1;
+                    tile_x = 0;
+                }
+            }
+
+            tile_y += 1;
+            if tile_y >= world.rows {
+                tile_map_y += 1;
+                tile_y = 0;
             }
         }
         Ok(())
+    }
+
+    fn determine_tile_color(
+        world: &World,
+        player_coordinate: &WorldCoordinate,
+        tile_map_key: TileMapKey,
+        tile_x: usize,
+        tile_y: usize,
+    ) -> Color<f32> {
+        let tile = world
+            .get_tile_map(tile_map_key)
+            .map(|tm| tm[(tile_y, tile_x)]);
+        if let Some(tile) = tile {
+            if tile_map_key == player_coordinate.tile_map_key()
+                && tile_y == player_coordinate.tile_y()
+                && tile_x == player_coordinate.tile_x()
+            {
+                Color::from(Color::from_rgb(0x00, 0x00, 0x00)) // black
+            } else if tile == 0 {
+                Color::from(Color::from_rgb(0xCC, 0xCC, 0xCC)) // grey
+            } else {
+                Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF)) // white
+            }
+        } else {
+            Color::from(Color::from_rgb(0x00, 0x00, 0x00)) // black
+        }
     }
 
     fn render_player(
@@ -345,13 +388,26 @@ impl ApplicationPlugin {
         window_bounds: &Rectangle<f32>,
         buffer: &mut [Color<u8>],
     ) -> Result<()> {
-        // We want the center of gravity to be the bottom middle of the rectangle.
-        // So we render the rectangle above the y position and halfway past the x position.
-        // The player's position is constrained while processing input.
         let world = state.world();
-        let height = state.height();
         let player = state.player();
+        let player_coordinate = player.coordinate();
+        let tile_size = world.tile_size().get::<pixel>();
+        let x_offset = Self::determine_player_offset(
+            player_coordinate.tile_map_key().x(),
+            player_coordinate.tile_x(),
+            tile_size,
+            world.columns(),
+        );
+        let y_offset = Self::determine_player_offset(
+            player_coordinate.tile_map_key().y(),
+            player_coordinate.tile_y(),
+            tile_size,
+            world.rows(),
+        );
+
         let player_bounds = player.render_bounds();
+        let player_bounds = player_bounds.shifted(x_offset, y_offset);
+        let height = state.height();
         let player_bounds = player_bounds.moved_to(
             player_bounds.left(),
             height.get::<pixel>() - player_bounds.top(),
@@ -361,6 +417,36 @@ impl ApplicationPlugin {
             -world.y_offset.get::<pixel>(),
         );
         Self::render_rectangle(window_bounds, &player_bounds, player.color(), buffer)
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_possible_wrap)]
+    fn determine_player_offset(
+        tile_map: isize,
+        tile: usize,
+        tile_size: f32,
+        max_tile: usize,
+    ) -> f32 {
+        let (start_tile_map, start_tile) = Self::determine_start(tile_map, tile, max_tile);
+        let tile_map_diff = tile_map - start_tile_map;
+        let tile_map_diff = tile_map_diff as f32 * max_tile as f32 * tile_size;
+        let tile_diff = tile as isize - start_tile as isize;
+        let tile_diff = tile_diff as f32 * tile_size;
+        tile_map_diff + tile_diff
+    }
+
+    #[allow(clippy::cast_possible_wrap)]
+    #[allow(clippy::cast_sign_loss)]
+    fn determine_start(tile_map: isize, tile: usize, max_tile: usize) -> (isize, usize) {
+        let current_tile_map = tile_map;
+        let tile = tile as isize;
+        let max_tile = max_tile as isize;
+        let middle = max_tile / 2;
+        match tile.cmp(&middle) {
+            Ordering::Less => (current_tile_map - 1, (max_tile - (middle - tile)) as usize),
+            Ordering::Greater => (current_tile_map, (tile - middle) as usize),
+            Ordering::Equal => (current_tile_map, 0),
+        }
     }
 
     fn render_rectangle(

@@ -1,8 +1,9 @@
 use crate::player::Player;
 use crate::sound_state::SoundState;
+use crate::tile_map_key::TileMapKey;
 use crate::units::si::length::Length;
 use crate::units::si::time::Time;
-use crate::world::{TileMapKey, World};
+use crate::world::World;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uom::num::Zero;
@@ -26,17 +27,16 @@ impl GameState {
         let tile_size = Length::new::<meter>(1.4f32);
         let x_offset = -(tile_size / 1.6f32);
         let y_offset = -(tile_size / 3.5f32);
-        let current_tile_map_key = TileMapKey { x: 0, y: 0 };
         let world = World {
             rows: World::TILE_ROWS,
             columns: World::TILE_COLUMNS,
             x_offset,
             y_offset,
-            current_tile_map_key, // Origin
             tile_maps: HashMap::new(),
             tile_size,
         };
-        let player = Player::new(current_tile_map_key, tile_size);
+        let current_tile_map_key = TileMapKey { x: 0, y: 0 };
+        let player = Player::new(&world, current_tile_map_key);
         Self {
             width: Length::zero(),
             height: Length::zero(),
