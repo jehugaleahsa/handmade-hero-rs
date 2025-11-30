@@ -1,7 +1,7 @@
 use crate::point_2d::Point2d;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TileMapCoordinate {
     x: usize,
     y: usize,

@@ -12,6 +12,7 @@ use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::tile_map::TileMap;
+use handmade_hero_interface::tile_map_coordinate::TileMapCoordinate;
 use handmade_hero_interface::tile_map_key::TileMapKey;
 use handmade_hero_interface::units::si::length::{Length, pixel};
 use handmade_hero_interface::units::si::time::Time;
@@ -261,14 +262,19 @@ impl ApplicationPlugin {
         let height = state.height();
         let window_bounds = Rectangle::new(0f32, 0f32, height.get::<pixel>(), width.get::<pixel>());
 
-        Self::render_tilemap(state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
+        let world = state.world();
+        let player_coordinate = state.player().coordinate();
+        let start_coordinate = Self::determine_start_coordinate(world, player_coordinate);
 
-        Self::render_player(state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
+        Self::render_tilemap(state, &window_bounds, &start_coordinate, buffer).unwrap_or_default(); // Ignore errors
+
+        Self::render_player(state, &window_bounds, &start_coordinate, buffer).unwrap_or_default(); // Ignore errors
     }
 
     fn render_tilemap(
         state: &GameState,
         window_bounds: &Rectangle<f32>,
+        start_coordinate: &WorldCoordinate,
         buffer: &mut [Color<u8>],
     ) -> Result<()> {
         // When rendering the tile map, our goal is to keep the player relatively close to the
@@ -291,21 +297,13 @@ impl ApplicationPlugin {
         // start moving toward the outer edge. This avoids rendering a bunch of emptiness.
         let world = state.world();
         let player_coordinate = state.player().coordinate();
-        let tile_map_x = player_coordinate.tile_map_key().x();
-        let tile_x = player_coordinate.tile_x();
-        let tile_map_y = player_coordinate.tile_map_key().y();
-        let tile_y = player_coordinate.tile_y();
-        let (start_tile_map_x, start_tile_x) =
-            Self::determine_start(tile_map_x, tile_x, world.columns());
-        let (start_tile_map_y, start_tile_y) =
-            Self::determine_start(tile_map_y, tile_y, world.rows());
 
         let tile_size = world.tile_size;
-        let mut tile_map_y = start_tile_map_y;
-        let mut tile_y = start_tile_y;
+        let mut tile_map_y = start_coordinate.tile_map_y();
+        let mut tile_y = start_coordinate.tile_y();
         for row_index in 0..world.rows {
-            let mut tile_map_x = start_tile_map_x;
-            let mut tile_x = start_tile_x;
+            let mut tile_map_x = start_coordinate.tile_map_x();
+            let mut tile_x = start_coordinate.tile_x();
             for column_index in 0..world.columns {
                 #[allow(clippy::cast_precision_loss)]
                 let row_index = row_index as f32;
@@ -386,6 +384,7 @@ impl ApplicationPlugin {
     fn render_player(
         state: &GameState,
         window_bounds: &Rectangle<f32>,
+        start_coordinate: &WorldCoordinate,
         buffer: &mut [Color<u8>],
     ) -> Result<()> {
         let world = state.world();
@@ -393,13 +392,17 @@ impl ApplicationPlugin {
         let player_coordinate = player.coordinate();
         let tile_size = world.tile_size().get::<pixel>();
         let x_offset = Self::determine_player_offset(
-            player_coordinate.tile_map_key().x(),
+            start_coordinate.tile_map_x(),
+            start_coordinate.tile_x(),
+            player_coordinate.tile_map_x(),
             player_coordinate.tile_x(),
             tile_size,
             world.columns(),
         );
         let y_offset = Self::determine_player_offset(
-            player_coordinate.tile_map_key().y(),
+            start_coordinate.tile_map_y(),
+            start_coordinate.tile_y(),
+            player_coordinate.tile_map_y(),
             player_coordinate.tile_y(),
             tile_size,
             world.rows(),
@@ -422,30 +425,48 @@ impl ApplicationPlugin {
     #[allow(clippy::cast_precision_loss)]
     #[allow(clippy::cast_possible_wrap)]
     fn determine_player_offset(
+        start_tile_map: isize,
+        start_tile: usize,
         tile_map: isize,
         tile: usize,
         tile_size: f32,
         max_tile: usize,
     ) -> f32 {
-        let (start_tile_map, start_tile) = Self::determine_start(tile_map, tile, max_tile);
-        let tile_map_diff = tile_map - start_tile_map;
-        let tile_map_diff = tile_map_diff as f32 * max_tile as f32 * tile_size;
-        let tile_diff = tile as isize - start_tile as isize;
-        let tile_diff = tile_diff as f32 * tile_size;
+        let tile_map_diff = tile_map as f32 - start_tile_map as f32;
+        let tile_map_diff = tile_map_diff * max_tile as f32 * tile_size;
+        let tile_diff = tile as f32 - start_tile as f32;
+        let tile_diff = tile_diff * tile_size;
         tile_map_diff + tile_diff
     }
 
-    #[allow(clippy::cast_possible_wrap)]
-    #[allow(clippy::cast_sign_loss)]
+    fn determine_start_coordinate(
+        world: &World,
+        player_coordinate: &WorldCoordinate,
+    ) -> WorldCoordinate {
+        let tile_map_x = player_coordinate.tile_map_x();
+        let tile_x = player_coordinate.tile_x();
+        let (start_tile_map_x, start_tile_x) =
+            Self::determine_start(tile_map_x, tile_x, world.columns());
+
+        let tile_map_y = player_coordinate.tile_map_y();
+        let tile_y = player_coordinate.tile_y();
+        let (start_tile_map_y, start_tile_y) =
+            Self::determine_start(tile_map_y, tile_y, world.rows());
+
+        let start_tile_map_key = TileMapKey {
+            x: start_tile_map_x,
+            y: start_tile_map_y,
+        };
+        let tile_map_coordinates = TileMapCoordinate::at_x_y(start_tile_x, start_tile_y);
+        WorldCoordinate::new(world, start_tile_map_key, tile_map_coordinates)
+    }
+
     fn determine_start(tile_map: isize, tile: usize, max_tile: usize) -> (isize, usize) {
-        let current_tile_map = tile_map;
-        let tile = tile as isize;
-        let max_tile = max_tile as isize;
         let middle = max_tile / 2;
         match tile.cmp(&middle) {
-            Ordering::Less => (current_tile_map - 1, (max_tile - (middle - tile)) as usize),
-            Ordering::Greater => (current_tile_map, (tile - middle) as usize),
-            Ordering::Equal => (current_tile_map, 0),
+            Ordering::Less => (tile_map - 1, max_tile - (middle - tile)),
+            Ordering::Greater => (tile_map, tile - middle),
+            Ordering::Equal => (tile_map, 0),
         }
     }
 

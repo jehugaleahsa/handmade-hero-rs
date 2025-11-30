@@ -12,7 +12,7 @@ struct ShiftedCoordinate {
     tile_offset: f32,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WorldCoordinate {
     tile_map_key: TileMapKey,
     tile_map_coordinate: TileMapCoordinate,
@@ -56,6 +56,18 @@ impl WorldCoordinate {
     #[must_use]
     pub fn tile_map_key(&self) -> TileMapKey {
         self.tile_map_key
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn tile_map_x(&self) -> isize {
+        self.tile_map_key.x()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn tile_map_y(&self) -> isize {
+        self.tile_map_key.y()
     }
 
     #[inline]
