@@ -57,6 +57,11 @@ use windows::core::{Error, PCWSTR, Result as Win32Result, w};
 
 const DEFAULT_REFRESH_RATE: u32 = 60;
 
+/// The game updates once every this many monitor refreshes. Keeping the update rate as an
+/// exact ratio of the refresh rate, rather than collapsing it to a hertz value up front, lets
+/// the audio buffer math stay in integers.
+const REFRESHES_PER_UPDATE: u32 = 2;
+
 #[derive(Debug)]
 pub enum RecordingState {
     None,
@@ -382,10 +387,9 @@ impl Win32Application {
 
     pub fn run(&mut self) -> Result<()> {
         let monitor_refresh_hertz = Self::find_monitor_refresh_hertz();
-        #[allow(clippy::cast_precision_loss)]
-        let game_update_hertz = monitor_refresh_hertz as f32 / 2.0f32;
-
-        let target_frame_duration = Duration::from_secs_f32(1.0f32 / game_update_hertz);
+        let target_frame_duration = Duration::from_secs_f64(
+            f64::from(REFRESHES_PER_UPDATE) / f64::from(monitor_refresh_hertz),
+        );
         self.state
             .set_frame_duration(Time::new::<second>(target_frame_duration.as_secs_f32()));
         let is_sleep_granular = unsafe {
@@ -407,7 +411,7 @@ impl Win32Application {
 
         if let Some(ref mut sound_buffer) = sound_buffer {
             sound_buffer.play_looping().unwrap_or(()); // Ignore errors
-            self.sound_safety_bytes = self.calculate_sound_safety_bytes(game_update_hertz);
+            self.sound_safety_bytes = self.calculate_sound_safety_bytes(monitor_refresh_hertz);
         }
 
         let exe_directory = Self::exe_directory()?;
@@ -479,7 +483,7 @@ impl Win32Application {
                     application,
                     sound_buffer,
                     sound_index,
-                    game_update_hertz,
+                    monitor_refresh_hertz,
                     &counter,
                 );
             }
@@ -500,19 +504,20 @@ impl Win32Application {
         }
     }
 
-    fn calculate_sound_safety_bytes(&mut self, game_update_hertz: f32) -> u32 {
+    /// Bytes of audio consumed by a single game frame.
+    ///
+    /// A frame lasts `REFRESHES_PER_UPDATE / monitor_refresh_hertz` seconds, so the byte count
+    /// is `bytes_per_second * REFRESHES_PER_UPDATE / monitor_refresh_hertz`. Every term is an
+    /// integer, so this needs no float round trip and carries no rounding error.
+    fn sound_bytes_per_frame(&self, monitor_refresh_hertz: u32) -> u32 {
         let sound_state = self.state.sound();
-        let sound_samples_per_second = sound_state.samples_per_second();
-        let sound_bytes_per_sample = sound_state.bytes_per_sample();
-        let sound_bytes_per_second = sound_samples_per_second * sound_bytes_per_sample;
-        #[allow(clippy::cast_precision_loss)]
-        let sound_bytes_per_game_hertz = sound_bytes_per_second as f32 / game_update_hertz;
-        let safety_bytes = sound_bytes_per_game_hertz / 2.0f32;
-        #[allow(clippy::cast_precision_loss)]
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        let safety_bytes = safety_bytes as u32;
-        safety_bytes
+        let bytes_per_second = sound_state.samples_per_second() * sound_state.bytes_per_sample();
+        bytes_per_second * REFRESHES_PER_UPDATE / monitor_refresh_hertz
+    }
+
+    /// Half a frame of audio, used as the margin the write cursor must stay ahead of playback.
+    fn calculate_sound_safety_bytes(&self, monitor_refresh_hertz: u32) -> u32 {
+        self.sound_bytes_per_frame(monitor_refresh_hertz) / 2
     }
 
     fn exe_directory() -> Result<PathBuf> {
@@ -551,7 +556,7 @@ impl Win32Application {
         application: &mut dyn Application,
         direct_sound_buffer: &mut DirectSoundBuffer<'_>,
         sound_index: u32,
-        game_update_hertz: f32,
+        monitor_refresh_hertz: u32,
         performance_counter: &PerformanceCounter,
     ) {
         let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
@@ -569,26 +574,18 @@ impl Win32Application {
             } else {
                 0
             };
-        let samples_per_second = sound_state.samples_per_second();
         let frame_time_elapsed = performance_counter.metrics().elapsed_time();
         let target_frame_duration =
             Duration::from_secs_f32(self.state.frame_duration().get::<second>());
-        let remaining_frame_time = if target_frame_duration >= frame_time_elapsed {
-            target_frame_duration - frame_time_elapsed
-        } else {
-            Duration::default()
-        };
-        let remaining_time_ratio = remaining_frame_time.div_duration_f32(target_frame_duration);
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_precision_loss)]
-        let bytes_per_frame =
-            ((samples_per_second * bytes_per_sample) as f32 / game_update_hertz) as u32;
-        #[allow(clippy::cast_precision_loss)]
-        let remaining_bytes = remaining_time_ratio * bytes_per_frame as f32;
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        let remaining_bytes = remaining_bytes as u32;
+        let remaining_frame_time = target_frame_duration.saturating_sub(frame_time_elapsed);
+        let remaining_time_ratio = remaining_frame_time.div_duration_f64(target_frame_duration);
+        let bytes_per_frame = self.sound_bytes_per_frame(monitor_refresh_hertz);
+        // The fraction of the frame still to elapse is genuinely fractional, so this one step
+        // stays in floating point. `f64::from` is lossless from both `f32` and `u32`, and the
+        // ratio is in [0, 1], so the only thing `as` discards here is the fraction.
+        #[expect(clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation)]
+        let remaining_bytes = (remaining_time_ratio * f64::from(bytes_per_frame)) as u32;
         let expected_frame_boundary_bytes = play_cursor + remaining_bytes;
         let audio_is_latent = safe_write_cursor >= expected_frame_boundary_bytes;
         let target_cursor = if audio_is_latent {
