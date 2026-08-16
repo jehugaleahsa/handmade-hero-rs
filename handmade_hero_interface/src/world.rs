@@ -12,8 +12,8 @@ use std::collections::hash_map::Entry;
 #[derive(Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct World {
-    pub rows: usize,
-    pub columns: usize,
+    pub rows: u16,
+    pub columns: u16,
     pub tile_maps: HashMap<TileMapKey, TileMap>,
     pub x_offset: Length,
     pub y_offset: Length,
@@ -21,18 +21,18 @@ pub struct World {
 }
 
 impl World {
-    pub const TILE_ROWS: usize = 9;
-    pub const TILE_COLUMNS: usize = 17;
+    pub const TILE_ROWS: u16 = 9;
+    pub const TILE_COLUMNS: u16 = 17;
 
     #[must_use]
     #[inline]
-    pub fn rows(&self) -> usize {
+    pub fn rows(&self) -> u16 {
         self.rows
     }
 
     #[must_use]
     #[inline]
-    pub fn columns(&self) -> usize {
+    pub fn columns(&self) -> u16 {
         self.columns
     }
 
@@ -87,27 +87,23 @@ impl World {
     pub fn get_tile_map_coordinate(&self, point: Point2d<f32>) -> TileMapCoordinate {
         let (tile_x, tile_y) = self.get_tile_x_y(point);
         let tile_size = self.tile_size.get::<pixel>();
-        #[allow(clippy::cast_precision_loss)]
-        let (tile_x_offset, tile_y_offset) = (tile_x as f32 * tile_size, tile_y as f32 * tile_size);
+        let (tile_x_offset, tile_y_offset) =
+            (f32::from(tile_x) * tile_size, f32::from(tile_y) * tile_size);
         let offset = Point2d::from_x_y(point.x() - tile_x_offset, point.y() - tile_y_offset);
         TileMapCoordinate::at_x_y_offset(tile_x, tile_y, offset)
     }
 
     #[must_use]
-    pub fn get_tile_x_y(&self, point: Point2d<f32>) -> (usize, usize) {
+    #[expect(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_possible_truncation)]
+    pub fn get_tile_x_y(&self, point: Point2d<f32>) -> (u16, u16) {
         let tile_size = self.tile_size.get::<pixel>();
 
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_precision_loss)]
-        let tile_x = (point.x() / tile_size) as usize;
-        let tile_x = usize::clamp(tile_x, 0, self.columns - 1);
+        let tile_x = (point.x() / tile_size) as u16;
+        let tile_x = u16::min(tile_x, self.columns - 1);
 
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_precision_loss)]
-        let tile_y = (point.y() / tile_size) as usize;
-        let tile_y = usize::clamp(tile_y, 0, self.rows - 1);
+        let tile_y = (point.y() / tile_size) as u16;
+        let tile_y = u16::min(tile_y, self.rows - 1);
 
         (tile_x, tile_y)
     }

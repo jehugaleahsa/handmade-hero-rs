@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone)]
 struct ShiftedCoordinate {
-    tile_map: isize,
-    tile: usize,
+    tile_map: i16,
+    tile: u16,
     tile_offset: f32,
 }
 
@@ -17,8 +17,8 @@ pub struct WorldCoordinate {
     tile_map_key: TileMapKey,
     tile_map_coordinate: TileMapCoordinate,
     tile_size: Length,
-    rows: usize,
-    columns: usize,
+    rows: u16,
+    columns: u16,
 }
 
 impl WorldCoordinate {
@@ -39,8 +39,8 @@ impl WorldCoordinate {
     fn new_internal(
         key: TileMapKey,
         tile_map_coordinate: TileMapCoordinate,
-        rows: usize,
-        columns: usize,
+        rows: u16,
+        columns: u16,
         tile_size: Length,
     ) -> Self {
         Self {
@@ -60,25 +60,25 @@ impl WorldCoordinate {
 
     #[inline]
     #[must_use]
-    pub fn tile_map_x(&self) -> isize {
+    pub fn tile_map_x(&self) -> i16 {
         self.tile_map_key.x()
     }
 
     #[inline]
     #[must_use]
-    pub fn tile_map_y(&self) -> isize {
+    pub fn tile_map_y(&self) -> i16 {
         self.tile_map_key.y()
     }
 
     #[inline]
     #[must_use]
-    pub fn tile_x(&self) -> usize {
+    pub fn tile_x(&self) -> u16 {
         self.tile_map_coordinate.x()
     }
 
     #[inline]
     #[must_use]
-    pub fn tile_y(&self) -> usize {
+    pub fn tile_y(&self) -> u16 {
         self.tile_map_coordinate.y()
     }
 
@@ -131,14 +131,13 @@ impl WorldCoordinate {
     }
 
     #[must_use]
-    #[expect(clippy::cast_possible_wrap)]
     #[expect(clippy::cast_possible_truncation)]
     #[expect(clippy::cast_sign_loss)]
     fn shifted_axis(
         axis: ShiftedCoordinate,
         delta: f32,
         tile_size: f32,
-        max_tiles: usize,
+        max_tiles: u16,
     ) -> ShiftedCoordinate {
         let ShiftedCoordinate {
             tile_offset,
@@ -156,18 +155,20 @@ impl WorldCoordinate {
             tile_offset = 0f32;
             tile_delta += 1f32;
         }
-        let tile = tile as isize + tile_delta as isize;
+        // The intermediate tile index can leave the range of a single tile map in either
+        // direction, so the carry runs in `i32` and narrows back at the end.
+        let tile = i32::from(tile) + tile_delta as i32;
 
         // Carry whole tile maps out of the tile index. Euclidean division is floor division
         // for a positive divisor, so the negative and positive cases share one expression.
-        let max_tiles = max_tiles as isize;
-        let tile_map = tile_map + tile.div_euclid(max_tiles);
+        let max_tiles = i32::from(max_tiles);
+        let tile_map = i32::from(tile_map) + tile.div_euclid(max_tiles);
         let tile = tile.rem_euclid(max_tiles);
 
         ShiftedCoordinate {
             tile_offset,
-            tile: tile as usize,
-            tile_map,
+            tile: tile as u16,
+            tile_map: tile_map as i16,
         }
     }
 }
@@ -177,9 +178,9 @@ mod tests {
     use crate::world_coordinate::{ShiftedCoordinate, WorldCoordinate};
 
     const TILE_SIZE: f32 = 60f32;
-    const MAX_TILES: usize = 9;
+    const MAX_TILES: u16 = 9;
 
-    fn shift(tile_map: isize, tile: usize, tile_offset: f32, delta: f32) -> (isize, usize, f32) {
+    fn shift(tile_map: i16, tile: u16, tile_offset: f32, delta: f32) -> (i16, u16, f32) {
         let axis = ShiftedCoordinate {
             tile_map,
             tile,
@@ -189,7 +190,7 @@ mod tests {
         (shifted.tile_map, shifted.tile, shifted.tile_offset)
     }
 
-    fn assert_axis(actual: (isize, usize, f32), expected: (isize, usize, f32)) {
+    fn assert_axis(actual: (i16, u16, f32), expected: (i16, u16, f32)) {
         assert_eq!(actual.0, expected.0, "tile map");
         assert_eq!(actual.1, expected.1, "tile");
         assert!(
@@ -236,15 +237,13 @@ mod tests {
     /// to `max_tiles`, which is one past the end of the map.
     #[test]
     fn test_shift_lands_on_exact_tile_map_boundary() {
-        #[expect(clippy::cast_precision_loss)]
-        let delta = -(MAX_TILES as f32) * TILE_SIZE;
+        let delta = -f32::from(MAX_TILES) * TILE_SIZE;
         assert_axis(shift(0, 0, 0f32, delta), (-1, 0, 0f32));
     }
 
     #[test]
     fn test_shift_spans_multiple_tile_maps() {
-        #[expect(clippy::cast_precision_loss)]
-        let delta = -((MAX_TILES * 2) as f32) * TILE_SIZE - 30f32;
+        let delta = -f32::from(MAX_TILES * 2) * TILE_SIZE - 30f32;
         assert_axis(shift(0, 0, 0f32, delta), (-3, 8, 30f32));
     }
 }

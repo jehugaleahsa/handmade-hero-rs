@@ -4,41 +4,44 @@ use std::ops::{Index, IndexMut};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TileMap {
     tiles: Vec<u32>,
-    columns: usize,
+    columns: u16,
 }
 
 impl TileMap {
     #[inline]
     #[must_use]
-    pub fn new(rows: usize, columns: usize) -> Self {
-        let tiles = vec![0; rows * columns];
+    pub fn new(rows: u16, columns: u16) -> Self {
+        let tiles = vec![0; usize::from(rows) * usize::from(columns)];
         Self { tiles, columns }
     }
 
     #[inline]
     #[must_use]
-    pub fn get(&self, row: usize, column: usize) -> Option<u32> {
-        let index = row * self.columns + column;
-        self.tiles.get(index).copied()
+    pub fn get(&self, row: u16, column: u16) -> Option<u32> {
+        self.tiles.get(self.offset_of(row, column)).copied()
+    }
+
+    #[inline]
+    fn offset_of(&self, row: u16, column: u16) -> usize {
+        usize::from(row) * usize::from(self.columns) + usize::from(column)
     }
 }
 
-impl Index<(usize, usize)> for TileMap {
+impl Index<(u16, u16)> for TileMap {
     type Output = u32;
 
     #[inline]
-    fn index(&self, index: (usize, usize)) -> &Self::Output {
+    fn index(&self, index: (u16, u16)) -> &Self::Output {
         let (row, column) = index;
-        let index = row * self.columns + column;
-        &self.tiles[index]
+        &self.tiles[self.offset_of(row, column)]
     }
 }
 
-impl IndexMut<(usize, usize)> for TileMap {
+impl IndexMut<(u16, u16)> for TileMap {
     #[inline]
-    fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
+    fn index_mut(&mut self, index: (u16, u16)) -> &mut Self::Output {
         let (row, column) = index;
-        let index = row * self.columns + column;
-        &mut self.tiles[index]
+        let offset = self.offset_of(row, column);
+        &mut self.tiles[offset]
     }
 }

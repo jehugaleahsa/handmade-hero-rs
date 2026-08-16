@@ -22,6 +22,12 @@ use std::cmp::Ordering;
 use uom::si::length::meter;
 use uom::si::time::second;
 
+/// `World::TILE_ROWS` / `TILE_COLUMNS` as array dimensions. Array lengths must be `usize`
+/// and `usize::from` cannot be called in const position, so the widening happens here once
+/// rather than at each hard-coded tile map.
+const TILE_ROWS: usize = World::TILE_ROWS as usize;
+const TILE_COLUMNS: usize = World::TILE_COLUMNS as usize;
+
 #[derive(Debug)]
 pub struct ApplicationPlugin {}
 
@@ -63,7 +69,7 @@ impl ApplicationPlugin {
     }
 
     fn load_south_tile_map(south: &mut TileMap) {
-        let source_south: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
+        let source_south: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
@@ -83,7 +89,7 @@ impl ApplicationPlugin {
     }
 
     fn load_hub_tile_map(hub: &mut TileMap) {
-        let source_hub: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
+        let source_hub: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
@@ -103,7 +109,7 @@ impl ApplicationPlugin {
     }
 
     fn load_west_tile_map(west: &mut TileMap) {
-        let source_west: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
+        let source_west: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
@@ -123,7 +129,7 @@ impl ApplicationPlugin {
     }
 
     fn load_east_tile_map(east: &mut TileMap) {
-        let source_east: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
+        let source_east: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
@@ -143,7 +149,7 @@ impl ApplicationPlugin {
     }
 
     fn load_north_tile_map(north: &mut TileMap) {
-        let source_north: [[u32; World::TILE_COLUMNS]; World::TILE_ROWS] = [
+        let source_north: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
             [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
             [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
@@ -165,8 +171,8 @@ impl ApplicationPlugin {
     fn load_tile_map(
         destination: &mut TileMap,
         source: &[u32],
-        row_count: usize,
-        column_count: usize,
+        row_count: u16,
+        column_count: u16,
     ) {
         // In our world coordinate system, the y-coordinates increase from the bottom up.
         // But in memory, the y-coordinates increase from the top down. Therefore, when
@@ -305,10 +311,8 @@ impl ApplicationPlugin {
             let mut tile_map_x = start_coordinate.tile_map_x();
             let mut tile_x = start_coordinate.tile_x();
             for column_index in 0..world.columns {
-                #[allow(clippy::cast_precision_loss)]
-                let row_index = row_index as f32;
-                #[allow(clippy::cast_precision_loss)]
-                let column_index = column_index as f32;
+                let row_index = f32::from(row_index);
+                let column_index = f32::from(column_index);
                 let left = column_index * tile_size;
                 let bottom = row_index * tile_size;
                 let tile_rectangle = Rectangle::new(
@@ -359,8 +363,8 @@ impl ApplicationPlugin {
         world: &World,
         player_coordinate: &WorldCoordinate,
         tile_map_key: TileMapKey,
-        tile_x: usize,
-        tile_y: usize,
+        tile_x: u16,
+        tile_y: u16,
     ) -> Color<f32> {
         let tile = world
             .get_tile_map(tile_map_key)
@@ -422,19 +426,17 @@ impl ApplicationPlugin {
         Self::render_rectangle(window_bounds, &player_bounds, player.color(), buffer)
     }
 
-    #[allow(clippy::cast_precision_loss)]
-    #[allow(clippy::cast_possible_wrap)]
     fn determine_player_offset(
-        start_tile_map: isize,
-        start_tile: usize,
-        tile_map: isize,
-        tile: usize,
+        start_tile_map: i16,
+        start_tile: u16,
+        tile_map: i16,
+        tile: u16,
         tile_size: f32,
-        max_tile: usize,
+        max_tile: u16,
     ) -> f32 {
-        let tile_map_diff = tile_map as f32 - start_tile_map as f32;
-        let tile_map_diff = tile_map_diff * max_tile as f32 * tile_size;
-        let tile_diff = tile as f32 - start_tile as f32;
+        let tile_map_diff = f32::from(tile_map) - f32::from(start_tile_map);
+        let tile_map_diff = tile_map_diff * f32::from(max_tile) * tile_size;
+        let tile_diff = f32::from(tile) - f32::from(start_tile);
         let tile_diff = tile_diff * tile_size;
         tile_map_diff + tile_diff
     }
@@ -461,7 +463,7 @@ impl ApplicationPlugin {
         WorldCoordinate::new(world, start_tile_map_key, tile_map_coordinates)
     }
 
-    fn determine_start(tile_map: isize, tile: usize, max_tile: usize) -> (isize, usize) {
+    fn determine_start(tile_map: i16, tile: u16, max_tile: u16) -> (i16, u16) {
         let middle = max_tile / 2;
         match tile.cmp(&middle) {
             Ordering::Less => (tile_map - 1, max_tile - (middle - tile)),
