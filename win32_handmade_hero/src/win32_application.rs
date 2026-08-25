@@ -812,7 +812,7 @@ impl Win32Application {
         let frame_duration = Duration::from_secs_f32(self.state.frame_duration().get::<second>());
         while time_elapsed < frame_duration {
             if is_sleep_granular {
-                let remaining = frame_duration - time_elapsed;
+                let remaining = frame_duration.saturating_sub(time_elapsed);
                 #[allow(clippy::cast_possible_truncation)]
                 let remaining = Duration::from_millis(remaining.as_millis() as u64);
                 std::thread::sleep(remaining);

@@ -168,12 +168,7 @@ impl ApplicationPlugin {
         );
     }
 
-    fn load_tile_map(
-        destination: &mut TileMap,
-        source: &[u32],
-        row_count: u16,
-        column_count: u16,
-    ) {
+    fn load_tile_map(destination: &mut TileMap, source: &[u32], row_count: u16, column_count: u16) {
         // In our world coordinate system, the y-coordinates increase from the bottom up.
         // But in memory, the y-coordinates increase from the top down. Therefore, when
         // we copy our hard-coded tile map arrays, we flip the coordinate of each row.
