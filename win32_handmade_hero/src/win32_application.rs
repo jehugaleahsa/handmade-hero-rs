@@ -146,10 +146,10 @@ impl Win32Application {
     fn resize_window(&mut self) -> Result<()> {
         let client_rectangle = Self::get_client_rectangle(self.window_handle)
             .map_err(|e| ApplicationError::wrap("Could not determine the client area", e))?;
-        let client_width = client_rectangle.right - client_rectangle.left;
+        let client_width = client_rectangle.right.abs_diff(client_rectangle.left);
         let client_width = u16::try_from(client_width)
             .map_err(|e| ApplicationError::wrap("Encountered an extreme client width", e))?;
-        let client_height = client_rectangle.bottom - client_rectangle.top;
+        let client_height = client_rectangle.bottom.abs_diff(client_rectangle.top);
         let client_height = u16::try_from(client_height)
             .map_err(|e| ApplicationError::wrap("Encountered an extreme client height", e))?;
 
@@ -164,7 +164,11 @@ impl Win32Application {
         header.biBitCount = 32;
         header.biCompression = BI_RGB.0;
 
-        let pixel_count = usize::from(client_width) * usize::from(client_height);
+        let pixel_count = usize::from(client_width)
+            .checked_mul(usize::from(client_height))
+            .ok_or_else(|| {
+                ApplicationError::new("The product of two u16 exceeded the range of usize")
+            })?;
         if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
             match pixel_count.cmp(&bitmap_buffer.len()) {
                 Ordering::Greater => bitmap_buffer.resize(pixel_count, Color::default()),
@@ -175,10 +179,10 @@ impl Win32Application {
             self.bitmap_buffer = Some(vec![Color::default(); pixel_count]);
         }
 
-        self.state
-            .set_width(Length::new::<pixel>(f32::from(client_width)));
-        self.state
-            .set_height(Length::new::<pixel>(f32::from(client_height)));
+        let width_in_pixels = Length::new::<pixel>(f32::from(client_width));
+        self.state.set_width(width_in_pixels);
+        let height_in_pixels = Length::new::<pixel>(f32::from(client_height));
+        self.state.set_height(height_in_pixels);
 
         Ok(())
     }
@@ -206,6 +210,7 @@ impl Win32Application {
     }
 
     fn set_transparency(&self, is_active: bool) -> Win32Result<LRESULT> {
+        // We make the window slightly transparent when not active to assist with debugging
         let alpha = if is_active { 0xFF } else { 0x90 };
         unsafe {
             SetLayeredWindowAttributes(self.window_handle, COLORREF::default(), alpha, LWA_ALPHA)?;
@@ -217,10 +222,7 @@ impl Win32Application {
         let mut paint_struct = PAINTSTRUCT::default();
         let device_context = unsafe { BeginPaint(self.window_handle, &raw mut paint_struct) };
         self.write_buffer(device_context);
-        unsafe {
-            #[expect(unused_must_use)]
-            EndPaint(self.window_handle, &raw mut paint_struct);
-        }
+        let _ = unsafe { EndPaint(self.window_handle, &raw mut paint_struct) };
     }
 
     fn destroy_window(&mut self) -> LRESULT {
@@ -230,8 +232,10 @@ impl Win32Application {
     }
 
     fn handle_key_press(&mut self, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-        let was_down = (l_param.0 & (1 << 30)) != 0;
-        let is_down = (l_param.0 & (1 << 31)) == 0;
+        let pervious_key_state_mask = 1 << 30;
+        let was_down = (l_param.0 & pervious_key_state_mask) != 0;
+        let transition_state_mask = 1 << 31;
+        let is_down = (l_param.0 & transition_state_mask) == 0;
         if was_down == is_down {
             // Ignore repeated messages
             return LRESULT(0);
@@ -241,7 +245,8 @@ impl Win32Application {
         let virtual_key = VIRTUAL_KEY(w_param.0 as u16);
 
         // Allow exiting with ALT+F4
-        let is_alt_down = (l_param.0 & (1 << 29)) != 0;
+        let context_code_mask = 1 << 29;
+        let is_alt_down = (l_param.0 & context_code_mask) != 0;
         if is_alt_down && virtual_key == VK_F4 {
             return self.destroy_window();
         }
@@ -288,7 +293,8 @@ impl Win32Application {
 
     fn is_key_down(key: VIRTUAL_KEY) -> bool {
         let control_state = unsafe { GetKeyState(i32::from(key.0)) };
-        (control_state & (1 << 15)) != 0
+        let is_down_mask = 1 << 15; // The key is down if the high-order bit is set.
+        (control_state & is_down_mask) != 0
     }
 
     fn create_win32_window(
@@ -307,8 +313,8 @@ impl Win32Application {
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
-                i32::from(width.cast_signed()),
-                i32::from(height.cast_signed()),
+                i32::from(width),
+                i32::from(height),
                 None,
                 None,
                 Some(instance),
@@ -341,8 +347,7 @@ impl Win32Application {
             if let Ok(client_rectangle) = Self::get_client_rectangle(self.window_handle) {
                 let client_height = client_rectangle.bottom;
                 let client_width = client_rectangle.right;
-                #[expect(unused_must_use)]
-                PatBlt(
+                let _ = PatBlt(
                     device_context,
                     source_width,
                     0,
@@ -350,8 +355,7 @@ impl Win32Application {
                     client_height,
                     BLACKNESS,
                 );
-                #[expect(unused_must_use)]
-                PatBlt(
+                let _ = PatBlt(
                     device_context,
                     0,
                     source_height,
@@ -388,26 +392,24 @@ impl Win32Application {
 
     pub fn run(&mut self) -> Result<()> {
         let monitor_refresh_hertz = Self::find_monitor_refresh_hertz();
-        let target_frame_duration = Duration::from_secs_f64(
+        let frame_duration = Duration::from_secs_f64(
             f64::from(REFRESHES_PER_UPDATE) / f64::from(monitor_refresh_hertz),
         );
-        self.state
-            .set_frame_duration(Time::new::<second>(target_frame_duration.as_secs_f32()));
-        let is_sleep_granular = unsafe {
-            // Set the Windows scheduler granularity to 1ms!
-            timeBeginPeriod(1) == TIMERR_NOERROR
-        };
+        let frame_duration = Time::new::<second>(frame_duration.as_secs_f32());
+        self.state.set_frame_duration(frame_duration);
+        // Try to set the Windows scheduler granularity to 1ms!
+        let is_sleep_granular = unsafe { timeBeginPeriod(1) } == TIMERR_NOERROR;
 
         let direct_sound = DirectSound::initialize(self.window_handle).ok();
         let mut sound_buffer = direct_sound.as_ref().and_then(|ds| {
             let sound_state = self.state.sound();
-            ds.create_buffer(
+            let buffer = ds.create_buffer(
                 sound_state.channel_count(),
                 sound_state.samples_per_second(),
                 sound_state.bits_per_sample(),
                 sound_state.buffer_size(),
-            )
-            .ok()
+            );
+            buffer.ok()
         });
 
         if let Some(ref mut sound_buffer) = sound_buffer {
@@ -427,8 +429,7 @@ impl Win32Application {
             }
 
             unsafe {
-                #[expect(unused_must_use)]
-                TranslateMessage(&raw const message);
+                let _ = TranslateMessage(&raw const message);
                 DispatchMessageW(&raw const message);
             };
 
@@ -512,13 +513,18 @@ impl Win32Application {
     /// integer, so this needs no float round trip and carries no rounding error.
     fn sound_bytes_per_frame(&self, monitor_refresh_hertz: u32) -> u32 {
         let sound_state = self.state.sound();
-        let bytes_per_second = sound_state.samples_per_second() * sound_state.bytes_per_sample();
-        bytes_per_second * REFRESHES_PER_UPDATE / monitor_refresh_hertz
+        let bytes_per_second = sound_state
+            .samples_per_second()
+            .saturating_mul(sound_state.bytes_per_sample());
+        bytes_per_second
+            .saturating_mul(REFRESHES_PER_UPDATE)
+            .saturating_div(monitor_refresh_hertz)
     }
 
     /// Half a frame of audio, used as the margin the write cursor must stay ahead of playback.
     fn calculate_sound_safety_bytes(&self, monitor_refresh_hertz: u32) -> u32 {
-        self.sound_bytes_per_frame(monitor_refresh_hertz) / 2
+        self.sound_bytes_per_frame(monitor_refresh_hertz)
+            .saturating_div(2)
     }
 
     fn exe_directory() -> Result<PathBuf> {
@@ -532,8 +538,9 @@ impl Win32Application {
     }
 
     fn find_monitor_refresh_hertz() -> u32 {
-        #[expect(clippy::cast_possible_truncation)]
-        let size = size_of::<DEVMODEW>() as u16;
+        let Ok(size) = u16::try_from(size_of::<DEVMODEW>()) else {
+            return DEFAULT_REFRESH_RATE;
+        };
         let mut mode = DEVMODEW {
             dmSize: size,
             ..DEVMODEW::default()
@@ -563,18 +570,18 @@ impl Win32Application {
         let buffer_length = direct_sound_buffer.length();
         let sound_state = self.state.sound();
         let bytes_per_sample = sound_state.bytes_per_sample();
-        let write_offset = (sound_index * bytes_per_sample) % buffer_length;
+        let write_offset = sound_index.saturating_mul(bytes_per_sample) % buffer_length;
 
         let safe_write_cursor = write_cursor
-            + self.sound_safety_bytes
-            + if write_cursor < play_cursor {
+            .saturating_add(self.sound_safety_bytes)
+            .saturating_add(if write_cursor < play_cursor {
                 direct_sound_buffer.length()
             } else {
                 0
-            };
+            });
         let frame_time_elapsed = performance_counter.metrics().elapsed_time();
-        let target_frame_duration =
-            Duration::from_secs_f32(self.state.frame_duration().get::<second>());
+        let target_frame_duration = self.state.frame_duration().get::<second>();
+        let target_frame_duration = Duration::from_secs_f32(target_frame_duration);
         let remaining_frame_time = target_frame_duration.saturating_sub(frame_time_elapsed);
         let remaining_time_ratio = remaining_frame_time.div_duration_f64(target_frame_duration);
         let bytes_per_frame = self.sound_bytes_per_frame(monitor_refresh_hertz);
@@ -584,27 +591,34 @@ impl Win32Application {
         #[expect(clippy::cast_sign_loss)]
         #[expect(clippy::cast_possible_truncation)]
         let remaining_bytes = (remaining_time_ratio * f64::from(bytes_per_frame)) as u32;
-        let expected_frame_boundary_bytes = play_cursor + remaining_bytes;
+        let expected_frame_boundary_bytes = play_cursor.saturating_add(remaining_bytes);
         let audio_is_latent = safe_write_cursor >= expected_frame_boundary_bytes;
         let target_cursor = if audio_is_latent {
-            write_cursor + self.sound_safety_bytes + bytes_per_frame
+            write_cursor
+                .saturating_add(self.sound_safety_bytes)
+                .saturating_add(bytes_per_frame)
         } else {
-            expected_frame_boundary_bytes + bytes_per_frame
+            expected_frame_boundary_bytes.saturating_add(bytes_per_frame)
         };
         let target_cursor = target_cursor % buffer_length;
         let bytes_to_write = match write_offset.cmp(&target_cursor) {
-            Ordering::Greater => (buffer_length - write_offset) + target_cursor,
-            Ordering::Less => target_cursor - write_offset,
+            Ordering::Greater => buffer_length
+                .saturating_sub(write_offset)
+                .saturating_add(target_cursor),
+            Ordering::Less => target_cursor.saturating_sub(write_offset),
             Ordering::Equal => 0,
         };
         if bytes_to_write == 0 {
             return;
         }
 
-        let sample_count = bytes_to_write as usize / size_of::<StereoSample>();
+        let sample_count = usize::try_from(bytes_to_write)
+            .unwrap_or(0) // 16-bit OS?
+            .saturating_div(size_of::<StereoSample>());
+        let buffer_length = usize::try_from(buffer_length).unwrap_or(0); // 16-bit OS?
         let sound_buffer = self
             .sound_buffer
-            .get_or_insert_with(|| vec![StereoSample::default(); buffer_length as usize]);
+            .get_or_insert_with(|| vec![StereoSample::default(); buffer_length]);
         let sound_buffer = &mut sound_buffer[..sample_count];
         let context = AudioContext {
             state: &mut self.state,
@@ -630,8 +644,7 @@ impl Win32Application {
             sound_buffer,
             buffer_lock_guard.region1_size(),
         );
-        let sample_count = u32::try_from(sample_count)
-            .expect("The sound index could not be converted to an unsigned 32-bit integer.");
+        let sample_count = u32::try_from(sample_count).unwrap_or(0); // Impossible?
         self.sound_index = Some(sound_index.wrapping_add(sample_count));
     }
 
@@ -644,13 +657,15 @@ impl Win32Application {
         if destination.is_null() {
             return;
         }
-        let sample_count = destination_length_in_bytes as usize / size_of::<StereoSample>();
+        let sample_count =
+            usize::try_from(destination_length_in_bytes).unwrap_or(0) / size_of::<StereoSample>();
         let sample_out =
             unsafe { slice::from_raw_parts_mut(destination.cast::<StereoSample>(), sample_count) };
-        let source_offset = source_offset_in_bytes as usize / size_of::<StereoSample>();
-        let source_end = source_offset + sample_count;
+        let source_offset =
+            usize::try_from(source_offset_in_bytes).unwrap_or(0) / size_of::<StereoSample>();
+        let source_end = source_offset.saturating_add(sample_count);
         let source_slice = &source[source_offset..source_end];
-        assert_eq!(source_slice.len(), sample_out.len());
+        debug_assert_eq!(source_slice.len(), sample_out.len());
         sample_out.copy_from_slice(source_slice);
     }
 
@@ -658,67 +673,70 @@ impl Win32Application {
         let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
         let sound_state = self.state.sound();
         let bytes_per_sample = sound_state.bytes_per_sample();
-        let sample_index = write_cursor / bytes_per_sample;
+        let sample_index = write_cursor.saturating_div(bytes_per_sample);
         Some(sample_index)
     }
 
     // NOTE: We probably don't want to call this as part of the main game loop since it
     // can hang the application if the controller is disconnected.
     fn poll_controller_state(&mut self) -> Option<XINPUT_STATE> {
-        for controller_index in 0..XUSER_MAX_COUNT {
+        for controller_index_u32 in 0..XUSER_MAX_COUNT {
+            let Ok(controller_index) = usize::try_from(controller_index_u32) else {
+                continue;
+            };
+
             let mut controller_state = XINPUT_STATE::default();
-            let result = unsafe { XInputGetState(controller_index, &raw mut controller_state) };
-            let controller = self
-                .input
-                .get_or_insert_controller_mut(controller_index as usize);
-            if result == ERROR_SUCCESS.0 {
-                let gamepad = &controller_state.Gamepad;
-                controller.set_enabled(true);
-                Self::set_button_state(controller.a_mut(), gamepad, XINPUT_GAMEPAD_A);
-                Self::set_button_state(controller.b_mut(), gamepad, XINPUT_GAMEPAD_B);
-                Self::set_button_state(controller.x_mut(), gamepad, XINPUT_GAMEPAD_X);
-                Self::set_button_state(controller.y_mut(), gamepad, XINPUT_GAMEPAD_Y);
-                Self::set_button_state(controller.start_mut(), gamepad, XINPUT_GAMEPAD_START);
-                Self::set_button_state(controller.back_mut(), gamepad, XINPUT_GAMEPAD_BACK);
-                Self::set_button_state(controller.up_mut(), gamepad, XINPUT_GAMEPAD_DPAD_UP);
-                Self::set_button_state(controller.down_mut(), gamepad, XINPUT_GAMEPAD_DPAD_DOWN);
-                Self::set_button_state(controller.left_mut(), gamepad, XINPUT_GAMEPAD_DPAD_LEFT);
-                Self::set_button_state(controller.right_mut(), gamepad, XINPUT_GAMEPAD_DPAD_RIGHT);
-                Self::set_button_state(
-                    controller.left_shoulder_mut(),
-                    gamepad,
-                    XINPUT_GAMEPAD_LEFT_SHOULDER,
-                );
-                Self::set_button_state(
-                    controller.right_shoulder_mut(),
-                    gamepad,
-                    XINPUT_GAMEPAD_RIGHT_SHOULDER,
-                );
-
-                let left_joystick = controller.left_joystick_mut();
-                left_joystick.set_x_ratio(Self::thumb_stick_ratio(
-                    gamepad.sThumbLX,
-                    XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
-                ));
-                left_joystick.set_y_ratio(-Self::thumb_stick_ratio(
-                    gamepad.sThumbLY,
-                    XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
-                ));
-                let right_joystick = controller.right_joystick_mut();
-                right_joystick.set_x_ratio(Self::thumb_stick_ratio(
-                    gamepad.sThumbRX,
-                    XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
-                ));
-                right_joystick.set_y_ratio(-Self::thumb_stick_ratio(
-                    gamepad.sThumbRY,
-                    XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
-                ));
-
-                controller.set_left_trigger_ratio(Self::trigger_ratio(gamepad.bLeftTrigger));
-                controller.set_right_trigger_ratio(Self::trigger_ratio(gamepad.bRightTrigger));
-            } else {
+            let result = unsafe { XInputGetState(controller_index_u32, &raw mut controller_state) };
+            let controller = self.input.get_or_insert_controller_mut(controller_index);
+            if result != ERROR_SUCCESS.0 {
                 controller.set_enabled(false);
+                continue;
             }
+
+            let gamepad = &controller_state.Gamepad;
+            Self::set_button_state(controller.a_mut(), gamepad, XINPUT_GAMEPAD_A);
+            Self::set_button_state(controller.b_mut(), gamepad, XINPUT_GAMEPAD_B);
+            Self::set_button_state(controller.x_mut(), gamepad, XINPUT_GAMEPAD_X);
+            Self::set_button_state(controller.y_mut(), gamepad, XINPUT_GAMEPAD_Y);
+            Self::set_button_state(controller.start_mut(), gamepad, XINPUT_GAMEPAD_START);
+            Self::set_button_state(controller.back_mut(), gamepad, XINPUT_GAMEPAD_BACK);
+            Self::set_button_state(controller.up_mut(), gamepad, XINPUT_GAMEPAD_DPAD_UP);
+            Self::set_button_state(controller.down_mut(), gamepad, XINPUT_GAMEPAD_DPAD_DOWN);
+            Self::set_button_state(controller.left_mut(), gamepad, XINPUT_GAMEPAD_DPAD_LEFT);
+            Self::set_button_state(controller.right_mut(), gamepad, XINPUT_GAMEPAD_DPAD_RIGHT);
+            Self::set_button_state(
+                controller.left_shoulder_mut(),
+                gamepad,
+                XINPUT_GAMEPAD_LEFT_SHOULDER,
+            );
+            Self::set_button_state(
+                controller.right_shoulder_mut(),
+                gamepad,
+                XINPUT_GAMEPAD_RIGHT_SHOULDER,
+            );
+
+            let left_joystick = controller.left_joystick_mut();
+            left_joystick.set_x_ratio(Self::thumb_stick_ratio(
+                gamepad.sThumbLX,
+                XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
+            ));
+            left_joystick.set_y_ratio(-Self::thumb_stick_ratio(
+                gamepad.sThumbLY,
+                XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
+            ));
+            let right_joystick = controller.right_joystick_mut();
+            right_joystick.set_x_ratio(Self::thumb_stick_ratio(
+                gamepad.sThumbRX,
+                XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
+            ));
+            right_joystick.set_y_ratio(-Self::thumb_stick_ratio(
+                gamepad.sThumbRY,
+                XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
+            ));
+
+            controller.set_left_trigger_ratio(Self::trigger_ratio(gamepad.bLeftTrigger));
+            controller.set_right_trigger_ratio(Self::trigger_ratio(gamepad.bRightTrigger));
+            controller.set_enabled(true);
         }
         None
     }
@@ -773,10 +791,10 @@ impl Win32Application {
             GetCursorPos(&raw mut cursor_coordinate)?;
         }
         let mouse = self.input.mouse_mut();
-        let x = cursor_coordinate.x - client_coordinate.x;
-        let y = cursor_coordinate.y - client_coordinate.y;
-        mouse.set_x(x.cast_unsigned());
-        mouse.set_y(y.cast_unsigned());
+        let x = cursor_coordinate.x.abs_diff(client_coordinate.x);
+        let y = cursor_coordinate.y.abs_diff(client_coordinate.y);
+        mouse.set_x(x);
+        mouse.set_y(y);
         Self::set_mouse_button(mouse.left_mut(), VK_LBUTTON);
         Self::set_mouse_button(mouse.middle_mut(), VK_MBUTTON);
         Self::set_mouse_button(mouse.right_mut(), VK_RBUTTON);
@@ -806,12 +824,11 @@ impl Win32Application {
     fn wait_for_framerate(&self, counter: &mut PerformanceCounter, is_sleep_granular: bool) {
         let mut metrics = counter.metrics();
         let mut time_elapsed = metrics.elapsed_time();
-        let frame_duration = Duration::from_secs_f32(self.state.frame_duration().get::<second>());
+        let frame_duration = self.state.frame_duration().get::<second>();
+        let frame_duration = Duration::from_secs_f32(frame_duration);
         while time_elapsed < frame_duration {
             if is_sleep_granular {
                 let remaining = frame_duration.saturating_sub(time_elapsed);
-                #[expect(clippy::cast_possible_truncation)]
-                let remaining = Duration::from_millis(remaining.as_millis() as u64);
                 std::thread::sleep(remaining);
             }
 
