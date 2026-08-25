@@ -55,8 +55,8 @@ impl Color<f32> {
     }
 
     #[inline]
-    #[allow(clippy::cast_sign_loss)]
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_sign_loss)]
+    #[expect(clippy::cast_possible_truncation)]
     fn convert_to_u8(component: f32) -> u8 {
         (component * f32::from(u8::MAX)) as u8
     }

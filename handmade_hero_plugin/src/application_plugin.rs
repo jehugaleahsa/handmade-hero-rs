@@ -480,8 +480,8 @@ impl ApplicationPlugin {
             return Ok(());
         }
 
-        #[allow(clippy::cast_sign_loss)]
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation)]
         let pitch = window_bounds.width() as usize;
         let color = Color::from(color);
         let mut index = rectangle.bottom() * pitch + rectangle.left();

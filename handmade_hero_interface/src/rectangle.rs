@@ -11,7 +11,6 @@ pub struct Rectangle<T> {
     right: T,
 }
 
-#[allow(unused)]
 impl<T> Rectangle<T>
 where
     T: Add<Output = T> + Sub<Output = T> + PartialOrd + Copy,
@@ -191,11 +190,11 @@ impl Rectangle<f32> {
             return Err(ApplicationError::new("Rectangle with negative vertex"));
         }
         let rounded = value.round();
-        #[allow(clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_sign_loss)]
         let truncated = rounded as usize;
-        #[allow(clippy::float_cmp)]
-        #[allow(clippy::cast_precision_loss)]
+        #[expect(clippy::float_cmp)]
+        #[expect(clippy::cast_precision_loss)]
         if rounded != truncated as f32 {
             return Err(ApplicationError::new(
                 "Rectangle vertex cannot be converted to usize",

@@ -66,7 +66,7 @@ impl DirectSound {
 
     fn create_primary_buffer_description() -> DSBUFFERDESC {
         let mut description = DSBUFFERDESC::default();
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let description_size = size_of::<DSBUFFERDESC>() as u32;
         description.dwSize = description_size;
         description.dwFlags = DSBCAPS_PRIMARYBUFFER;
@@ -81,7 +81,7 @@ impl DirectSound {
     ) -> WAVEFORMATEX {
         let block_align = channel_count * bits_per_sample / 8;
         let average_bytes_per_second = samples_per_second * u32::from(block_align);
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let format = WAVE_FORMAT_PCM as u16;
         WAVEFORMATEX {
             wFormatTag: format,
@@ -99,7 +99,7 @@ impl DirectSound {
         format: &mut WAVEFORMATEX,
     ) -> DSBUFFERDESC {
         let mut description = DSBUFFERDESC::default();
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let description_size = size_of::<DSBUFFERDESC>() as u32;
         description.dwSize = description_size;
         description.dwBufferBytes = buffer_size;

@@ -23,7 +23,6 @@ pub struct ControllerState {
     enabled: bool,
 }
 
-#[allow(dead_code)] // TODO - We can remove this after we start using the buttons
 impl ControllerState {
     #[inline]
     #[must_use]

@@ -154,8 +154,9 @@ impl Win32Application {
             .map_err(|e| ApplicationError::wrap("Encountered an extreme client height", e))?;
 
         let header = &mut self.bitmap_info.bmiHeader;
-        #[allow(clippy::cast_possible_truncation)]
-        let header_size = size_of_val(header) as u32;
+        let header_size = size_of_val(header);
+        let header_size = u32::try_from(header_size)
+            .map_err(|e| ApplicationError::wrap("Header size did not fit in a u32", e))?;
         header.biSize = header_size;
         header.biWidth = i32::from(client_width);
         header.biHeight = -i32::from(client_height);
@@ -217,7 +218,7 @@ impl Win32Application {
         let device_context = unsafe { BeginPaint(self.window_handle, &raw mut paint_struct) };
         self.write_buffer(device_context);
         unsafe {
-            #[allow(unused_must_use)]
+            #[expect(unused_must_use)]
             EndPaint(self.window_handle, &raw mut paint_struct);
         }
     }
@@ -236,7 +237,7 @@ impl Win32Application {
             return LRESULT(0);
         }
 
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let virtual_key = VIRTUAL_KEY(w_param.0 as u16);
 
         // Allow exiting with ALT+F4
@@ -331,16 +332,16 @@ impl Win32Application {
             return;
         };
 
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let source_width = self.state.width().get::<pixel>() as i32;
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let source_height = self.state.height().get::<pixel>() as i32;
 
         unsafe {
             if let Ok(client_rectangle) = Self::get_client_rectangle(self.window_handle) {
                 let client_height = client_rectangle.bottom;
                 let client_width = client_rectangle.right;
-                #[allow(unused_must_use)]
+                #[expect(unused_must_use)]
                 PatBlt(
                     device_context,
                     source_width,
@@ -349,7 +350,7 @@ impl Win32Application {
                     client_height,
                     BLACKNESS,
                 );
-                #[allow(unused_must_use)]
+                #[expect(unused_must_use)]
                 PatBlt(
                     device_context,
                     0,
@@ -426,7 +427,7 @@ impl Win32Application {
             }
 
             unsafe {
-                #[allow(unused_must_use)]
+                #[expect(unused_must_use)]
                 TranslateMessage(&raw const message);
                 DispatchMessageW(&raw const message);
             };
@@ -531,16 +532,13 @@ impl Win32Application {
     }
 
     fn find_monitor_refresh_hertz() -> u32 {
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let size = size_of::<DEVMODEW>() as u16;
         let mut mode = DEVMODEW {
             dmSize: size,
             ..DEVMODEW::default()
         };
-        let success = unsafe {
-            #[allow(unused)]
-            EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, &raw mut mode)
-        };
+        let success = unsafe { EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, &raw mut mode) };
         if !success.as_bool() {
             return DEFAULT_REFRESH_RATE;
         }
@@ -770,7 +768,6 @@ impl Win32Application {
     }
 
     fn capture_mouse_state(&mut self, client_coordinate: POINT) -> Win32Result<()> {
-        #[allow(clippy::cast_possible_truncation)]
         let mut cursor_coordinate = POINT::default();
         unsafe {
             GetCursorPos(&raw mut cursor_coordinate)?;
@@ -813,7 +810,7 @@ impl Win32Application {
         while time_elapsed < frame_duration {
             if is_sleep_granular {
                 let remaining = frame_duration.saturating_sub(time_elapsed);
-                #[allow(clippy::cast_possible_truncation)]
+                #[expect(clippy::cast_possible_truncation)]
                 let remaining = Duration::from_millis(remaining.as_millis() as u64);
                 std::thread::sleep(remaining);
             }

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 const BITS_PER_SAMPLE: u16 = 16;
 pub const SAMPLES_PER_SECOND: u32 = 48_000u32;
 pub const DEFAULT_VOLUME: i16 = 500;
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 pub const BYTES_PER_SAMPLE: u32 = size_of::<StereoSample>() as u32;
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -31,7 +31,7 @@ mod tests {
     fn test_meter_to_pixels() {
         let meters = Length::new::<meter>(1f32);
         let pixels = meters.get::<pixel>();
-        #[allow(clippy::float_cmp)]
+        #[expect(clippy::float_cmp)]
         {
             assert_eq!(PIXELS_PER_METER, pixels);
         }
@@ -41,7 +41,7 @@ mod tests {
     fn test_pixels_to_meters() {
         let meters = Length::new::<pixel>(PIXELS_PER_METER);
         let pixels = meters.get::<meter>();
-        #[allow(clippy::float_cmp)]
+        #[expect(clippy::float_cmp)]
         {
             assert_eq!(1.0, pixels);
         }
