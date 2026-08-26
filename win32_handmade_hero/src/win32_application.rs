@@ -24,7 +24,7 @@ use uom::si::f32::Time;
 use uom::si::length::Length;
 use uom::si::time::second;
 use windows::Win32::Foundation::{
-    COLORREF, ERROR_SUCCESS, FALSE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, TRUE, WPARAM,
+    COLORREF, ERROR_SUCCESS, FALSE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BLACKNESS, BeginPaint, ClientToScreen, DEVMODEW, DIB_RGB_COLORS,
@@ -195,9 +195,7 @@ impl Win32Application {
     ) -> LRESULT {
         match message {
             WM_CLOSE | WM_DESTROY => self.destroy_window(),
-            WM_ACTIVATEAPP => self
-                .set_transparency(w_param.0 == TRUE.0 as usize)
-                .unwrap_or(LRESULT(0)),
+            WM_ACTIVATEAPP => self.set_transparency(w_param.0 != 0).unwrap_or(LRESULT(0)),
             WM_PAINT => {
                 self.redraw_window();
                 LRESULT(0)
@@ -424,7 +422,13 @@ impl Win32Application {
         loop {
             let mut message = MSG::default();
             let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
-            if message_result.0 < 0 || message.message == WM_QUIT {
+            if message_result.0 < 0 {
+                let result = Error::from_thread();
+                return Err(ApplicationError::wrap(
+                    "Unable to read the next Windows message",
+                    result,
+                ));
+            } else if message.message == WM_QUIT {
                 return Ok(());
             }
 
