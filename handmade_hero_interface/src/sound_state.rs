@@ -1,18 +1,26 @@
 use crate::stereo_sample::StereoSample;
+use crate::units::si::frequency::Frequency;
+use crate::units::si::information::Information;
+use crate::units::si::information_rate::InformationRate;
 use serde::{Deserialize, Serialize};
+use uom::si::frequency::hertz;
+use uom::si::information::byte;
+use uom::si::time::second;
 
 const BITS_PER_SAMPLE: u16 = 16;
-pub const SAMPLES_PER_SECOND: u32 = 48_000u32;
-pub const DEFAULT_VOLUME: i16 = 500;
+const SAMPLES_PER_SECOND: u32 = 48_000u32;
+const DEFAULT_VOLUME: i16 = 500;
 #[expect(clippy::cast_possible_truncation)]
-pub const BYTES_PER_SAMPLE: u32 = size_of::<StereoSample>() as u32;
+const BYTES_PER_SAMPLE: u32 = size_of::<StereoSample>() as u32;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SoundState {
+    /// The pitch of the experimental tone generator.
     hertz: u32,
+    /// The phase of the experimental tone generator.
     theta: f32,
-    samples_per_seconds: u32,
-    bytes_per_sample: u32,
+    samples_per_second: Frequency,
+    bytes_per_sample: Information,
     bits_per_sample: u16,
     channel_count: u16,
     volume: i16,
@@ -22,11 +30,13 @@ impl SoundState {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
+        let samples_per_second = Frequency::new::<hertz>(SAMPLES_PER_SECOND);
+        let bytes_per_sample = Information::new::<byte>(BYTES_PER_SAMPLE);
         Self {
             hertz: 256,
             theta: 0f32,
-            samples_per_seconds: SAMPLES_PER_SECOND,
-            bytes_per_sample: BYTES_PER_SAMPLE,
+            samples_per_second,
+            bytes_per_sample,
             bits_per_sample: BITS_PER_SAMPLE,
             channel_count: StereoSample::CHANNEL_COUNT,
             volume: DEFAULT_VOLUME,
@@ -47,8 +57,8 @@ impl SoundState {
 
     #[inline]
     #[must_use]
-    pub fn samples_per_second(&self) -> u32 {
-        self.samples_per_seconds
+    pub fn samples_per_second(&self) -> Frequency {
+        self.samples_per_second
     }
 
     #[inline]
@@ -59,14 +69,24 @@ impl SoundState {
 
     #[inline]
     #[must_use]
-    pub fn bytes_per_sample(&self) -> u32 {
+    pub fn bytes_per_sample(&self) -> Information {
         self.bytes_per_sample
     }
 
+    /// The rate the audio device drains the sound buffer: one sample's worth of bytes for every
+    /// cycle of the sample rate.
     #[inline]
     #[must_use]
-    pub fn buffer_size(&self) -> u32 {
-        self.samples_per_seconds * self.bytes_per_sample
+    pub fn bytes_per_second(&self) -> InformationRate {
+        (self.bytes_per_sample * self.samples_per_second).into()
+    }
+
+    /// The sound buffer holds a single second of audio.
+    #[inline]
+    #[must_use]
+    pub fn buffer_size(&self) -> Information {
+        let buffer_duration = uom::si::u32::Time::new::<second>(1);
+        (self.bytes_per_second() * buffer_duration).into()
     }
 }
 

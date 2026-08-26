@@ -4,14 +4,10 @@ pub mod si {
 
         pub type Length = uom::si::length::Length<SI<f32>, f32>;
 
-        pub(crate) const PIXELS_PER_METER: f32 = 42.85;
-        pub(crate) const METERS_PER_PIXEL: f32 = 1.0 / PIXELS_PER_METER;
-
         unit! {
             system: uom::si;
             quantity: uom::si::length;
-
-            @pixel: V::from(crate::units::si::length::METERS_PER_PIXEL); "px", "pixel", "pixels";
+            @pixel: 1.0 / 42.85; "px", "pixel", "pixels";
         }
     }
 
@@ -20,12 +16,38 @@ pub mod si {
 
         pub type Time = uom::si::time::Time<SI<f32>, f32>;
     }
+
+    pub mod frequency {
+        use uom::si::SI;
+
+        /// A count of cycles per second, such as the monitor refresh rate or the rate the audio
+        /// device consumes samples. Integer storage keeps the audio buffer math exact.
+        pub type Frequency = uom::si::frequency::Frequency<SI<u32>, u32>;
+    }
+
+    pub mod information {
+        use uom::si::SI;
+
+        /// A count of bytes, such as a sound buffer's length or a cursor's offset into it.
+        pub type Information = uom::si::information::Information<SI<u32>, u32>;
+    }
+
+    pub mod information_rate {
+        use uom::si::SI;
+
+        /// A count of bytes per second, such as the rate the audio device drains the sound
+        /// buffer. Dividing one by a [`Frequency`](super::frequency::Frequency) cancels the
+        /// per-second term and leaves an [`Information`](super::information::Information).
+        pub type InformationRate = uom::si::information_rate::InformationRate<SI<u32>, u32>;
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::units::si::length::{Length, PIXELS_PER_METER, pixel};
+    use crate::units::si::length::{Length, pixel};
     use uom::si::length::meter;
+
+    const PIXELS_PER_METER: f32 = 42.85;
 
     #[test]
     fn test_meter_to_pixels() {

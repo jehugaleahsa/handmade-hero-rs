@@ -15,13 +15,19 @@ use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
+use handmade_hero_interface::units::si::frequency::Frequency;
+use handmade_hero_interface::units::si::information::Information;
 use handmade_hero_interface::units::si::length::pixel;
 use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::path::PathBuf;
 use std::time::Duration;
-use uom::si::f32::Time;
+use uom::num::{Saturating, Zero};
+use uom::si::f32::{Ratio, Time};
+use uom::si::frequency::hertz;
+use uom::si::information::byte;
 use uom::si::length::Length;
+use uom::si::ratio::ratio;
 use uom::si::time::second;
 use windows::Win32::Foundation::{
     COLORREF, ERROR_SUCCESS, FALSE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
@@ -60,7 +66,7 @@ const DEFAULT_REFRESH_RATE: u32 = 60;
 /// The game updates once every this many monitor refreshes. Keeping the update rate as an
 /// exact ratio of the refresh rate, rather than collapsing it to a hertz value up front, lets
 /// the audio buffer math stay in integers.
-const REFRESHES_PER_UPDATE: u32 = 2;
+const REFRESHES_PER_UPDATE: u16 = 2;
 
 #[derive(Debug)]
 pub enum RecordingState {
@@ -78,7 +84,7 @@ pub struct Win32Application {
     bitmap_buffer: Option<Vec<Color<u8>>>,
     sound_buffer: Option<Vec<StereoSample>>,
     sound_index: Option<u32>,
-    sound_safety_bytes: u32,
+    sound_safety_margin: Information,
     closing: bool,
     recording_state: RecordingState,
 }
@@ -93,7 +99,7 @@ impl Win32Application {
             bitmap_buffer: None,
             sound_buffer: None,
             sound_index: None,
-            sound_safety_bytes: 0,
+            sound_safety_margin: Information::zero(),
             closing: false,
             recording_state: RecordingState::None,
         }
@@ -389,11 +395,8 @@ impl Win32Application {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let monitor_refresh_hertz = Self::find_monitor_refresh_hertz();
-        let frame_duration = Duration::from_secs_f64(
-            f64::from(REFRESHES_PER_UPDATE) / f64::from(monitor_refresh_hertz),
-        );
-        let frame_duration = Time::new::<second>(frame_duration.as_secs_f32());
+        let monitor_refresh_rate = Self::find_monitor_refresh_rate();
+        let frame_duration = Self::frame_duration(monitor_refresh_rate);
         self.state.set_frame_duration(frame_duration);
         // Try to set the Windows scheduler granularity to 1ms!
         let is_sleep_granular = unsafe { timeBeginPeriod(1) } == TIMERR_NOERROR;
@@ -412,7 +415,7 @@ impl Win32Application {
 
         if let Some(ref mut sound_buffer) = sound_buffer {
             sound_buffer.play_looping().unwrap_or(()); // Ignore errors
-            self.sound_safety_bytes = self.calculate_sound_safety_bytes(monitor_refresh_hertz);
+            self.sound_safety_margin = self.calculate_sound_safety_margin(monitor_refresh_rate);
         }
 
         let exe_directory = Self::exe_directory()?;
@@ -489,7 +492,7 @@ impl Win32Application {
                     application,
                     sound_buffer,
                     sound_index,
-                    monitor_refresh_hertz,
+                    monitor_refresh_rate,
                     &counter,
                 );
             }
@@ -510,25 +513,32 @@ impl Win32Application {
         }
     }
 
+    /// How long a single game frame lasts.
+    ///
+    /// The refresh rate counts refreshes per second, so a count of refreshes divided by it is a
+    /// duration.
+    fn frame_duration(monitor_refresh_rate: Frequency) -> Time {
+        // Refresh rates are small whole numbers, so `f32` represents them exactly.
+        #[expect(clippy::cast_precision_loss)]
+        let monitor_refresh_rate =
+            uom::si::f32::Frequency::new::<hertz>(monitor_refresh_rate.get::<hertz>() as f32);
+        f32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate
+    }
+
     /// Bytes of audio consumed by a single game frame.
     ///
-    /// A frame lasts `REFRESHES_PER_UPDATE / monitor_refresh_hertz` seconds, so the byte count
-    /// is `bytes_per_second * REFRESHES_PER_UPDATE / monitor_refresh_hertz`. Every term is an
-    /// integer, so this needs no float round trip and carries no rounding error.
-    fn sound_bytes_per_frame(&self, monitor_refresh_hertz: u32) -> u32 {
-        let sound_state = self.state.sound();
-        let bytes_per_second = sound_state
-            .samples_per_second()
-            .saturating_mul(sound_state.bytes_per_sample());
-        bytes_per_second
-            .saturating_mul(REFRESHES_PER_UPDATE)
-            .saturating_div(monitor_refresh_hertz)
+    /// A frame lasts `REFRESHES_PER_UPDATE / monitor_refresh_rate` seconds, so dividing the byte
+    /// rate by the refresh rate cancels the per-second term and leaves a byte count. Dividing
+    /// last keeps every term an integer, so this needs no float round trip and carries no
+    /// rounding error.
+    fn sound_bytes_per_frame(&self, monitor_refresh_rate: Frequency) -> Information {
+        let bytes_per_second = self.state.sound().bytes_per_second();
+        (bytes_per_second * u32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate).into()
     }
 
     /// Half a frame of audio, used as the margin the write cursor must stay ahead of playback.
-    fn calculate_sound_safety_bytes(&self, monitor_refresh_hertz: u32) -> u32 {
-        self.sound_bytes_per_frame(monitor_refresh_hertz)
-            .saturating_div(2)
+    fn calculate_sound_safety_margin(&self, monitor_refresh_rate: Frequency) -> Information {
+        self.sound_bytes_per_frame(monitor_refresh_rate) / 2
     }
 
     fn exe_directory() -> Result<PathBuf> {
@@ -541,9 +551,10 @@ impl Win32Application {
         Ok(current_directory.to_path_buf())
     }
 
-    fn find_monitor_refresh_hertz() -> u32 {
+    fn find_monitor_refresh_rate() -> Frequency {
+        let default_refresh_rate = Frequency::new::<hertz>(DEFAULT_REFRESH_RATE);
         let Ok(size) = u16::try_from(size_of::<DEVMODEW>()) else {
-            return DEFAULT_REFRESH_RATE;
+            return default_refresh_rate;
         };
         let mut mode = DEVMODEW {
             dmSize: size,
@@ -551,13 +562,13 @@ impl Win32Application {
         };
         let success = unsafe { EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, &raw mut mode) };
         if !success.as_bool() {
-            return DEFAULT_REFRESH_RATE;
+            return default_refresh_rate;
         }
         let frequency = mode.dmDisplayFrequency;
         if frequency == 0 || frequency == 1 {
-            return DEFAULT_REFRESH_RATE;
+            return default_refresh_rate;
         }
-        frequency
+        Frequency::new::<hertz>(frequency)
     }
 
     fn fill_sound_buffer(
@@ -565,44 +576,50 @@ impl Win32Application {
         application: &mut dyn Application,
         direct_sound_buffer: &mut DirectSoundBuffer<'_>,
         sound_index: u32,
-        monitor_refresh_hertz: u32,
+        monitor_refresh_rate: Frequency,
         performance_counter: &PerformanceCounter,
     ) {
         let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
             return;
         };
-        let buffer_length = direct_sound_buffer.length();
-        let sound_state = self.state.sound();
-        let bytes_per_sample = sound_state.bytes_per_sample();
-        let write_offset = sound_index.saturating_mul(bytes_per_sample) % buffer_length;
+        let play_cursor = Information::new::<byte>(play_cursor);
+        let write_cursor = Information::new::<byte>(write_cursor);
+        let buffer_length = Information::new::<byte>(direct_sound_buffer.length());
+        let bytes_per_sample = self.state.sound().bytes_per_sample();
+        // Wrapping the sample index into the buffer before converting it to bytes keeps the
+        // offset from overflowing once the index has been running for a few hours.
+        let buffer_samples = (buffer_length / bytes_per_sample).value;
+        let write_offset = bytes_per_sample * (sound_index % buffer_samples);
 
         let safe_write_cursor = write_cursor
-            .saturating_add(self.sound_safety_bytes)
+            .saturating_add(self.sound_safety_margin)
             .saturating_add(if write_cursor < play_cursor {
-                direct_sound_buffer.length()
+                buffer_length
             } else {
-                0
+                Information::zero()
             });
-        let frame_time_elapsed = performance_counter.metrics().elapsed_time();
-        let target_frame_duration = self.state.frame_duration().get::<second>();
-        let target_frame_duration = Duration::from_secs_f32(target_frame_duration);
-        let remaining_frame_time = target_frame_duration.saturating_sub(frame_time_elapsed);
-        let remaining_time_ratio = remaining_frame_time.div_duration_f64(target_frame_duration);
-        let bytes_per_frame = self.sound_bytes_per_frame(monitor_refresh_hertz);
+        let frame_time_elapsed =
+            Time::new::<second>(performance_counter.metrics().elapsed_time().as_secs_f32());
+        let target_frame_duration = self.state.frame_duration();
+        let remaining_frame_time = (target_frame_duration - frame_time_elapsed).max(Time::zero());
+        let remaining_time_ratio: Ratio = remaining_frame_time / target_frame_duration;
+        let bytes_per_frame = self.sound_bytes_per_frame(monitor_refresh_rate);
         // The fraction of the frame still to elapse is genuinely fractional, so this one step
         // stays in floating point. `f64::from` is lossless from both `f32` and `u32`, and the
-        // ratio is in [0, 1], so the only thing `as` discards here is the fraction.
+        // ratio is in [0, 1], so the only thing `as` discards here is the fraction of a byte.
+        let remaining_bytes = f64::from(remaining_time_ratio.get::<ratio>())
+            * f64::from(bytes_per_frame.get::<byte>());
         #[expect(clippy::cast_sign_loss)]
         #[expect(clippy::cast_possible_truncation)]
-        let remaining_bytes = (remaining_time_ratio * f64::from(bytes_per_frame)) as u32;
-        let expected_frame_boundary_bytes = play_cursor.saturating_add(remaining_bytes);
-        let audio_is_latent = safe_write_cursor >= expected_frame_boundary_bytes;
+        let remaining_bytes = Information::new::<byte>(remaining_bytes as u32);
+        let expected_frame_boundary = play_cursor.saturating_add(remaining_bytes);
+        let audio_is_latent = safe_write_cursor >= expected_frame_boundary;
         let target_cursor = if audio_is_latent {
             write_cursor
-                .saturating_add(self.sound_safety_bytes)
+                .saturating_add(self.sound_safety_margin)
                 .saturating_add(bytes_per_frame)
         } else {
-            expected_frame_boundary_bytes.saturating_add(bytes_per_frame)
+            expected_frame_boundary.saturating_add(bytes_per_frame)
         };
         let target_cursor = target_cursor % buffer_length;
         let bytes_to_write = match write_offset.cmp(&target_cursor) {
@@ -610,19 +627,18 @@ impl Win32Application {
                 .saturating_sub(write_offset)
                 .saturating_add(target_cursor),
             Ordering::Less => target_cursor.saturating_sub(write_offset),
-            Ordering::Equal => 0,
+            Ordering::Equal => Information::zero(),
         };
-        if bytes_to_write == 0 {
+        if bytes_to_write == Information::zero() {
             return;
         }
 
-        let sample_count = usize::try_from(bytes_to_write)
-            .unwrap_or(0) // 16-bit OS?
-            .saturating_div(size_of::<StereoSample>());
-        let buffer_length = usize::try_from(buffer_length).unwrap_or(0); // 16-bit OS?
+        let sample_count = (bytes_to_write / bytes_per_sample).value;
+        let sample_count = usize::try_from(sample_count).unwrap_or(0); // 16-bit OS?
+        let buffer_samples = usize::try_from(buffer_samples).unwrap_or(0); // 16-bit OS?
         let sound_buffer = self
             .sound_buffer
-            .get_or_insert_with(|| vec![StereoSample::default(); buffer_length]);
+            .get_or_insert_with(|| vec![StereoSample::default(); buffer_samples]);
         let sound_buffer = &mut sound_buffer[..sample_count];
         let context = AudioContext {
             state: &mut self.state,
@@ -630,7 +646,8 @@ impl Win32Application {
         };
         application.write_sound(context);
 
-        let buffer_lock_guard = direct_sound_buffer.lock(write_offset, bytes_to_write);
+        let buffer_lock_guard =
+            direct_sound_buffer.lock(write_offset.get::<byte>(), bytes_to_write.get::<byte>());
         let Ok(buffer_lock_guard) = buffer_lock_guard else {
             return;
         };
@@ -675,10 +692,10 @@ impl Win32Application {
 
     fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
         let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
-        let sound_state = self.state.sound();
-        let bytes_per_sample = sound_state.bytes_per_sample();
-        let sample_index = write_cursor.saturating_div(bytes_per_sample);
-        Some(sample_index)
+        let write_cursor = Information::new::<byte>(write_cursor);
+        let bytes_per_sample = self.state.sound().bytes_per_sample();
+        let index = (write_cursor / bytes_per_sample).value;
+        Some(index)
     }
 
     // NOTE: We probably don't want to call this as part of the main game loop since it
