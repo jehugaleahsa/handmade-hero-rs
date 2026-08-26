@@ -1,4 +1,4 @@
-use crate::application_loader::ApplicationLoader;
+use crate::application_loader::{ApplicationLoader, ApplicationStub};
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::performance_counter::PerformanceCounter;
@@ -21,6 +21,7 @@ use handmade_hero_interface::units::si::length::pixel;
 use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::time::Duration;
 use uom::num::{Saturating, Zero};
 use uom::si::f32::{Ratio, Time};
@@ -327,74 +328,7 @@ impl Win32Application {
         }
     }
 
-    fn update_display(&mut self) {
-        if self.closing {
-            return;
-        }
-
-        let device_context = unsafe { GetDC(Some(self.window_handle)) };
-        self.write_buffer(device_context);
-        unsafe { ReleaseDC(Some(self.window_handle), device_context) };
-    }
-
-    fn write_buffer(&mut self, device_context: HDC) {
-        let Some(ref bitmap_buffer) = self.bitmap_buffer else {
-            return;
-        };
-
-        #[expect(clippy::cast_possible_truncation)]
-        let source_width = self.state.width().get::<pixel>() as i32;
-        #[expect(clippy::cast_possible_truncation)]
-        let source_height = self.state.height().get::<pixel>() as i32;
-
-        unsafe {
-            if let Ok(client_rectangle) = Self::get_client_rectangle(self.window_handle) {
-                let client_height = client_rectangle.bottom;
-                let client_width = client_rectangle.right;
-                let _ = PatBlt(
-                    device_context,
-                    source_width,
-                    0,
-                    client_width,
-                    client_height,
-                    BLACKNESS,
-                );
-                let _ = PatBlt(
-                    device_context,
-                    0,
-                    source_height,
-                    client_width,
-                    client_height,
-                    BLACKNESS,
-                );
-            }
-
-            let bitmap_data = bitmap_buffer.as_ptr().cast::<c_void>();
-            StretchDIBits(
-                device_context,
-                0,
-                0,
-                source_width,
-                source_height,
-                0,
-                0,
-                source_width,
-                source_height,
-                Some(bitmap_data),
-                &raw const self.bitmap_info,
-                DIB_RGB_COLORS,
-                SRCCOPY,
-            );
-        }
-    }
-
-    fn get_client_rectangle(window_handle: HWND) -> Win32Result<RECT> {
-        let mut client_rectangle = RECT::default();
-        unsafe { GetClientRect(window_handle, &raw mut client_rectangle)? };
-        Ok(client_rectangle)
-    }
-
-    pub fn run(&mut self) -> Result<()> {
+    pub fn run(&mut self) -> Result<ExitCode> {
         let monitor_refresh_rate = Self::find_monitor_refresh_rate();
         let frame_duration = Self::frame_duration(monitor_refresh_rate);
         self.state.set_frame_duration(frame_duration);
@@ -402,16 +336,7 @@ impl Win32Application {
         let is_sleep_granular = unsafe { timeBeginPeriod(1) } == TIMERR_NOERROR;
 
         let direct_sound = DirectSound::initialize(self.window_handle).ok();
-        let mut sound_buffer = direct_sound.as_ref().and_then(|ds| {
-            let sound_state = self.state.sound();
-            let buffer = ds.create_buffer(
-                sound_state.channel_count(),
-                sound_state.samples_per_second(),
-                sound_state.bits_per_sample(),
-                sound_state.buffer_size(),
-            );
-            buffer.ok()
-        });
+        let mut sound_buffer = self.create_sound_buffer(direct_sound.as_ref());
 
         if let Some(ref mut sound_buffer) = sound_buffer {
             sound_buffer.play_looping().unwrap_or(()); // Ignore errors
@@ -423,132 +348,30 @@ impl Win32Application {
         let mut recorder = PlaybackRecorder::new(&exe_directory);
         let mut counter = PerformanceCounter::start();
         loop {
-            let mut message = MSG::default();
-            let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
-            if message_result.0 < 0 {
-                let result = Error::from_thread();
-                return Err(ApplicationError::wrap(
-                    "Unable to read the next Windows message",
-                    result,
-                ));
-            } else if message.message == WM_QUIT {
-                return Ok(());
+            if let Some(code) = Self::process_message()? {
+                return Ok(code);
+            }
+            if self.closing {
+                continue;
             }
 
-            unsafe {
-                let _ = TranslateMessage(&raw const message);
-                DispatchMessageW(&raw const message);
-            };
+            let application = self.load_application(&mut loader)?;
 
-            let initialize_context = InitializeContext {
-                state: &mut self.state,
-            };
-            let application = loader.load(initialize_context)?;
-
-            // It seems our audio can't really use playback. The computation of how many bytes
-            // to write depends on how fast the previous frame took to generate. Since this will
-            // be different each frame, trying to restore the sound theta causes skipping and
-            // other sound artifacts. So we just capture theta upfront and restore it after.
-            // Hopefully this gets addressed in a later episode.
-            if let RecordingState::Playing = self.recording_state {
-                if let Some(state) = recorder.playback().unwrap_or_default() {
-                    (self.input, self.state) = (state.input, state.state);
-                } else {
-                    recorder.reset_playback().unwrap_or_default(); // We miss a frame here
-                }
-            } else {
-                self.poll_controller_state();
-                if let Ok(client_coordinates) = self.get_client_coordinate() {
-                    self.capture_mouse_state(client_coordinates)
-                        .unwrap_or_default(); // Ignore errors
-                }
-
-                if let RecordingState::Recording = self.recording_state {
-                    recorder
-                        .record(&self.input, &self.state)
-                        .unwrap_or_default(); // Ignore errors
-                }
-            }
-
-            let context = InputContext {
-                input: &self.input,
-                state: &mut self.state,
-            };
-            application.process_input(context);
-
-            if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
-                let context = RenderContext {
-                    input: &self.input,
-                    state: &mut self.state,
-                    buffer: bitmap_buffer,
-                };
-                application.render(context);
-            }
-
-            if let Some(sound_index) = self.sound_index
-                && let Some(ref mut sound_buffer) = sound_buffer
-            {
-                self.fill_sound_buffer(
-                    application,
-                    sound_buffer,
-                    sound_index,
-                    monitor_refresh_rate,
-                    &counter,
-                );
-            }
+            self.process_recording(&mut recorder);
+            self.process_input(application);
+            self.render_to_buffer(application);
+            self.fill_sound_buffer_if_available(
+                application,
+                sound_buffer.as_mut(),
+                monitor_refresh_rate,
+                &counter,
+            );
 
             self.wait_for_framerate(&mut counter, is_sleep_granular);
 
             self.update_display();
-
-            // After a single frame, we have a better idea how far away the sound
-            // play cursor is from the write cursor. We initialize the sound index
-            // as a flag for sound to start being written now that the metrics are
-            // recorded.
-            if self.sound_index.is_none()
-                && let Some(ref sound_buffer) = sound_buffer
-            {
-                self.sound_index = self.get_sample_index(sound_buffer);
-            }
+            self.update_sound_index(sound_buffer.as_ref());
         }
-    }
-
-    /// How long a single game frame lasts.
-    ///
-    /// The refresh rate counts refreshes per second, so a count of refreshes divided by it is a
-    /// duration.
-    fn frame_duration(monitor_refresh_rate: Frequency) -> Time {
-        // Refresh rates are small whole numbers, so `f32` represents them exactly.
-        #[expect(clippy::cast_precision_loss)]
-        let monitor_refresh_rate =
-            uom::si::f32::Frequency::new::<hertz>(monitor_refresh_rate.get::<hertz>() as f32);
-        f32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate
-    }
-
-    /// Bytes of audio consumed by a single game frame.
-    ///
-    /// A frame lasts `REFRESHES_PER_UPDATE / monitor_refresh_rate` seconds, so dividing the byte
-    /// rate by the refresh rate cancels the per-second term and leaves a byte count. Dividing
-    /// last keeps every term an integer, so this needs no float round trip and carries no
-    /// rounding error.
-    fn sound_bytes_per_frame(&self, monitor_refresh_rate: Frequency) -> Information {
-        let bytes_per_second = self.state.sound().bytes_per_second();
-        (bytes_per_second * u32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate).into()
-    }
-
-    /// Half a frame of audio, used as the margin the write cursor must stay ahead of playback.
-    fn calculate_sound_safety_margin(&self, monitor_refresh_rate: Frequency) -> Information {
-        self.sound_bytes_per_frame(monitor_refresh_rate) / 2
-    }
-
-    fn exe_directory() -> Result<PathBuf> {
-        let current_exe_path = std::env::current_exe().map_err(|e| {
-            ApplicationError::wrap("Failed to retrieve the current executable path", e)
-        })?;
-        let current_directory = current_exe_path.parent().ok_or_else(|| {
-            ApplicationError::new("Failed to retrieve the current executable parent directory")
-        })?;
-        Ok(current_directory.to_path_buf())
     }
 
     fn find_monitor_refresh_rate() -> Frequency {
@@ -571,131 +394,126 @@ impl Win32Application {
         Frequency::new::<hertz>(frequency)
     }
 
-    fn fill_sound_buffer(
+    /// How long a single game frame lasts.
+    ///
+    /// The refresh rate counts refreshes per second, so a count of refreshes divided by it is a
+    /// duration.
+    fn frame_duration(monitor_refresh_rate: Frequency) -> Time {
+        // Refresh rates are small whole numbers, so `f32` represents them exactly.
+        #[expect(clippy::cast_precision_loss)]
+        let monitor_refresh_rate =
+            uom::si::f32::Frequency::new::<hertz>(monitor_refresh_rate.get::<hertz>() as f32);
+        f32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate
+    }
+
+    fn create_sound_buffer<'a>(
+        &self,
+        direct_sound: Option<&'a DirectSound>,
+    ) -> Option<DirectSoundBuffer<'a>> {
+        direct_sound.as_ref().and_then(|ds| {
+            let sound_state = self.state.sound();
+            let buffer = ds.create_buffer(
+                sound_state.channel_count(),
+                sound_state.samples_per_second(),
+                sound_state.bits_per_sample(),
+                sound_state.buffer_size(),
+            );
+            buffer.ok()
+        })
+    }
+
+    /// Half a frame of audio, used as the margin the write cursor must stay ahead of playback.
+    fn calculate_sound_safety_margin(&self, monitor_refresh_rate: Frequency) -> Information {
+        self.sound_bytes_per_frame(monitor_refresh_rate) / 2
+    }
+
+    /// Bytes of audio consumed by a single game frame.
+    ///
+    /// A frame lasts `REFRESHES_PER_UPDATE / monitor_refresh_rate` seconds, so dividing the byte
+    /// rate by the refresh rate cancels the per-second term and leaves a byte count. Dividing
+    /// last keeps every term an integer, so this needs no float round trip and carries no
+    /// rounding error.
+    fn sound_bytes_per_frame(&self, monitor_refresh_rate: Frequency) -> Information {
+        let bytes_per_second = self.state.sound().bytes_per_second();
+        (bytes_per_second * u32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate).into()
+    }
+
+    fn exe_directory() -> Result<PathBuf> {
+        let current_exe_path = std::env::current_exe().map_err(|e| {
+            ApplicationError::wrap("Failed to retrieve the current executable path", e)
+        })?;
+        let current_directory = current_exe_path.parent().ok_or_else(|| {
+            ApplicationError::new("Failed to retrieve the current executable parent directory")
+        })?;
+        Ok(current_directory.to_path_buf())
+    }
+
+    fn process_message() -> Result<Option<ExitCode>> {
+        let mut message = MSG::default();
+        let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
+        if message_result.0 < 0 {
+            let result = Error::from_thread();
+            return Err(ApplicationError::wrap(
+                "Unable to read the next Windows message",
+                result,
+            ));
+        } else if message_result.as_bool() {
+            // There is a message in the queue
+            if message.message == WM_QUIT {
+                let code = u8::try_from(message.wParam.0).map_or(ExitCode::FAILURE, ExitCode::from);
+                return Ok(Some(code));
+            }
+            unsafe {
+                let _ = TranslateMessage(&raw const message);
+                DispatchMessageW(&raw const message);
+            };
+        }
+        Ok(None)
+    }
+
+    fn load_application<'a>(
         &mut self,
-        application: &mut dyn Application,
-        direct_sound_buffer: &mut DirectSoundBuffer<'_>,
-        sound_index: u32,
-        monitor_refresh_rate: Frequency,
-        performance_counter: &PerformanceCounter,
-    ) {
-        let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
-            return;
-        };
-        let play_cursor = Information::new::<byte>(play_cursor);
-        let write_cursor = Information::new::<byte>(write_cursor);
-        let buffer_length = Information::new::<byte>(direct_sound_buffer.length());
-        let bytes_per_sample = self.state.sound().bytes_per_sample();
-        // Wrapping the sample index into the buffer before converting it to bytes keeps the
-        // offset from overflowing once the index has been running for a few hours.
-        let buffer_samples = (buffer_length / bytes_per_sample).value;
-        let write_offset = bytes_per_sample * (sound_index % buffer_samples);
-
-        let safe_write_cursor = write_cursor
-            .saturating_add(self.sound_safety_margin)
-            .saturating_add(if write_cursor < play_cursor {
-                buffer_length
-            } else {
-                Information::zero()
-            });
-        let frame_time_elapsed =
-            Time::new::<second>(performance_counter.metrics().elapsed_time().as_secs_f32());
-        let target_frame_duration = self.state.frame_duration();
-        let remaining_frame_time = (target_frame_duration - frame_time_elapsed).max(Time::zero());
-        let remaining_time_ratio: Ratio = remaining_frame_time / target_frame_duration;
-        let bytes_per_frame = self.sound_bytes_per_frame(monitor_refresh_rate);
-        // The fraction of the frame still to elapse is genuinely fractional, so this one step
-        // stays in floating point. `f64::from` is lossless from both `f32` and `u32`, and the
-        // ratio is in [0, 1], so the only thing `as` discards here is the fraction of a byte.
-        let remaining_bytes = f64::from(remaining_time_ratio.get::<ratio>())
-            * f64::from(bytes_per_frame.get::<byte>());
-        #[expect(clippy::cast_sign_loss)]
-        #[expect(clippy::cast_possible_truncation)]
-        let remaining_bytes = Information::new::<byte>(remaining_bytes as u32);
-        let expected_frame_boundary = play_cursor.saturating_add(remaining_bytes);
-        let audio_is_latent = safe_write_cursor >= expected_frame_boundary;
-        let target_cursor = if audio_is_latent {
-            write_cursor
-                .saturating_add(self.sound_safety_margin)
-                .saturating_add(bytes_per_frame)
-        } else {
-            expected_frame_boundary.saturating_add(bytes_per_frame)
-        };
-        let target_cursor = target_cursor % buffer_length;
-        let bytes_to_write = match write_offset.cmp(&target_cursor) {
-            Ordering::Greater => buffer_length
-                .saturating_sub(write_offset)
-                .saturating_add(target_cursor),
-            Ordering::Less => target_cursor.saturating_sub(write_offset),
-            Ordering::Equal => Information::zero(),
-        };
-        if bytes_to_write == Information::zero() {
-            return;
-        }
-
-        let sample_count = (bytes_to_write / bytes_per_sample).value;
-        let sample_count = usize::try_from(sample_count).unwrap_or(0); // 16-bit OS?
-        let buffer_samples = usize::try_from(buffer_samples).unwrap_or(0); // 16-bit OS?
-        let sound_buffer = self
-            .sound_buffer
-            .get_or_insert_with(|| vec![StereoSample::default(); buffer_samples]);
-        let sound_buffer = &mut sound_buffer[..sample_count];
-        let context = AudioContext {
+        loader: &'a mut ApplicationLoader,
+    ) -> Result<&'a mut ApplicationStub> {
+        let initialize_context = InitializeContext {
             state: &mut self.state,
-            sound_buffer,
         };
-        application.write_sound(context);
-
-        let buffer_lock_guard =
-            direct_sound_buffer.lock(write_offset.get::<byte>(), bytes_to_write.get::<byte>());
-        let Ok(buffer_lock_guard) = buffer_lock_guard else {
-            return;
-        };
-
-        Self::copy_sound_buffer(
-            buffer_lock_guard.region1(),
-            buffer_lock_guard.region1_size(),
-            sound_buffer,
-            0,
-        );
-
-        Self::copy_sound_buffer(
-            buffer_lock_guard.region2(),
-            buffer_lock_guard.region2_size(),
-            sound_buffer,
-            buffer_lock_guard.region1_size(),
-        );
-        let sample_count = u32::try_from(sample_count).unwrap_or(0); // Impossible?
-        self.sound_index = Some(sound_index.wrapping_add(sample_count));
+        loader.load(initialize_context)
     }
 
-    fn copy_sound_buffer(
-        destination: *mut c_void,
-        destination_length_in_bytes: u32,
-        source: &[StereoSample],
-        source_offset_in_bytes: u32,
-    ) {
-        if destination.is_null() {
-            return;
+    fn process_recording(&mut self, recorder: &mut PlaybackRecorder) {
+        // It seems our audio can't really use playback. The computation of how many bytes
+        // to write depends on how fast the previous frame took to generate. Since this will
+        // be different each frame, trying to restore the sound theta causes skipping and
+        // other sound artifacts. So we just capture theta upfront and restore it after.
+        // Hopefully this gets addressed in a later episode.
+        if let RecordingState::Playing = self.recording_state {
+            if let Some(state) = recorder.playback().unwrap_or_default() {
+                (self.input, self.state) = (state.input, state.state);
+            } else {
+                recorder.reset_playback().unwrap_or_default(); // We miss a frame here
+            }
+        } else {
+            self.poll_controller_state();
+            if let Ok(client_coordinates) = self.get_client_coordinate() {
+                self.capture_mouse_state(client_coordinates)
+                    .unwrap_or_default(); // Ignore errors
+            }
+
+            if let RecordingState::Recording = self.recording_state {
+                recorder
+                    .record(&self.input, &self.state)
+                    .unwrap_or_default(); // Ignore errors
+            }
         }
-        let sample_count =
-            usize::try_from(destination_length_in_bytes).unwrap_or(0) / size_of::<StereoSample>();
-        let sample_out =
-            unsafe { slice::from_raw_parts_mut(destination.cast::<StereoSample>(), sample_count) };
-        let source_offset =
-            usize::try_from(source_offset_in_bytes).unwrap_or(0) / size_of::<StereoSample>();
-        let source_end = source_offset.saturating_add(sample_count);
-        let source_slice = &source[source_offset..source_end];
-        debug_assert_eq!(source_slice.len(), sample_out.len());
-        sample_out.copy_from_slice(source_slice);
     }
 
-    fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
-        let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
-        let write_cursor = Information::new::<byte>(write_cursor);
-        let bytes_per_sample = self.state.sound().bytes_per_sample();
-        let index = (write_cursor / bytes_per_sample).value;
-        Some(index)
+    fn process_input(&mut self, application: &ApplicationStub) {
+        let context = InputContext {
+            input: &self.input,
+            state: &mut self.state,
+        };
+        application.process_input(context);
     }
 
     // NOTE: We probably don't want to call this as part of the main game loop since it
@@ -842,6 +660,167 @@ impl Win32Application {
         }
     }
 
+    fn render_to_buffer(&mut self, application: &ApplicationStub) {
+        let Some(ref mut bitmap_buffer) = self.bitmap_buffer else {
+            return;
+        };
+        let context = RenderContext {
+            input: &self.input,
+            state: &mut self.state,
+            buffer: bitmap_buffer,
+        };
+        application.render(context);
+    }
+
+    fn fill_sound_buffer_if_available(
+        &mut self,
+        application: &mut ApplicationStub,
+        sound_buffer: Option<&mut DirectSoundBuffer<'_>>,
+        monitor_refresh_rate: Frequency,
+        counter: &PerformanceCounter,
+    ) {
+        let Some(sound_index) = self.sound_index else {
+            return;
+        };
+        let Some(sound_buffer) = sound_buffer else {
+            return;
+        };
+        self.fill_sound_buffer(
+            application,
+            sound_buffer,
+            sound_index,
+            monitor_refresh_rate,
+            counter,
+        );
+    }
+
+    fn fill_sound_buffer(
+        &mut self,
+        application: &mut dyn Application,
+        direct_sound_buffer: &mut DirectSoundBuffer<'_>,
+        sound_index: u32,
+        monitor_refresh_rate: Frequency,
+        performance_counter: &PerformanceCounter,
+    ) {
+        let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
+            return;
+        };
+        let play_cursor = Information::new::<byte>(play_cursor);
+        let write_cursor = Information::new::<byte>(write_cursor);
+        let buffer_length = Information::new::<byte>(direct_sound_buffer.length());
+        let bytes_per_sample = self.state.sound().bytes_per_sample();
+        // Wrapping the sample index into the buffer before converting it to bytes keeps the
+        // offset from overflowing once the index has been running for a few hours.
+        let buffer_samples = (buffer_length / bytes_per_sample).value;
+        let write_offset = bytes_per_sample * (sound_index % buffer_samples);
+
+        let safe_write_cursor = write_cursor
+            .saturating_add(self.sound_safety_margin)
+            .saturating_add(if write_cursor < play_cursor {
+                buffer_length
+            } else {
+                Information::zero()
+            });
+        let frame_time_elapsed =
+            Time::new::<second>(performance_counter.metrics().elapsed_time().as_secs_f32());
+        let target_frame_duration = self.state.frame_duration();
+        let remaining_frame_time = (target_frame_duration - frame_time_elapsed).max(Time::zero());
+        let remaining_time_ratio: Ratio = remaining_frame_time / target_frame_duration;
+        let bytes_per_frame = self.sound_bytes_per_frame(monitor_refresh_rate);
+        // The fraction of the frame still to elapse is genuinely fractional, so this one step
+        // stays in floating point. `f64::from` is lossless from both `f32` and `u32`, and the
+        // ratio is in [0, 1], so the only thing `as` discards here is the fraction of a byte.
+        let remaining_bytes = f64::from(remaining_time_ratio.get::<ratio>())
+            * f64::from(bytes_per_frame.get::<byte>());
+        #[expect(clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation)]
+        let remaining_bytes = Information::new::<byte>(remaining_bytes as u32);
+        let expected_frame_boundary = play_cursor.saturating_add(remaining_bytes);
+        let audio_is_latent = safe_write_cursor >= expected_frame_boundary;
+        let target_cursor = if audio_is_latent {
+            write_cursor
+                .saturating_add(self.sound_safety_margin)
+                .saturating_add(bytes_per_frame)
+        } else {
+            expected_frame_boundary.saturating_add(bytes_per_frame)
+        };
+        let target_cursor = target_cursor % buffer_length;
+        let bytes_to_write = match write_offset.cmp(&target_cursor) {
+            Ordering::Greater => buffer_length
+                .saturating_sub(write_offset)
+                .saturating_add(target_cursor),
+            Ordering::Less => target_cursor.saturating_sub(write_offset),
+            Ordering::Equal => Information::zero(),
+        };
+        if bytes_to_write == Information::zero() {
+            return;
+        }
+
+        let sample_count = (bytes_to_write / bytes_per_sample).value;
+        let sample_count = usize::try_from(sample_count).unwrap_or(0); // 16-bit OS?
+        let buffer_samples = usize::try_from(buffer_samples).unwrap_or(0); // 16-bit OS?
+        let sound_buffer = self
+            .sound_buffer
+            .get_or_insert_with(|| vec![StereoSample::default(); buffer_samples]);
+        let sound_buffer = &mut sound_buffer[..sample_count];
+        let context = AudioContext {
+            state: &mut self.state,
+            sound_buffer,
+        };
+        application.write_sound(context);
+
+        let buffer_lock_guard =
+            direct_sound_buffer.lock(write_offset.get::<byte>(), bytes_to_write.get::<byte>());
+        let Ok(buffer_lock_guard) = buffer_lock_guard else {
+            return;
+        };
+
+        Self::copy_sound_buffer(
+            buffer_lock_guard.region1(),
+            buffer_lock_guard.region1_size(),
+            sound_buffer,
+            0,
+        );
+
+        Self::copy_sound_buffer(
+            buffer_lock_guard.region2(),
+            buffer_lock_guard.region2_size(),
+            sound_buffer,
+            buffer_lock_guard.region1_size(),
+        );
+        let sample_count = u32::try_from(sample_count).unwrap_or(0); // Impossible?
+        self.sound_index = Some(sound_index.wrapping_add(sample_count));
+    }
+
+    fn copy_sound_buffer(
+        destination: *mut c_void,
+        destination_length_in_bytes: u32,
+        source: &[StereoSample],
+        source_offset_in_bytes: u32,
+    ) {
+        if destination.is_null() {
+            return;
+        }
+        let sample_count =
+            usize::try_from(destination_length_in_bytes).unwrap_or(0) / size_of::<StereoSample>();
+        let sample_out =
+            unsafe { slice::from_raw_parts_mut(destination.cast::<StereoSample>(), sample_count) };
+        let source_offset =
+            usize::try_from(source_offset_in_bytes).unwrap_or(0) / size_of::<StereoSample>();
+        let source_end = source_offset.saturating_add(sample_count);
+        let source_slice = &source[source_offset..source_end];
+        debug_assert_eq!(source_slice.len(), sample_out.len());
+        sample_out.copy_from_slice(source_slice);
+    }
+
+    fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
+        let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
+        let write_cursor = Information::new::<byte>(write_cursor);
+        let bytes_per_sample = self.state.sound().bytes_per_sample();
+        let index = (write_cursor / bytes_per_sample).value;
+        Some(index)
+    }
+
     fn wait_for_framerate(&self, counter: &mut PerformanceCounter, is_sleep_granular: bool) {
         let mut metrics = counter.metrics();
         let mut time_elapsed = metrics.elapsed_time();
@@ -858,6 +837,81 @@ impl Win32Application {
         }
 
         counter.restart();
+    }
+
+    fn update_display(&mut self) {
+        let device_context = unsafe { GetDC(Some(self.window_handle)) };
+        self.write_buffer(device_context);
+        unsafe { ReleaseDC(Some(self.window_handle), device_context) };
+    }
+
+    fn write_buffer(&mut self, device_context: HDC) {
+        let Some(ref bitmap_buffer) = self.bitmap_buffer else {
+            return;
+        };
+
+        #[expect(clippy::cast_possible_truncation)]
+        let source_width = self.state.width().get::<pixel>() as i32;
+        #[expect(clippy::cast_possible_truncation)]
+        let source_height = self.state.height().get::<pixel>() as i32;
+
+        unsafe {
+            if let Ok(client_rectangle) = Self::get_client_rectangle(self.window_handle) {
+                let client_height = client_rectangle.bottom;
+                let client_width = client_rectangle.right;
+                let _ = PatBlt(
+                    device_context,
+                    source_width,
+                    0,
+                    client_width,
+                    client_height,
+                    BLACKNESS,
+                );
+                let _ = PatBlt(
+                    device_context,
+                    0,
+                    source_height,
+                    client_width,
+                    client_height,
+                    BLACKNESS,
+                );
+            }
+
+            let bitmap_data = bitmap_buffer.as_ptr().cast::<c_void>();
+            StretchDIBits(
+                device_context,
+                0,
+                0,
+                source_width,
+                source_height,
+                0,
+                0,
+                source_width,
+                source_height,
+                Some(bitmap_data),
+                &raw const self.bitmap_info,
+                DIB_RGB_COLORS,
+                SRCCOPY,
+            );
+        }
+    }
+
+    fn get_client_rectangle(window_handle: HWND) -> Win32Result<RECT> {
+        let mut client_rectangle = RECT::default();
+        unsafe { GetClientRect(window_handle, &raw mut client_rectangle)? };
+        Ok(client_rectangle)
+    }
+
+    fn update_sound_index(&mut self, sound_buffer: Option<&DirectSoundBuffer<'_>>) {
+        // After a single frame, we have a better idea how far away the sound
+        // play cursor is from the write cursor. We initialize the sound index
+        // as a flag for sound to start being written now that the metrics are
+        // recorded.
+        if self.sound_index.is_none()
+            && let Some(sound_buffer) = sound_buffer
+        {
+            self.sound_index = self.get_sample_index(sound_buffer);
+        }
     }
 }
 
