@@ -25,7 +25,7 @@ fn main() -> ExitCode {
 
 #[cfg(target_os = "windows")]
 fn run_windows() -> Result<ExitCode> {
-    let mut windows_application = Win32Application::new();
+    let mut windows_application = Win32Application::try_new()?;
     windows_application.create_window(960, 540)?;
     windows_application.run()
 }

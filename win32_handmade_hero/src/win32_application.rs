@@ -34,9 +34,9 @@ use windows::Win32::Foundation::{
     COLORREF, ERROR_SUCCESS, FALSE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BLACKNESS, BeginPaint, ClientToScreen, DEVMODEW, DIB_RGB_COLORS,
-    ENUM_CURRENT_SETTINGS, EndPaint, EnumDisplaySettingsW, GetDC, HDC, PAINTSTRUCT, PatBlt,
-    ReleaseDC, SRCCOPY, StretchDIBits,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, BeginPaint, ClientToScreen, DEVMODEW,
+    DIB_RGB_COLORS, ENUM_CURRENT_SETTINGS, EndPaint, EnumDisplaySettingsW, GetDC, HDC, PAINTSTRUCT,
+    PatBlt, ReleaseDC, SRCCOPY, StretchDIBits,
 };
 use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -91,19 +91,35 @@ pub struct Win32Application {
 }
 
 impl Win32Application {
-    pub fn new() -> Win32Application {
-        Win32Application {
+    pub fn try_new() -> Result<Win32Application> {
+        let bitmap_info = Self::initialize_bitmap_info()?;
+        let application = Win32Application {
             state: GameState::new(),
             input: InputState::new(),
             window_handle: HWND::default(),
-            bitmap_info: BITMAPINFO::default(),
+            bitmap_info,
             bitmap_buffer: None,
             sound_buffer: None,
             sound_index: None,
             sound_safety_margin: Information::zero(),
             closing: false,
             recording_state: RecordingState::None,
-        }
+        };
+        Ok(application)
+    }
+
+    fn initialize_bitmap_info() -> Result<BITMAPINFO> {
+        // We configure these header field here once since they never change after set.
+        let mut bitmap_info = BITMAPINFO::default();
+        let header = &mut bitmap_info.bmiHeader;
+        let header_size = size_of::<BITMAPINFOHEADER>();
+        let header_size = u32::try_from(header_size)
+            .map_err(|e| ApplicationError::wrap("Header size did not fit in a u32", e))?;
+        header.biSize = header_size;
+        header.biPlanes = 1;
+        header.biBitCount = 32;
+        header.biCompression = BI_RGB.0;
+        Ok(bitmap_info)
     }
 
     pub fn create_window(&mut self, width: u16, height: u16) -> Result<()> {
@@ -161,15 +177,8 @@ impl Win32Application {
             .map_err(|e| ApplicationError::wrap("Encountered an extreme client height", e))?;
 
         let header = &mut self.bitmap_info.bmiHeader;
-        let header_size = size_of_val(header);
-        let header_size = u32::try_from(header_size)
-            .map_err(|e| ApplicationError::wrap("Header size did not fit in a u32", e))?;
-        header.biSize = header_size;
         header.biWidth = i32::from(client_width);
         header.biHeight = -i32::from(client_height);
-        header.biPlanes = 1;
-        header.biBitCount = 32;
-        header.biCompression = BI_RGB.0;
 
         let pixel_count = usize::from(client_width)
             .checked_mul(usize::from(client_height))
