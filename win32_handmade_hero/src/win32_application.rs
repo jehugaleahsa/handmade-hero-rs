@@ -458,26 +458,30 @@ impl Win32Application {
     }
 
     fn process_message() -> Result<Option<ExitCode>> {
-        let mut message = MSG::default();
-        let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
-        if message_result.0 < 0 {
-            let result = Error::from_thread();
-            return Err(ApplicationError::wrap(
-                "Unable to read the next Windows message",
-                result,
-            ));
-        } else if message_result.as_bool() {
-            // There is a message in the queue
-            if message.message == WM_QUIT {
-                let code = u8::try_from(message.wParam.0).map_or(ExitCode::FAILURE, ExitCode::from);
-                return Ok(Some(code));
+        loop {
+            let mut message = MSG::default();
+            let message_result = unsafe { PeekMessageW(&raw mut message, None, 0, 0, PM_REMOVE) };
+            if message_result.0 < 0 {
+                let result = Error::from_thread();
+                return Err(ApplicationError::wrap(
+                    "Unable to read the next Windows message",
+                    result,
+                ));
+            } else if message_result.as_bool() {
+                // There is a message in the queue
+                if message.message == WM_QUIT {
+                    let code =
+                        u8::try_from(message.wParam.0).map_or(ExitCode::FAILURE, ExitCode::from);
+                    return Ok(Some(code));
+                }
+                unsafe {
+                    let _ = TranslateMessage(&raw const message);
+                    DispatchMessageW(&raw const message);
+                };
+            } else {
+                return Ok(None);
             }
-            unsafe {
-                let _ = TranslateMessage(&raw const message);
-                DispatchMessageW(&raw const message);
-            };
         }
-        Ok(None)
     }
 
     fn load_application<'a>(
@@ -864,28 +868,9 @@ impl Win32Application {
         #[expect(clippy::cast_possible_truncation)]
         let source_height = self.state.height().get::<pixel>() as i32;
 
-        unsafe {
-            if let Ok(client_rectangle) = Self::get_client_rectangle(self.window_handle) {
-                let client_height = client_rectangle.bottom;
-                let client_width = client_rectangle.right;
-                let _ = PatBlt(
-                    device_context,
-                    source_width,
-                    0,
-                    client_width,
-                    client_height,
-                    BLACKNESS,
-                );
-                let _ = PatBlt(
-                    device_context,
-                    0,
-                    source_height,
-                    client_width,
-                    client_height,
-                    BLACKNESS,
-                );
-            }
+        self.render_out_of_bounds(device_context, source_width, source_height);
 
+        unsafe {
             let bitmap_data = bitmap_buffer.as_ptr().cast::<c_void>();
             StretchDIBits(
                 device_context,
@@ -901,6 +886,34 @@ impl Win32Application {
                 &raw const self.bitmap_info,
                 DIB_RGB_COLORS,
                 SRCCOPY,
+            );
+        }
+    }
+
+    // If the client area exceeds our buffer size due to resizing the window,
+    // render a black background. We don't stretch the content.
+    fn render_out_of_bounds(&self, device_context: HDC, source_width: i32, source_height: i32) {
+        let Ok(client_rectangle) = Self::get_client_rectangle(self.window_handle) else {
+            return;
+        };
+        let client_height = client_rectangle.bottom;
+        let client_width = client_rectangle.right;
+        unsafe {
+            let _ = PatBlt(
+                device_context,
+                source_width,
+                0,
+                client_width,
+                client_height,
+                BLACKNESS,
+            );
+            let _ = PatBlt(
+                device_context,
+                0,
+                source_height,
+                client_width,
+                client_height,
+                BLACKNESS,
             );
         }
     }
