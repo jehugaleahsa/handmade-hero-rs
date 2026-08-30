@@ -3,12 +3,14 @@ use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::performance_counter::PerformanceCounter;
 use crate::playback_recorder::PlaybackRecorder;
+use crate::win32_keyboard::Win32Keyboard;
 use core::slice;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::color::Color;
+use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
@@ -41,8 +43,7 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, VIRTUAL_KEY, VK_A, VK_CONTROL, VK_D, VK_DOWN, VK_E, VK_ESCAPE, VK_F4, VK_L,
-    VK_LBUTTON, VK_LEFT, VK_MBUTTON, VK_Q, VK_RBUTTON, VK_RIGHT, VK_S, VK_UP, VK_W,
+    GetKeyState, VIRTUAL_KEY, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
 };
 use windows::Win32::UI::Input::XboxController::{
     XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK,
@@ -246,50 +247,40 @@ impl Win32Application {
     }
 
     fn handle_key_press(&mut self, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-        let pervious_key_state_mask = 1 << 30;
-        let was_down = (l_param.0 & pervious_key_state_mask) != 0;
-        let transition_state_mask = 1 << 31;
-        let is_down = (l_param.0 & transition_state_mask) == 0;
+        let win_keyboard = Win32Keyboard::from_params(w_param, l_param);
+        let was_down = win_keyboard.was_key_down();
+        let is_down = win_keyboard.is_key_down();
         if was_down == is_down {
             // Ignore repeated messages
             return LRESULT(0);
         }
 
-        #[expect(clippy::cast_possible_truncation)]
-        let virtual_key = VIRTUAL_KEY(w_param.0 as u16);
-
         // Allow exiting with ALT+F4
-        let context_code_mask = 1 << 29;
-        let is_alt_down = (l_param.0 & context_code_mask) != 0;
-        if is_alt_down && virtual_key == VK_F4 {
+        if win_keyboard.is_alt() && win_keyboard.is_f4() {
             return self.destroy_window();
         }
 
         let keyboard = self.input.keyboard_mut();
-        let mapped_button = match virtual_key {
-            VK_W | VK_UP => Some(keyboard.up_mut()),
-            VK_A | VK_LEFT => Some(keyboard.left_mut()),
-            VK_S | VK_DOWN => Some(keyboard.down_mut()),
-            VK_D | VK_RIGHT => Some(keyboard.right_mut()),
-            VK_Q => Some(keyboard.left_shoulder_mut()),
-            VK_E => Some(keyboard.right_shoulder_mut()),
-            VK_ESCAPE => Some(keyboard.start_mut()),
-            _ => None,
-        };
-        if let Some(mapped_button) = mapped_button {
-            mapped_button.set_ended_down(is_down);
-            if is_down {
-                mapped_button.increment_half_transition_count();
-            } else {
-                mapped_button.reset_half_transition_count();
-            }
+        if win_keyboard.is_w() || win_keyboard.is_up() {
+            Self::track_button_down(keyboard.up_mut(), is_down);
+        } else if win_keyboard.is_a() || win_keyboard.is_left() {
+            Self::track_button_down(keyboard.left_mut(), is_down);
+        } else if win_keyboard.is_s() || win_keyboard.is_down() {
+            Self::track_button_down(keyboard.down_mut(), is_down);
+        } else if win_keyboard.is_d() || win_keyboard.is_right() {
+            Self::track_button_down(keyboard.right_mut(), is_down);
+        } else if win_keyboard.is_q() {
+            Self::track_button_down(keyboard.left_shoulder_mut(), is_down);
+        } else if win_keyboard.is_e() {
+            Self::track_button_down(keyboard.right_shoulder_mut(), is_down);
+        } else if win_keyboard.is_escape() {
+            Self::track_button_down(keyboard.start_mut(), is_down);
         }
-        if virtual_key == VK_L && is_down {
+        if win_keyboard.is_l() && is_down {
             // Hitting 'L' begins a recording sessions.
             // Hitting 'L' again causes the recording session to end.
             // The recording will play back in an infinite loop until CTRL+L is hit.
-            let is_control_down = Self::is_key_down(VK_CONTROL);
-            match (&self.recording_state, is_control_down) {
+            match (&self.recording_state, win_keyboard.is_control()) {
                 (RecordingState::None | RecordingState::Playing, false) => {
                     self.recording_state = RecordingState::Recording;
                 }
@@ -305,10 +296,13 @@ impl Win32Application {
         LRESULT(0)
     }
 
-    fn is_key_down(key: VIRTUAL_KEY) -> bool {
-        let control_state = unsafe { GetKeyState(i32::from(key.0)) };
-        let is_down_mask = 1 << 15; // The key is down if the high-order bit is set.
-        (control_state & is_down_mask) != 0
+    fn track_button_down(button_state: &mut ButtonState, is_down: bool) {
+        button_state.set_ended_down(is_down);
+        if is_down {
+            button_state.increment_half_transition_count();
+        } else {
+            button_state.reset_half_transition_count();
+        }
     }
 
     fn create_win32_window(
@@ -507,7 +501,7 @@ impl Win32Application {
                 recorder.reset_playback().unwrap_or_default(); // We miss a frame here
             }
         } else {
-            self.poll_controller_state();
+            self.poll_all_controller_state();
             if let Ok(client_coordinates) = self.get_client_coordinate() {
                 self.capture_mouse_state(client_coordinates)
                     .unwrap_or_default(); // Ignore errors
@@ -531,66 +525,68 @@ impl Win32Application {
 
     // NOTE: We probably don't want to call this as part of the main game loop since it
     // can hang the application if the controller is disconnected.
-    fn poll_controller_state(&mut self) -> Option<XINPUT_STATE> {
+    fn poll_all_controller_state(&mut self) {
         for controller_index_u32 in 0..XUSER_MAX_COUNT {
             let Ok(controller_index) = usize::try_from(controller_index_u32) else {
                 continue;
             };
-
+            let controller = self.input.get_or_insert_controller_mut(controller_index);
             let mut controller_state = XINPUT_STATE::default();
             let result = unsafe { XInputGetState(controller_index_u32, &raw mut controller_state) };
-            let controller = self.input.get_or_insert_controller_mut(controller_index);
             if result != ERROR_SUCCESS.0 {
                 controller.set_enabled(false);
                 continue;
             }
 
-            let gamepad = &controller_state.Gamepad;
-            Self::set_button_state(controller.a_mut(), gamepad, XINPUT_GAMEPAD_A);
-            Self::set_button_state(controller.b_mut(), gamepad, XINPUT_GAMEPAD_B);
-            Self::set_button_state(controller.x_mut(), gamepad, XINPUT_GAMEPAD_X);
-            Self::set_button_state(controller.y_mut(), gamepad, XINPUT_GAMEPAD_Y);
-            Self::set_button_state(controller.start_mut(), gamepad, XINPUT_GAMEPAD_START);
-            Self::set_button_state(controller.back_mut(), gamepad, XINPUT_GAMEPAD_BACK);
-            Self::set_button_state(controller.up_mut(), gamepad, XINPUT_GAMEPAD_DPAD_UP);
-            Self::set_button_state(controller.down_mut(), gamepad, XINPUT_GAMEPAD_DPAD_DOWN);
-            Self::set_button_state(controller.left_mut(), gamepad, XINPUT_GAMEPAD_DPAD_LEFT);
-            Self::set_button_state(controller.right_mut(), gamepad, XINPUT_GAMEPAD_DPAD_RIGHT);
-            Self::set_button_state(
-                controller.left_shoulder_mut(),
-                gamepad,
-                XINPUT_GAMEPAD_LEFT_SHOULDER,
-            );
-            Self::set_button_state(
-                controller.right_shoulder_mut(),
-                gamepad,
-                XINPUT_GAMEPAD_RIGHT_SHOULDER,
-            );
-
-            let left_joystick = controller.left_joystick_mut();
-            left_joystick.set_x_ratio(Self::thumb_stick_ratio(
-                gamepad.sThumbLX,
-                XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
-            ));
-            left_joystick.set_y_ratio(-Self::thumb_stick_ratio(
-                gamepad.sThumbLY,
-                XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
-            ));
-            let right_joystick = controller.right_joystick_mut();
-            right_joystick.set_x_ratio(Self::thumb_stick_ratio(
-                gamepad.sThumbRX,
-                XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
-            ));
-            right_joystick.set_y_ratio(-Self::thumb_stick_ratio(
-                gamepad.sThumbRY,
-                XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
-            ));
-
-            controller.set_left_trigger_ratio(Self::trigger_ratio(gamepad.bLeftTrigger));
-            controller.set_right_trigger_ratio(Self::trigger_ratio(gamepad.bRightTrigger));
-            controller.set_enabled(true);
+            Self::poll_controller_state(controller, &controller_state);
         }
-        None
+    }
+
+    fn poll_controller_state(controller: &mut ControllerState, controller_state: &XINPUT_STATE) {
+        let gamepad = &controller_state.Gamepad;
+        Self::set_button_state(controller.a_mut(), gamepad, XINPUT_GAMEPAD_A);
+        Self::set_button_state(controller.b_mut(), gamepad, XINPUT_GAMEPAD_B);
+        Self::set_button_state(controller.x_mut(), gamepad, XINPUT_GAMEPAD_X);
+        Self::set_button_state(controller.y_mut(), gamepad, XINPUT_GAMEPAD_Y);
+        Self::set_button_state(controller.start_mut(), gamepad, XINPUT_GAMEPAD_START);
+        Self::set_button_state(controller.back_mut(), gamepad, XINPUT_GAMEPAD_BACK);
+        Self::set_button_state(controller.up_mut(), gamepad, XINPUT_GAMEPAD_DPAD_UP);
+        Self::set_button_state(controller.down_mut(), gamepad, XINPUT_GAMEPAD_DPAD_DOWN);
+        Self::set_button_state(controller.left_mut(), gamepad, XINPUT_GAMEPAD_DPAD_LEFT);
+        Self::set_button_state(controller.right_mut(), gamepad, XINPUT_GAMEPAD_DPAD_RIGHT);
+        Self::set_button_state(
+            controller.left_shoulder_mut(),
+            gamepad,
+            XINPUT_GAMEPAD_LEFT_SHOULDER,
+        );
+        Self::set_button_state(
+            controller.right_shoulder_mut(),
+            gamepad,
+            XINPUT_GAMEPAD_RIGHT_SHOULDER,
+        );
+
+        let left_joystick = controller.left_joystick_mut();
+        left_joystick.set_x_ratio(Self::thumb_stick_ratio(
+            gamepad.sThumbLX,
+            XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
+        ));
+        left_joystick.set_y_ratio(-Self::thumb_stick_ratio(
+            gamepad.sThumbLY,
+            XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
+        ));
+        let right_joystick = controller.right_joystick_mut();
+        right_joystick.set_x_ratio(Self::thumb_stick_ratio(
+            gamepad.sThumbRX,
+            XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
+        ));
+        right_joystick.set_y_ratio(-Self::thumb_stick_ratio(
+            gamepad.sThumbRY,
+            XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
+        ));
+
+        controller.set_left_trigger_ratio(Self::trigger_ratio(gamepad.bLeftTrigger));
+        controller.set_right_trigger_ratio(Self::trigger_ratio(gamepad.bRightTrigger));
+        controller.set_enabled(true);
     }
 
     fn set_button_state(
@@ -664,13 +660,19 @@ impl Win32Application {
     }
 
     fn set_mouse_button(button: &mut ButtonState, key: VIRTUAL_KEY) {
-        let is_down = Self::is_key_down(key);
+        let is_down = Self::is_special_key_down(key);
         if is_down {
             button.set_ended_down(true);
             button.increment_half_transition_count();
         } else {
             button.set_ended_down(false);
         }
+    }
+
+    fn is_special_key_down(key: VIRTUAL_KEY) -> bool {
+        let key_state = unsafe { GetKeyState(i32::from(key.0)) };
+        let is_down_mask = 1 << 15; // The key is down if the high-order bit is set.
+        (key_state & is_down_mask) != 0
     }
 
     fn render_to_buffer(&mut self, application: &ApplicationStub) {
