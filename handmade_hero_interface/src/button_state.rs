@@ -38,4 +38,12 @@ impl ButtonState {
         self.ended_down = false;
         self.half_transition_count = 0;
     }
+
+    pub fn track_down(button_state: &mut ButtonState, is_pressed: bool) {
+        let was_pressed = button_state.ended_down();
+        if was_pressed == is_pressed {
+            button_state.increment_half_transition_count();
+        }
+        button_state.set_ended_down(is_pressed);
+    }
 }

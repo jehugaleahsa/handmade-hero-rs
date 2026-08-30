@@ -3,6 +3,7 @@ use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::performance_counter::PerformanceCounter;
 use crate::playback_recorder::PlaybackRecorder;
+use crate::win32_controller::{Win32Controller, Win32ControllerState};
 use crate::win32_keyboard::Win32Keyboard;
 use crate::win32_mouse::Win32Mouse;
 use core::slice;
@@ -34,7 +35,7 @@ use uom::si::length::Length;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
 use windows::Win32::Foundation::{
-    COLORREF, ERROR_SUCCESS, FALSE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
+    COLORREF, FALSE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, BeginPaint, ClientToScreen, DEVMODEW,
@@ -43,14 +44,6 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::XboxController::{
-    XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK,
-    XINPUT_GAMEPAD_BUTTON_FLAGS, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT,
-    XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_LEFT_SHOULDER,
-    XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE, XINPUT_GAMEPAD_RIGHT_SHOULDER,
-    XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_TRIGGER_THRESHOLD,
-    XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y, XINPUT_STATE, XInputGetState, XUSER_MAX_COUNT,
-};
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
     DispatchMessageW, GWL_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, LWA_ALPHA,
@@ -258,19 +251,19 @@ impl Win32Application {
             // Allow exiting with ALT+F4
             return self.destroy_window();
         } else if win_keyboard.is_w() || win_keyboard.is_up() {
-            InputState::track_button_down(keyboard.up_mut(), is_down);
+            InputState::track_down(keyboard.up_mut(), is_down);
         } else if win_keyboard.is_a() || win_keyboard.is_left() {
-            InputState::track_button_down(keyboard.left_mut(), is_down);
+            InputState::track_down(keyboard.left_mut(), is_down);
         } else if win_keyboard.is_s() || win_keyboard.is_down() {
-            InputState::track_button_down(keyboard.down_mut(), is_down);
+            InputState::track_down(keyboard.down_mut(), is_down);
         } else if win_keyboard.is_d() || win_keyboard.is_right() {
-            InputState::track_button_down(keyboard.right_mut(), is_down);
+            InputState::track_down(keyboard.right_mut(), is_down);
         } else if win_keyboard.is_q() {
-            InputState::track_button_down(keyboard.left_shoulder_mut(), is_down);
+            InputState::track_down(keyboard.left_shoulder_mut(), is_down);
         } else if win_keyboard.is_e() {
-            InputState::track_button_down(keyboard.right_shoulder_mut(), is_down);
+            InputState::track_down(keyboard.right_shoulder_mut(), is_down);
         } else if win_keyboard.is_escape() {
-            InputState::track_button_down(keyboard.start_mut(), is_down);
+            InputState::track_down(keyboard.start_mut(), is_down);
         } else if win_keyboard.is_l() && is_down {
             // Hitting 'L' begins a recording sessions.
             // Hitting 'L' again causes the recording session to end.
@@ -512,111 +505,47 @@ impl Win32Application {
     // NOTE: We probably don't want to call this as part of the main game loop since it
     // can hang the application if the controller is disconnected.
     fn poll_all_controller_state(&mut self) {
-        for controller_index_u32 in 0..XUSER_MAX_COUNT {
-            let Ok(controller_index) = usize::try_from(controller_index_u32) else {
-                continue;
-            };
+        for controller_index in 0..Win32Controller::max_controller_count() {
             let controller = self.input.get_or_insert_controller_mut(controller_index);
-            let mut controller_state = XINPUT_STATE::default();
-            let result = unsafe { XInputGetState(controller_index_u32, &raw mut controller_state) };
-            if result != ERROR_SUCCESS.0 {
-                controller.set_enabled(false);
-                continue;
+            match Win32Controller::from_index(controller_index) {
+                Win32ControllerState::Disabled => controller.set_enabled(false),
+                Win32ControllerState::Enabled(win32_controller) => {
+                    Self::poll_controller_state(controller, &win32_controller);
+                }
             }
-
-            Self::poll_controller_state(controller, &controller_state);
         }
     }
 
-    fn poll_controller_state(controller: &mut ControllerState, controller_state: &XINPUT_STATE) {
-        let gamepad = &controller_state.Gamepad;
-        Self::set_button_state(controller.a_mut(), gamepad, XINPUT_GAMEPAD_A);
-        Self::set_button_state(controller.b_mut(), gamepad, XINPUT_GAMEPAD_B);
-        Self::set_button_state(controller.x_mut(), gamepad, XINPUT_GAMEPAD_X);
-        Self::set_button_state(controller.y_mut(), gamepad, XINPUT_GAMEPAD_Y);
-        Self::set_button_state(controller.start_mut(), gamepad, XINPUT_GAMEPAD_START);
-        Self::set_button_state(controller.back_mut(), gamepad, XINPUT_GAMEPAD_BACK);
-        Self::set_button_state(controller.up_mut(), gamepad, XINPUT_GAMEPAD_DPAD_UP);
-        Self::set_button_state(controller.down_mut(), gamepad, XINPUT_GAMEPAD_DPAD_DOWN);
-        Self::set_button_state(controller.left_mut(), gamepad, XINPUT_GAMEPAD_DPAD_LEFT);
-        Self::set_button_state(controller.right_mut(), gamepad, XINPUT_GAMEPAD_DPAD_RIGHT);
-        Self::set_button_state(
+    fn poll_controller_state(controller: &mut ControllerState, win32_controller: &Win32Controller) {
+        ButtonState::track_down(controller.a_mut(), win32_controller.is_a());
+        ButtonState::track_down(controller.b_mut(), win32_controller.is_b());
+        ButtonState::track_down(controller.x_mut(), win32_controller.is_x());
+        ButtonState::track_down(controller.y_mut(), win32_controller.is_y());
+        ButtonState::track_down(controller.start_mut(), win32_controller.is_start());
+        ButtonState::track_down(controller.back_mut(), win32_controller.is_back());
+        ButtonState::track_down(controller.up_mut(), win32_controller.is_dpad_up());
+        ButtonState::track_down(controller.down_mut(), win32_controller.is_dpad_down());
+        ButtonState::track_down(controller.left_mut(), win32_controller.is_dpad_left());
+        ButtonState::track_down(controller.right_mut(), win32_controller.is_dpad_right());
+        ButtonState::track_down(
             controller.left_shoulder_mut(),
-            gamepad,
-            XINPUT_GAMEPAD_LEFT_SHOULDER,
+            win32_controller.is_left_shoulder(),
         );
-        Self::set_button_state(
+        ButtonState::track_down(
             controller.right_shoulder_mut(),
-            gamepad,
-            XINPUT_GAMEPAD_RIGHT_SHOULDER,
+            win32_controller.is_right_shoulder(),
         );
 
         let left_joystick = controller.left_joystick_mut();
-        left_joystick.set_x_ratio(Self::thumb_stick_ratio(
-            gamepad.sThumbLX,
-            XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
-        ));
-        left_joystick.set_y_ratio(-Self::thumb_stick_ratio(
-            gamepad.sThumbLY,
-            XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0,
-        ));
+        left_joystick.set_x_ratio(win32_controller.left_joystick_x());
+        left_joystick.set_y_ratio(win32_controller.left_joystick_y());
         let right_joystick = controller.right_joystick_mut();
-        right_joystick.set_x_ratio(Self::thumb_stick_ratio(
-            gamepad.sThumbRX,
-            XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
-        ));
-        right_joystick.set_y_ratio(-Self::thumb_stick_ratio(
-            gamepad.sThumbRY,
-            XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0,
-        ));
+        right_joystick.set_x_ratio(win32_controller.right_joystick_x());
+        right_joystick.set_y_ratio(win32_controller.right_joystick_y());
 
-        controller.set_left_trigger_ratio(Self::trigger_ratio(gamepad.bLeftTrigger));
-        controller.set_right_trigger_ratio(Self::trigger_ratio(gamepad.bRightTrigger));
+        controller.set_left_trigger_ratio(win32_controller.left_trigger());
+        controller.set_right_trigger_ratio(win32_controller.right_trigger());
         controller.set_enabled(true);
-    }
-
-    fn set_button_state(
-        button_state: &mut ButtonState,
-        gamepad: &XINPUT_GAMEPAD,
-        button_flag: XINPUT_GAMEPAD_BUTTON_FLAGS,
-    ) {
-        let is_pressed = Self::is_pressed(gamepad, button_flag);
-        let was_pressed = button_state.ended_down();
-        if was_pressed == is_pressed {
-            button_state.increment_half_transition_count();
-        }
-        button_state.set_ended_down(is_pressed);
-    }
-
-    #[inline]
-    #[must_use]
-    fn is_pressed(gamepad: &XINPUT_GAMEPAD, button: XINPUT_GAMEPAD_BUTTON_FLAGS) -> bool {
-        (gamepad.wButtons & button).0 != 0
-    }
-
-    #[inline]
-    #[must_use]
-    fn thumb_stick_ratio(amount: i16, dead_zone: u16) -> f32 {
-        if amount.unsigned_abs() <= dead_zone {
-            0f32
-        } else if amount < 0 {
-            let dead_zone = f32::from(dead_zone);
-            -((f32::from(amount) + dead_zone) / (f32::from(i16::MIN) + dead_zone))
-        } else {
-            let dead_zone = f32::from(dead_zone);
-            (f32::from(amount) - dead_zone) / (f32::from(i16::MAX) - dead_zone)
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    fn trigger_ratio(amount: u8) -> f32 {
-        if u16::from(amount) <= XINPUT_GAMEPAD_TRIGGER_THRESHOLD.0 {
-            0f32
-        } else {
-            let threshold = f32::from(XINPUT_GAMEPAD_TRIGGER_THRESHOLD.0);
-            (f32::from(amount) - threshold) / (f32::from(u8::MAX) - threshold)
-        }
     }
 
     fn capture_mouse_state(&mut self, client_coordinate: POINT) -> Win32Result<()> {
@@ -628,9 +557,9 @@ impl Win32Application {
         mouse.set_x(x);
         mouse.set_y(y);
 
-        InputState::track_button_down(mouse.left_mut(), win32_mouse.is_left());
-        InputState::track_button_down(mouse.middle_mut(), win32_mouse.is_middle());
-        InputState::track_button_down(mouse.right_mut(), win32_mouse.is_right());
+        InputState::track_down(mouse.left_mut(), win32_mouse.is_left());
+        InputState::track_down(mouse.middle_mut(), win32_mouse.is_middle());
+        InputState::track_down(mouse.right_mut(), win32_mouse.is_right());
 
         Ok(())
     }

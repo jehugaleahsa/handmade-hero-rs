@@ -64,7 +64,7 @@ impl InputState {
         &self.controllers
     }
 
-    pub fn track_button_down(button_state: &mut ButtonState, is_down: bool) {
+    pub fn track_down(button_state: &mut ButtonState, is_down: bool) {
         button_state.set_ended_down(is_down);
         if is_down {
             button_state.increment_half_transition_count();
