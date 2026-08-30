@@ -1,5 +1,5 @@
-use crate::controller_state::ControllerState;
 use crate::mouse_state::MouseState;
+use crate::{button_state::ButtonState, controller_state::ControllerState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,6 +62,15 @@ impl InputState {
     #[must_use]
     pub fn controllers(&self) -> &[ControllerState] {
         &self.controllers
+    }
+
+    pub fn track_button_down(button_state: &mut ButtonState, is_down: bool) {
+        button_state.set_ended_down(is_down);
+        if is_down {
+            button_state.increment_half_transition_count();
+        } else {
+            button_state.reset_half_transition_count();
+        }
     }
 }
 

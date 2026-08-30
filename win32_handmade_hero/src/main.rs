@@ -12,6 +12,8 @@ mod direct_sound_buffer_lock_guard;
 mod win32_application;
 #[cfg(target_os = "windows")]
 mod win32_keyboard;
+#[cfg(target_os = "windows")]
+mod win32_mouse;
 
 use std::process::ExitCode;
 

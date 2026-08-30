@@ -6,6 +6,7 @@ use windows::Win32::{
     },
 };
 
+#[derive(Debug)]
 pub struct Win32Keyboard {
     w_param: WPARAM,
     l_param: LPARAM,

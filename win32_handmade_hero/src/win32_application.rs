@@ -4,6 +4,7 @@ use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::performance_counter::PerformanceCounter;
 use crate::playback_recorder::PlaybackRecorder;
 use crate::win32_keyboard::Win32Keyboard;
+use crate::win32_mouse::Win32Mouse;
 use core::slice;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
@@ -42,9 +43,6 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, VIRTUAL_KEY, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON,
-};
 use windows::Win32::UI::Input::XboxController::{
     XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK,
     XINPUT_GAMEPAD_BUTTON_FLAGS, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT,
@@ -55,8 +53,8 @@ use windows::Win32::UI::Input::XboxController::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
-    DispatchMessageW, GWL_USERDATA, GetClientRect, GetCursorPos, GetWindowLongPtrW, IDC_ARROW,
-    LWA_ALPHA, LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW,
+    DispatchMessageW, GWL_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, LWA_ALPHA,
+    LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW,
     SetLayeredWindowAttributes, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP, WM_CLOSE,
     WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
     WNDCLASSW, WS_EX_LAYERED, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
@@ -255,28 +253,25 @@ impl Win32Application {
             return LRESULT(0);
         }
 
-        // Allow exiting with ALT+F4
-        if win_keyboard.is_alt() && win_keyboard.is_f4() {
-            return self.destroy_window();
-        }
-
         let keyboard = self.input.keyboard_mut();
-        if win_keyboard.is_w() || win_keyboard.is_up() {
-            Self::track_button_down(keyboard.up_mut(), is_down);
+        if win_keyboard.is_alt() && win_keyboard.is_f4() {
+            // Allow exiting with ALT+F4
+            return self.destroy_window();
+        } else if win_keyboard.is_w() || win_keyboard.is_up() {
+            InputState::track_button_down(keyboard.up_mut(), is_down);
         } else if win_keyboard.is_a() || win_keyboard.is_left() {
-            Self::track_button_down(keyboard.left_mut(), is_down);
+            InputState::track_button_down(keyboard.left_mut(), is_down);
         } else if win_keyboard.is_s() || win_keyboard.is_down() {
-            Self::track_button_down(keyboard.down_mut(), is_down);
+            InputState::track_button_down(keyboard.down_mut(), is_down);
         } else if win_keyboard.is_d() || win_keyboard.is_right() {
-            Self::track_button_down(keyboard.right_mut(), is_down);
+            InputState::track_button_down(keyboard.right_mut(), is_down);
         } else if win_keyboard.is_q() {
-            Self::track_button_down(keyboard.left_shoulder_mut(), is_down);
+            InputState::track_button_down(keyboard.left_shoulder_mut(), is_down);
         } else if win_keyboard.is_e() {
-            Self::track_button_down(keyboard.right_shoulder_mut(), is_down);
+            InputState::track_button_down(keyboard.right_shoulder_mut(), is_down);
         } else if win_keyboard.is_escape() {
-            Self::track_button_down(keyboard.start_mut(), is_down);
-        }
-        if win_keyboard.is_l() && is_down {
+            InputState::track_button_down(keyboard.start_mut(), is_down);
+        } else if win_keyboard.is_l() && is_down {
             // Hitting 'L' begins a recording sessions.
             // Hitting 'L' again causes the recording session to end.
             // The recording will play back in an infinite loop until CTRL+L is hit.
@@ -294,15 +289,6 @@ impl Win32Application {
             }
         }
         LRESULT(0)
-    }
-
-    fn track_button_down(button_state: &mut ButtonState, is_down: bool) {
-        button_state.set_ended_down(is_down);
-        if is_down {
-            button_state.increment_half_transition_count();
-        } else {
-            button_state.reset_half_transition_count();
-        }
     }
 
     fn create_win32_window(
@@ -634,18 +620,18 @@ impl Win32Application {
     }
 
     fn capture_mouse_state(&mut self, client_coordinate: POINT) -> Win32Result<()> {
-        let mut cursor_coordinate = POINT::default();
-        unsafe {
-            GetCursorPos(&raw mut cursor_coordinate)?;
-        }
+        let win32_mouse = Win32Mouse::new();
+        let mouse_coordinate = win32_mouse.coordinates()?;
         let mouse = self.input.mouse_mut();
-        let x = cursor_coordinate.x.abs_diff(client_coordinate.x);
-        let y = cursor_coordinate.y.abs_diff(client_coordinate.y);
+        let x = mouse_coordinate.x().abs_diff(client_coordinate.x);
+        let y = mouse_coordinate.y().abs_diff(client_coordinate.y);
         mouse.set_x(x);
         mouse.set_y(y);
-        Self::set_mouse_button(mouse.left_mut(), VK_LBUTTON);
-        Self::set_mouse_button(mouse.middle_mut(), VK_MBUTTON);
-        Self::set_mouse_button(mouse.right_mut(), VK_RBUTTON);
+
+        InputState::track_button_down(mouse.left_mut(), win32_mouse.is_left());
+        InputState::track_button_down(mouse.middle_mut(), win32_mouse.is_middle());
+        InputState::track_button_down(mouse.right_mut(), win32_mouse.is_right());
+
         Ok(())
     }
 
@@ -657,22 +643,6 @@ impl Win32Application {
             }
             Ok(client_coordinate)
         }
-    }
-
-    fn set_mouse_button(button: &mut ButtonState, key: VIRTUAL_KEY) {
-        let is_down = Self::is_special_key_down(key);
-        if is_down {
-            button.set_ended_down(true);
-            button.increment_half_transition_count();
-        } else {
-            button.set_ended_down(false);
-        }
-    }
-
-    fn is_special_key_down(key: VIRTUAL_KEY) -> bool {
-        let key_state = unsafe { GetKeyState(i32::from(key.0)) };
-        let is_down_mask = 1 << 15; // The key is down if the high-order bit is set.
-        (key_state & is_down_mask) != 0
     }
 
     fn render_to_buffer(&mut self, application: &ApplicationStub) {
