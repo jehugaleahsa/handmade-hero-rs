@@ -16,6 +16,8 @@ mod win32_controller;
 mod win32_keyboard;
 #[cfg(target_os = "windows")]
 mod win32_mouse;
+#[cfg(target_os = "windows")]
+mod win32_window;
 
 use std::process::ExitCode;
 
@@ -31,7 +33,7 @@ fn main() -> ExitCode {
 
 #[cfg(target_os = "windows")]
 fn run_windows() -> Result<ExitCode> {
-    let mut windows_application = Win32Application::try_new()?;
+    let mut windows_application = Win32Application::new();
     windows_application.create_window(960, 540)?;
     windows_application.run()
 }

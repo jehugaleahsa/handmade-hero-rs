@@ -6,6 +6,7 @@ use crate::playback_recorder::PlaybackRecorder;
 use crate::win32_controller::{Win32Controller, Win32ControllerState};
 use crate::win32_keyboard::Win32Keyboard;
 use crate::win32_mouse::Win32Mouse;
+use crate::win32_window::Win32Window;
 use core::slice;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
@@ -34,25 +35,17 @@ use uom::si::information::byte;
 use uom::si::length::Length;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
-use windows::Win32::Foundation::{
-    COLORREF, FALSE, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
-};
-use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, BeginPaint, ClientToScreen, DEVMODEW,
-    DIB_RGB_COLORS, ENUM_CURRENT_SETTINGS, EndPaint, EnumDisplaySettingsW, GetDC, HDC, PAINTSTRUCT,
-    PatBlt, ReleaseDC, SRCCOPY, StretchDIBits,
-};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
 use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
-    DispatchMessageW, GWL_USERDATA, GetClientRect, GetWindowLongPtrW, IDC_ARROW, LWA_ALPHA,
-    LoadCursorW, MSG, PM_REMOVE, PeekMessageW, PostQuitMessage, RegisterClassW,
-    SetLayeredWindowAttributes, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP, WM_CLOSE,
-    WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    WNDCLASSW, WS_EX_LAYERED, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    CREATESTRUCTW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GetWindowLongPtrW, MSG,
+    PM_REMOVE, PeekMessageW, PostQuitMessage, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP,
+    WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT, WM_SYSKEYDOWN,
+    WM_SYSKEYUP,
 };
-use windows::core::{Error, PCWSTR, Result as Win32Result, w};
+use windows::core::{Error, Result as Win32Result};
 
 const DEFAULT_REFRESH_RATE: u32 = 60;
 
@@ -72,9 +65,8 @@ pub enum RecordingState {
 pub struct Win32Application {
     state: GameState,
     input: InputState,
-    window_handle: HWND,
-    bitmap_info: BITMAPINFO,
-    bitmap_buffer: Option<Vec<Color<u8>>>,
+    window: Win32Window,
+    render_buffer: Option<Vec<Color<u8>>>,
     sound_buffer: Option<Vec<StereoSample>>,
     sound_index: Option<u32>,
     sound_safety_margin: Information,
@@ -83,53 +75,41 @@ pub struct Win32Application {
 }
 
 impl Win32Application {
-    pub fn try_new() -> Result<Win32Application> {
-        let bitmap_info = Self::initialize_bitmap_info()?;
-        let application = Win32Application {
+    pub fn new() -> Win32Application {
+        let window = Win32Window::new();
+        Win32Application {
             state: GameState::new(),
             input: InputState::new(),
-            window_handle: HWND::default(),
-            bitmap_info,
-            bitmap_buffer: None,
+            window,
+            render_buffer: None,
             sound_buffer: None,
             sound_index: None,
             sound_safety_margin: Information::zero(),
             closing: false,
             recording_state: RecordingState::None,
-        };
-        Ok(application)
-    }
-
-    fn initialize_bitmap_info() -> Result<BITMAPINFO> {
-        // We configure these header field here once since they never change after set.
-        let mut bitmap_info = BITMAPINFO::default();
-        let header = &mut bitmap_info.bmiHeader;
-        let header_size = size_of::<BITMAPINFOHEADER>();
-        let header_size = u32::try_from(header_size)
-            .map_err(|e| ApplicationError::wrap("Header size did not fit in a u32", e))?;
-        header.biSize = header_size;
-        header.biPlanes = 1;
-        header.biBitCount = 32;
-        header.biCompression = BI_RGB.0;
-        Ok(bitmap_info)
+        }
     }
 
     pub fn create_window(&mut self, width: u16, height: u16) -> Result<()> {
         let instance = Self::get_instance()
             .map_err(|e| ApplicationError::wrap("Could not retrieve the Windows handle", e))?;
-        let class_name = Self::create_window_class(instance)
-            .map_err(|e| ApplicationError::wrap("Failed to create the window class", e))?;
-
-        self.window_handle = self
-            .create_win32_window(instance, class_name, width, height)
+        let application_pointer = std::ptr::from_mut::<Win32Application>(self).cast::<c_void>();
+        self.window
+            .create_window(
+                instance,
+                width,
+                height,
+                application_pointer,
+                Some(window_procedure),
+            )
             .map_err(|e| ApplicationError::wrap("Failed to create the window", e))?;
-        self.set_transparency(true)
-            .map_err(|e| ApplicationError::wrap("Failed to display the window", e))?;
+        self.window
+            .set_transparency(true)
+            .map_err(|e| ApplicationError::wrap("Failed to enable transparency", e))?;
 
-        self.resize_window()?;
+        self.resize_render_buffer()?;
 
-        // Initially clear the window to a black background
-        self.redraw_window();
+        self.window.draw(&self.state, self.render_buffer.as_ref());
 
         Ok(())
     }
@@ -139,57 +119,37 @@ impl Win32Application {
         Ok(instance.into())
     }
 
-    fn create_window_class(instance: HINSTANCE) -> Win32Result<PCWSTR> {
-        let class_name = w!("Handmade Hero");
-        let cursor = unsafe { LoadCursorW(None, IDC_ARROW)? };
-        let window_class = WNDCLASSW {
-            hCursor: cursor,
-            hInstance: instance,
-            lpszClassName: class_name,
-            style: CS_HREDRAW | CS_VREDRAW,
-            lpfnWndProc: Some(window_procedure),
-            ..Default::default()
-        };
-
-        let register_result = unsafe { RegisterClassW(&raw const window_class) };
-        if register_result == 0 {
-            return Err(Error::from_thread());
-        }
-        Ok(class_name)
-    }
-
-    fn resize_window(&mut self) -> Result<()> {
-        let client_rectangle = Self::get_client_rectangle(self.window_handle)
-            .map_err(|e| ApplicationError::wrap("Could not determine the client area", e))?;
-        let client_width = client_rectangle.right.abs_diff(client_rectangle.left);
-        let client_width = u16::try_from(client_width)
-            .map_err(|e| ApplicationError::wrap("Encountered an extreme client width", e))?;
-        let client_height = client_rectangle.bottom.abs_diff(client_rectangle.top);
-        let client_height = u16::try_from(client_height)
-            .map_err(|e| ApplicationError::wrap("Encountered an extreme client height", e))?;
-
-        let header = &mut self.bitmap_info.bmiHeader;
-        header.biWidth = i32::from(client_width);
-        header.biHeight = -i32::from(client_height);
-
-        let pixel_count = usize::from(client_width)
-            .checked_mul(usize::from(client_height))
-            .ok_or_else(|| {
-                ApplicationError::new("The product of two u16 exceeded the range of usize")
-            })?;
-        if let Some(ref mut bitmap_buffer) = self.bitmap_buffer {
-            match pixel_count.cmp(&bitmap_buffer.len()) {
-                Ordering::Greater => bitmap_buffer.resize(pixel_count, Color::default()),
-                Ordering::Less => bitmap_buffer.truncate(pixel_count),
+    fn resize_render_buffer(&mut self) -> Result<()> {
+        // We capture the actual client rectangle here. The client area is smaller
+        // than the window area, typically, so we need the actual dimensions.
+        let rectangle = self
+            .window
+            .client_rectangle()
+            .map_err(|e| ApplicationError::wrap("Could not get the client rectangle", e))?;
+        let client_width = rectangle.right.abs_diff(rectangle.left);
+        let client_width = usize::try_from(client_width)
+            .map_err(|e| ApplicationError::wrap("The client width did not fit in a usize", e))?;
+        let client_height = rectangle.bottom.abs_diff(rectangle.top);
+        let client_height = usize::try_from(client_height)
+            .map_err(|e| ApplicationError::wrap("The client height did not fit in a usize", e))?;
+        let pixel_count = client_width
+            .checked_mul(client_height)
+            .ok_or_else(|| ApplicationError::new("The pixel count did not fit in a usize"))?;
+        if let Some(ref mut render_buffer) = self.render_buffer {
+            match pixel_count.cmp(&render_buffer.len()) {
+                Ordering::Greater => render_buffer.resize(pixel_count, Color::default()),
+                Ordering::Less => render_buffer.truncate(pixel_count),
                 Ordering::Equal => {}
             }
         } else {
-            self.bitmap_buffer = Some(vec![Color::default(); pixel_count]);
+            self.render_buffer = Some(vec![Color::default(); pixel_count]);
         }
 
-        let width_in_pixels = Length::new::<pixel>(f32::from(client_width));
+        #[expect(clippy::cast_precision_loss)]
+        let width_in_pixels = Length::new::<pixel>(client_width as f32);
         self.state.set_width(width_in_pixels);
-        let height_in_pixels = Length::new::<pixel>(f32::from(client_height));
+        #[expect(clippy::cast_precision_loss)]
+        let height_in_pixels = Length::new::<pixel>(client_height as f32);
         self.state.set_height(height_in_pixels);
 
         Ok(())
@@ -202,36 +162,24 @@ impl Win32Application {
         l_param: LPARAM,
     ) -> LRESULT {
         match message {
-            WM_CLOSE | WM_DESTROY => self.destroy_window(),
-            WM_ACTIVATEAPP => self.set_transparency(w_param.0 != 0).unwrap_or(LRESULT(0)),
+            WM_CLOSE | WM_DESTROY => self.prepare_close(),
+            WM_ACTIVATEAPP => self
+                .window
+                .set_transparency(w_param.0 != 0)
+                .map_or(LRESULT(0), |()| LRESULT(0)),
             WM_PAINT => {
-                self.redraw_window();
+                self.window
+                    .repaint(&self.state, self.render_buffer.as_ref());
                 LRESULT(0)
             }
             WM_SYSKEYDOWN | WM_SYSKEYUP | WM_KEYDOWN | WM_KEYUP => {
                 self.handle_key_press(w_param, l_param)
             }
-            _ => unsafe { DefWindowProcW(self.window_handle, message, w_param, l_param) },
+            _ => unsafe { DefWindowProcW(self.window.handle(), message, w_param, l_param) },
         }
     }
 
-    fn set_transparency(&self, is_active: bool) -> Win32Result<LRESULT> {
-        // We make the window slightly transparent when not active to assist with debugging
-        let alpha = if is_active { 0xFF } else { 0x90 };
-        unsafe {
-            SetLayeredWindowAttributes(self.window_handle, COLORREF::default(), alpha, LWA_ALPHA)?;
-        }
-        Ok(LRESULT(0))
-    }
-
-    fn redraw_window(&mut self) {
-        let mut paint_struct = PAINTSTRUCT::default();
-        let device_context = unsafe { BeginPaint(self.window_handle, &raw mut paint_struct) };
-        self.write_buffer(device_context);
-        let _ = unsafe { EndPaint(self.window_handle, &raw mut paint_struct) };
-    }
-
-    fn destroy_window(&mut self) -> LRESULT {
+    fn prepare_close(&mut self) -> LRESULT {
         self.closing = true;
         unsafe { PostQuitMessage(0) };
         LRESULT(0)
@@ -249,7 +197,7 @@ impl Win32Application {
         let keyboard = self.input.keyboard_mut();
         if win_keyboard.is_alt() && win_keyboard.is_f4() {
             // Allow exiting with ALT+F4
-            return self.destroy_window();
+            return self.prepare_close();
         } else if win_keyboard.is_w() || win_keyboard.is_up() {
             InputState::track_down(keyboard.up_mut(), is_down);
         } else if win_keyboard.is_a() || win_keyboard.is_left() {
@@ -284,32 +232,6 @@ impl Win32Application {
         LRESULT(0)
     }
 
-    fn create_win32_window(
-        &mut self,
-        instance: HINSTANCE,
-        class_name: PCWSTR,
-        width: u16,
-        height: u16,
-    ) -> Win32Result<HWND> {
-        let application_pointer = std::ptr::from_mut::<Win32Application>(self).cast::<c_void>();
-        unsafe {
-            CreateWindowExW(
-                WS_EX_LAYERED,
-                class_name,
-                w!("Handmade Hero"),
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                i32::from(width),
-                i32::from(height),
-                None,
-                None,
-                Some(instance),
-                Some(application_pointer),
-            )
-        }
-    }
-
     pub fn run(&mut self) -> Result<ExitCode> {
         let monitor_refresh_rate = Self::find_monitor_refresh_rate();
         let frame_duration = Self::frame_duration(monitor_refresh_rate);
@@ -317,7 +239,7 @@ impl Win32Application {
         // Try to set the Windows scheduler granularity to 1ms!
         let is_sleep_granular = unsafe { timeBeginPeriod(1) } == TIMERR_NOERROR;
 
-        let direct_sound = DirectSound::initialize(self.window_handle).ok();
+        let direct_sound = DirectSound::initialize(self.window.handle()).ok();
         let mut sound_buffer = self.create_sound_buffer(direct_sound.as_ref());
 
         if let Some(ref mut sound_buffer) = sound_buffer {
@@ -351,7 +273,7 @@ impl Win32Application {
 
             self.wait_for_framerate(&mut counter, is_sleep_granular);
 
-            self.update_display();
+            self.window.draw(&self.state, self.render_buffer.as_ref());
             self.update_sound_index(sound_buffer.as_ref());
         }
     }
@@ -481,7 +403,7 @@ impl Win32Application {
             }
         } else {
             self.poll_all_controller_state();
-            if let Ok(client_coordinates) = self.get_client_coordinate() {
+            if let Ok(client_coordinates) = self.window.client_coordinate() {
                 self.capture_mouse_state(client_coordinates)
                     .unwrap_or_default(); // Ignore errors
             }
@@ -564,18 +486,8 @@ impl Win32Application {
         Ok(())
     }
 
-    fn get_client_coordinate(&self) -> Win32Result<POINT> {
-        unsafe {
-            let mut client_coordinate = POINT::default();
-            if ClientToScreen(self.window_handle, &raw mut client_coordinate) == FALSE {
-                return Err(Error::from_thread());
-            }
-            Ok(client_coordinate)
-        }
-    }
-
     fn render_to_buffer(&mut self, application: &ApplicationStub) {
-        let Some(ref mut bitmap_buffer) = self.bitmap_buffer else {
+        let Some(ref mut bitmap_buffer) = self.render_buffer else {
             return;
         };
         let context = RenderContext {
@@ -753,78 +665,6 @@ impl Win32Application {
         counter.restart();
     }
 
-    fn update_display(&mut self) {
-        let device_context = unsafe { GetDC(Some(self.window_handle)) };
-        self.write_buffer(device_context);
-        unsafe { ReleaseDC(Some(self.window_handle), device_context) };
-    }
-
-    fn write_buffer(&mut self, device_context: HDC) {
-        let Some(ref bitmap_buffer) = self.bitmap_buffer else {
-            return;
-        };
-
-        #[expect(clippy::cast_possible_truncation)]
-        let source_width = self.state.width().get::<pixel>() as i32;
-        #[expect(clippy::cast_possible_truncation)]
-        let source_height = self.state.height().get::<pixel>() as i32;
-
-        self.render_out_of_bounds(device_context, source_width, source_height);
-
-        unsafe {
-            let bitmap_data = bitmap_buffer.as_ptr().cast::<c_void>();
-            StretchDIBits(
-                device_context,
-                0,
-                0,
-                source_width,
-                source_height,
-                0,
-                0,
-                source_width,
-                source_height,
-                Some(bitmap_data),
-                &raw const self.bitmap_info,
-                DIB_RGB_COLORS,
-                SRCCOPY,
-            );
-        }
-    }
-
-    // If the client area exceeds our buffer size due to resizing the window,
-    // render a black background. We don't stretch the content.
-    fn render_out_of_bounds(&self, device_context: HDC, source_width: i32, source_height: i32) {
-        let Ok(client_rectangle) = Self::get_client_rectangle(self.window_handle) else {
-            return;
-        };
-        let client_height = client_rectangle.bottom;
-        let client_width = client_rectangle.right;
-        unsafe {
-            let _ = PatBlt(
-                device_context,
-                source_width,
-                0,
-                client_width,
-                client_height,
-                BLACKNESS,
-            );
-            let _ = PatBlt(
-                device_context,
-                0,
-                source_height,
-                client_width,
-                client_height,
-                BLACKNESS,
-            );
-        }
-    }
-
-    fn get_client_rectangle(window_handle: HWND) -> Win32Result<RECT> {
-        let mut client_rectangle = RECT::default();
-        unsafe { GetClientRect(window_handle, &raw mut client_rectangle)? };
-        Ok(client_rectangle)
-    }
-
     fn update_sound_index(&mut self, sound_buffer: Option<&DirectSoundBuffer<'_>>) {
         // After a single frame, we have a better idea how far away the sound
         // play cursor is from the write cursor. We initialize the sound index
@@ -862,7 +702,7 @@ extern "system" fn window_procedure(
     // This allows us to maintain state about the application without relying on
     // global variables.
     let application = unsafe { &mut *application_pointer };
-    if application.window_handle != window_handle {
+    if application.window.handle() != window_handle {
         // Some of the messages passed to our application are not directed toward
         // our window. We need to pass through the correct window handle for those
         // messages or the window appears broken! I'll be curious to see if any
