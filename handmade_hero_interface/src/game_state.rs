@@ -11,8 +11,6 @@ use uom::si::length::meter;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GameState {
-    width: Length,
-    height: Length,
     sound: SoundState,
     player: Player,
     frame_duration: Time,
@@ -38,8 +36,6 @@ impl GameState {
         let current_tile_map_key = TileMapKey { x: 0, y: 0 };
         let player = Player::new(&world, current_tile_map_key);
         Self {
-            width: Length::zero(),
-            height: Length::zero(),
             sound,
             player,
             frame_duration: Time::zero(),
@@ -57,28 +53,6 @@ impl GameState {
     #[must_use]
     pub fn sound_mut(&mut self) -> &mut SoundState {
         &mut self.sound
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn width(&self) -> Length {
-        self.width
-    }
-
-    #[inline]
-    pub fn set_width(&mut self, value: Length) {
-        self.width = value;
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn height(&self) -> Length {
-        self.height
-    }
-
-    #[inline]
-    pub fn set_height(&mut self, value: Length) {
-        self.height = value;
     }
 
     #[inline]

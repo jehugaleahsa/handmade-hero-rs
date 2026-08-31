@@ -11,8 +11,8 @@ use core::slice;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
+use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button_state::ButtonState;
-use handmade_hero_interface::color::Color;
 use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
@@ -66,7 +66,7 @@ pub struct Win32Application {
     state: GameState,
     input: InputState,
     window: Win32Window,
-    render_buffer: Option<Vec<Color<u8>>>,
+    back_buffer: BackBuffer,
     sound_buffer: Option<Vec<StereoSample>>,
     sound_index: Option<u32>,
     sound_safety_margin: Information,
@@ -81,7 +81,7 @@ impl Win32Application {
             state: GameState::new(),
             input: InputState::new(),
             window,
-            render_buffer: None,
+            back_buffer: BackBuffer::default(),
             sound_buffer: None,
             sound_index: None,
             sound_safety_margin: Information::zero(),
@@ -109,7 +109,7 @@ impl Win32Application {
 
         self.resize_render_buffer()?;
 
-        self.window.draw(self.render_buffer.as_ref());
+        self.window.draw(&self.back_buffer);
 
         Ok(())
     }
@@ -128,25 +128,12 @@ impl Win32Application {
         let client_height_i32 = self.window.client_height();
         let client_height = usize::try_from(client_height_i32)
             .map_err(|e| ApplicationError::wrap("The client height did not fit in a usize", e))?;
-        let pixel_count = client_width
-            .checked_mul(client_height)
-            .ok_or_else(|| ApplicationError::new("The pixel count did not fit in a usize"))?;
-        if let Some(ref mut render_buffer) = self.render_buffer {
-            match pixel_count.cmp(&render_buffer.len()) {
-                Ordering::Greater => render_buffer.resize(pixel_count, Color::default()),
-                Ordering::Less => render_buffer.truncate(pixel_count),
-                Ordering::Equal => {}
-            }
-        } else {
-            self.render_buffer = Some(vec![Color::default(); pixel_count]);
-        }
 
         #[expect(clippy::cast_precision_loss)]
         let width_in_pixels = Length::new::<pixel>(client_width as f32);
-        self.state.set_width(width_in_pixels);
         #[expect(clippy::cast_precision_loss)]
         let height_in_pixels = Length::new::<pixel>(client_height as f32);
-        self.state.set_height(height_in_pixels);
+        self.back_buffer.resize(width_in_pixels, height_in_pixels)?;
 
         Ok(())
     }
@@ -164,7 +151,7 @@ impl Win32Application {
                 .set_transparency(w_param.0 != 0)
                 .map_or(LRESULT(0), |()| LRESULT(0)),
             WM_PAINT => {
-                self.window.repaint(self.render_buffer.as_ref());
+                self.window.repaint(&self.back_buffer);
                 LRESULT(0)
             }
             WM_SYSKEYDOWN | WM_SYSKEYUP | WM_KEYDOWN | WM_KEYUP => {
@@ -268,7 +255,7 @@ impl Win32Application {
 
             self.wait_for_framerate(&mut counter, is_sleep_granular);
 
-            self.window.draw(self.render_buffer.as_ref());
+            self.window.draw(&self.back_buffer);
             self.update_sound_index(sound_buffer.as_ref());
         }
     }
@@ -380,6 +367,7 @@ impl Win32Application {
     ) -> Result<&'a mut ApplicationStub> {
         let initialize_context = InitializeContext {
             state: &mut self.state,
+            back_buffer: &mut self.back_buffer,
         };
         loader.load(initialize_context)
     }
@@ -482,13 +470,10 @@ impl Win32Application {
     }
 
     fn render_to_buffer(&mut self, application: &ApplicationStub) {
-        let Some(ref mut bitmap_buffer) = self.render_buffer else {
-            return;
-        };
         let context = RenderContext {
             input: &self.input,
             state: &mut self.state,
-            buffer: bitmap_buffer,
+            buffer: &mut self.back_buffer,
         };
         application.render(context);
     }

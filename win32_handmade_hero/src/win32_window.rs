@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use handmade_hero_interface::color::Color;
+use handmade_hero_interface::{back_buffer::BackBuffer, color::Color, units::si::length::pixel};
 use windows::{
     Win32::{
         Foundation::{COLORREF, FALSE, HINSTANCE, HWND, POINT, RECT},
@@ -160,40 +160,41 @@ impl Win32Window {
         Ok(())
     }
 
-    pub fn repaint(&mut self, render_buffer: Option<&Vec<Color<u8>>>) {
+    pub fn repaint(&mut self, back_buffer: &BackBuffer) {
         let mut paint_struct = PAINTSTRUCT::default();
         let device_context = unsafe { BeginPaint(self.window_handle, &raw mut paint_struct) };
-        self.write_buffer(render_buffer, device_context);
+        self.write_buffer(back_buffer, device_context);
         let _ = unsafe { EndPaint(self.window_handle, &raw mut paint_struct) };
     }
 
-    pub fn draw(&mut self, render_buffer: Option<&Vec<Color<u8>>>) {
+    pub fn draw(&mut self, back_buffer: &BackBuffer) {
         let device_context = unsafe { GetDC(Some(self.window_handle)) };
-        self.write_buffer(render_buffer, device_context);
+        self.write_buffer(back_buffer, device_context);
         unsafe { ReleaseDC(Some(self.window_handle), device_context) };
     }
 
-    fn write_buffer(&mut self, render_buffer: Option<&Vec<Color<u8>>>, device_context: HDC) {
-        let Some(render_buffer) = render_buffer else {
-            return;
-        };
+    fn write_buffer(&mut self, back_buffer: &BackBuffer, device_context: HDC) {
+        let client_width = self.client_width();
+        let client_height = self.client_height();
+        self.render_out_of_bounds(device_context, client_width, client_height);
 
-        let width = self.client_width();
-        let height = self.client_height();
-        self.render_out_of_bounds(device_context, width, height);
+        let bitmap_data = back_buffer.bitmap();
+        #[expect(clippy::cast_possible_truncation)]
+        let buffer_width = back_buffer.width().get::<pixel>() as i32;
+        #[expect(clippy::cast_possible_truncation)]
+        let buffer_height = back_buffer.height().get::<pixel>() as i32;
 
         unsafe {
-            let bitmap_data = render_buffer.as_ptr().cast::<c_void>();
             StretchDIBits(
                 device_context,
                 0,
                 0,
-                width,
-                height,
+                client_width,
+                client_height,
                 0,
                 0,
-                width,
-                height,
+                buffer_width,
+                buffer_height,
                 Some(bitmap_data),
                 &raw const self.bitmap_info,
                 DIB_RGB_COLORS,

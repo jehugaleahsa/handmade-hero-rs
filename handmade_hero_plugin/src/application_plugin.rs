@@ -1,6 +1,7 @@
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::Result;
 use handmade_hero_interface::audio_context::AudioContext;
+use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::color::Color;
 use handmade_hero_interface::controller_state::ControllerState;
@@ -38,10 +39,10 @@ impl ApplicationPlugin {
         Box::new(Self {})
     }
 
-    fn initialize_direct(state: &mut GameState) {
+    fn initialize_direct(state: &mut GameState, back_buffer: &mut BackBuffer) {
         // Put the player somewhere in the middle
-        let width = state.width().get::<pixel>();
-        let height = state.height().get::<pixel>();
+        let width = back_buffer.width().get::<pixel>();
+        let height = back_buffer.height().get::<pixel>();
         let x = width / 2f32 + state.player().render_bounds().width() / 3f32;
         let y = height / 2f32;
         let tile_map_coordinates = state
@@ -258,9 +259,9 @@ impl ApplicationPlugin {
         controller_state.left_joystick().y_ratio()
     }
 
-    fn render_direct(state: &GameState, buffer: &mut [Color<u8>]) {
-        let width = state.width();
-        let height = state.height();
+    fn render_direct(state: &GameState, buffer: &mut BackBuffer) {
+        let width = buffer.width();
+        let height = buffer.height();
         let window_bounds = Rectangle::new(0f32, 0f32, height.get::<pixel>(), width.get::<pixel>());
 
         let world = state.world();
@@ -276,8 +277,11 @@ impl ApplicationPlugin {
         state: &GameState,
         window_bounds: &Rectangle<f32>,
         start_coordinate: &WorldCoordinate,
-        buffer: &mut [Color<u8>],
+        buffer: &mut BackBuffer,
     ) -> Result<()> {
+        let buffer_height = buffer.height();
+        let pixels = buffer.pixels_mut();
+
         // When rendering the tile map, our goal is to keep the player relatively close to the
         // center of the screen. We also want to transition between tile maps smoothly, without
         // suddenly jumping the user to a completely new screen. The player can also see surrounding
@@ -330,13 +334,13 @@ impl ApplicationPlugin {
                 );
                 let tile_rectangle = tile_rectangle.moved_to(
                     tile_rectangle.left(),
-                    state.height().get::<pixel>() - tile_rectangle.top(),
+                    buffer_height.get::<pixel>() - tile_rectangle.top(),
                 );
                 let tile_rectangle = tile_rectangle.shifted(
                     world.x_offset.get::<pixel>(),
                     -world.y_offset.get::<pixel>(),
                 );
-                Self::render_rectangle(window_bounds, &tile_rectangle, color, buffer)?;
+                Self::render_rectangle(window_bounds, &tile_rectangle, color, pixels)?;
 
                 tile_x += 1;
                 if tile_x >= world.columns {
@@ -384,8 +388,11 @@ impl ApplicationPlugin {
         state: &GameState,
         window_bounds: &Rectangle<f32>,
         start_coordinate: &WorldCoordinate,
-        buffer: &mut [Color<u8>],
+        buffer: &mut BackBuffer,
     ) -> Result<()> {
+        let height = buffer.height();
+        let pixels = buffer.pixels_mut();
+
         let world = state.world();
         let player = state.player();
         let player_coordinate = player.coordinate();
@@ -409,7 +416,6 @@ impl ApplicationPlugin {
 
         let player_bounds = player.render_bounds();
         let player_bounds = player_bounds.shifted(x_offset, y_offset);
-        let height = state.height();
         let player_bounds = player_bounds.moved_to(
             player_bounds.left(),
             height.get::<pixel>() - player_bounds.top(),
@@ -418,7 +424,7 @@ impl ApplicationPlugin {
             world.x_offset.get::<pixel>(),
             -world.y_offset.get::<pixel>(),
         );
-        Self::render_rectangle(window_bounds, &player_bounds, player.color(), buffer)
+        Self::render_rectangle(window_bounds, &player_bounds, player.color(), pixels)
     }
 
     fn determine_player_offset(
@@ -471,7 +477,7 @@ impl ApplicationPlugin {
         window_bounds: &Rectangle<f32>,
         rectangle: &Rectangle<f32>,
         color: Color<f32>,
-        buffer: &mut [Color<u8>],
+        pixels: &mut [Color<u8>],
     ) -> Result<()> {
         let rectangle = rectangle.bound_to(window_bounds);
         let rectangle = rectangle.round_to_usize()?;
@@ -488,7 +494,7 @@ impl ApplicationPlugin {
         for _y in rectangle.bottom()..rectangle.top() {
             let row = index;
             for _x in rectangle.left()..rectangle.right() {
-                buffer[index] = color;
+                pixels[index] = color;
                 index += 1;
             }
             index = row + pitch;
@@ -500,8 +506,8 @@ impl ApplicationPlugin {
 impl Application for ApplicationPlugin {
     #[inline]
     fn initialize(&self, context: InitializeContext<'_>) {
-        let InitializeContext { state } = context;
-        Self::initialize_direct(state);
+        let InitializeContext { state, back_buffer } = context;
+        Self::initialize_direct(state, back_buffer);
     }
 
     #[inline]
