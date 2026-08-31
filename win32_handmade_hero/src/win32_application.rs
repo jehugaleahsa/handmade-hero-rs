@@ -109,7 +109,7 @@ impl Win32Application {
 
         self.resize_render_buffer()?;
 
-        self.window.draw(&self.state, self.render_buffer.as_ref());
+        self.window.draw(self.render_buffer.as_ref());
 
         Ok(())
     }
@@ -122,15 +122,11 @@ impl Win32Application {
     fn resize_render_buffer(&mut self) -> Result<()> {
         // We capture the actual client rectangle here. The client area is smaller
         // than the window area, typically, so we need the actual dimensions.
-        let rectangle = self
-            .window
-            .client_rectangle()
-            .map_err(|e| ApplicationError::wrap("Could not get the client rectangle", e))?;
-        let client_width = rectangle.right.abs_diff(rectangle.left);
-        let client_width = usize::try_from(client_width)
+        let client_width_i32 = self.window.client_width();
+        let client_width = usize::try_from(client_width_i32)
             .map_err(|e| ApplicationError::wrap("The client width did not fit in a usize", e))?;
-        let client_height = rectangle.bottom.abs_diff(rectangle.top);
-        let client_height = usize::try_from(client_height)
+        let client_height_i32 = self.window.client_height();
+        let client_height = usize::try_from(client_height_i32)
             .map_err(|e| ApplicationError::wrap("The client height did not fit in a usize", e))?;
         let pixel_count = client_width
             .checked_mul(client_height)
@@ -168,8 +164,7 @@ impl Win32Application {
                 .set_transparency(w_param.0 != 0)
                 .map_or(LRESULT(0), |()| LRESULT(0)),
             WM_PAINT => {
-                self.window
-                    .repaint(&self.state, self.render_buffer.as_ref());
+                self.window.repaint(self.render_buffer.as_ref());
                 LRESULT(0)
             }
             WM_SYSKEYDOWN | WM_SYSKEYUP | WM_KEYDOWN | WM_KEYUP => {
@@ -273,7 +268,7 @@ impl Win32Application {
 
             self.wait_for_framerate(&mut counter, is_sleep_granular);
 
-            self.window.draw(&self.state, self.render_buffer.as_ref());
+            self.window.draw(self.render_buffer.as_ref());
             self.update_sound_index(sound_buffer.as_ref());
         }
     }

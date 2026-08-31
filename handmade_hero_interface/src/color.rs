@@ -94,3 +94,13 @@ impl From<Color<u8>> for Color<f32> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::color::Color;
+
+    #[test]
+    fn test_size_of_color_u8_is_4_bytes() {
+        assert_eq!(size_of::<Color<u8>>(), 4);
+    }
+}

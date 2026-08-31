@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use handmade_hero_interface::{color::Color, game_state::GameState, units::si::length::pixel};
+use handmade_hero_interface::color::Color;
 use windows::{
     Win32::{
         Foundation::{COLORREF, FALSE, HINSTANCE, HWND, POINT, RECT},
@@ -26,6 +26,16 @@ const fn size_of_u32<T>() -> u32 {
     size_of::<T>() as u32
 }
 
+#[expect(clippy::cast_possible_truncation)]
+const fn size_of_u16<T>() -> u16 {
+    const {
+        assert!(size_of::<T>() <= u16::MAX as usize);
+    }
+    size_of::<T>() as u16
+}
+
+const BITS_PER_BYTE: u16 = 8;
+
 #[derive(Debug)]
 pub struct Win32Window {
     bitmap_info: BITMAPINFO,
@@ -49,7 +59,7 @@ impl Win32Window {
         let header = &mut bitmap_info.bmiHeader;
         header.biSize = size_of_u32::<BITMAPINFOHEADER>();
         header.biPlanes = 1;
-        header.biBitCount = 32;
+        header.biBitCount = size_of_u16::<Color<u8>>() * BITS_PER_BYTE;
         header.biCompression = BI_RGB.0;
         bitmap_info
     }
@@ -58,6 +68,18 @@ impl Win32Window {
     #[must_use]
     pub fn handle(&self) -> HWND {
         self.window_handle
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn client_width(&self) -> i32 {
+        self.bitmap_info.bmiHeader.biWidth
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn client_height(&self) -> i32 {
+        -self.bitmap_info.bmiHeader.biHeight
     }
 
     pub fn create_window(
@@ -71,6 +93,7 @@ impl Win32Window {
         let class_name = Self::create_window_class(instance, window_procedure)?;
         self.window_handle =
             Self::create_win32_window(instance, class_name, width, height, application_pointer)?;
+        self.set_client_dimensions()?;
         Ok(())
     }
 
@@ -119,6 +142,15 @@ impl Win32Window {
         Ok(window)
     }
 
+    fn set_client_dimensions(&mut self) -> Win32Result<()> {
+        let mut rectangle = RECT::default();
+        unsafe { GetClientRect(self.window_handle, &raw mut rectangle)? };
+        let header = &mut self.bitmap_info.bmiHeader;
+        header.biWidth = rectangle.right.saturating_sub(rectangle.left);
+        header.biHeight = -rectangle.bottom.saturating_sub(rectangle.top);
+        Ok(())
+    }
+
     pub fn set_transparency(&mut self, is_active: bool) -> Win32Result<()> {
         // We make the window slightly transparent when not active to assist with debugging
         let alpha = if is_active { 0xFF } else { 0x90 };
@@ -128,39 +160,27 @@ impl Win32Window {
         Ok(())
     }
 
-    pub fn repaint(&mut self, state: &GameState, render_buffer: Option<&Vec<Color<u8>>>) {
+    pub fn repaint(&mut self, render_buffer: Option<&Vec<Color<u8>>>) {
         let mut paint_struct = PAINTSTRUCT::default();
         let device_context = unsafe { BeginPaint(self.window_handle, &raw mut paint_struct) };
-        self.write_buffer(state, render_buffer, device_context);
+        self.write_buffer(render_buffer, device_context);
         let _ = unsafe { EndPaint(self.window_handle, &raw mut paint_struct) };
     }
 
-    pub fn draw(&mut self, state: &GameState, render_buffer: Option<&Vec<Color<u8>>>) {
+    pub fn draw(&mut self, render_buffer: Option<&Vec<Color<u8>>>) {
         let device_context = unsafe { GetDC(Some(self.window_handle)) };
-        self.write_buffer(state, render_buffer, device_context);
+        self.write_buffer(render_buffer, device_context);
         unsafe { ReleaseDC(Some(self.window_handle), device_context) };
     }
 
-    fn write_buffer(
-        &mut self,
-        state: &GameState,
-        render_buffer: Option<&Vec<Color<u8>>>,
-        device_context: HDC,
-    ) {
+    fn write_buffer(&mut self, render_buffer: Option<&Vec<Color<u8>>>, device_context: HDC) {
         let Some(render_buffer) = render_buffer else {
             return;
         };
 
-        #[expect(clippy::cast_possible_truncation)]
-        let source_width = state.width().get::<pixel>() as i32;
-        #[expect(clippy::cast_possible_truncation)]
-        let source_height = state.height().get::<pixel>() as i32;
-
-        let header = &mut self.bitmap_info.bmiHeader;
-        header.biWidth = source_width;
-        header.biHeight = -source_height;
-
-        self.render_out_of_bounds(device_context, source_width, source_height);
+        let width = self.client_width();
+        let height = self.client_height();
+        self.render_out_of_bounds(device_context, width, height);
 
         unsafe {
             let bitmap_data = render_buffer.as_ptr().cast::<c_void>();
@@ -168,12 +188,12 @@ impl Win32Window {
                 device_context,
                 0,
                 0,
-                source_width,
-                source_height,
+                width,
+                height,
                 0,
                 0,
-                source_width,
-                source_height,
+                width,
+                height,
                 Some(bitmap_data),
                 &raw const self.bitmap_info,
                 DIB_RGB_COLORS,
@@ -184,16 +204,13 @@ impl Win32Window {
 
     // If the client area exceeds our buffer size due to resizing the window,
     // render a black background. We don't stretch the content.
-    fn render_out_of_bounds(&self, device_context: HDC, source_width: i32, source_height: i32) {
-        let Ok(client_rectangle) = self.client_rectangle() else {
-            return;
-        };
-        let client_height = client_rectangle.bottom;
-        let client_width = client_rectangle.right;
+    fn render_out_of_bounds(&self, device_context: HDC, width: i32, height: i32) {
+        let client_height = self.client_height();
+        let client_width = self.client_width();
         unsafe {
             let _ = PatBlt(
                 device_context,
-                source_width,
+                width,
                 0,
                 client_width,
                 client_height,
@@ -202,18 +219,12 @@ impl Win32Window {
             let _ = PatBlt(
                 device_context,
                 0,
-                source_height,
+                height,
                 client_width,
                 client_height,
                 BLACKNESS,
             );
         }
-    }
-
-    pub fn client_rectangle(&self) -> Win32Result<RECT> {
-        let mut client_rectangle = RECT::default();
-        unsafe { GetClientRect(self.window_handle, &raw mut client_rectangle)? };
-        Ok(client_rectangle)
     }
 
     pub fn client_coordinate(&self) -> Win32Result<POINT> {
