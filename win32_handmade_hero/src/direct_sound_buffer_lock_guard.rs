@@ -1,6 +1,9 @@
 use crate::direct_sound_buffer::DirectSoundBuffer;
+use crate::win32_utils::size_of_u32;
+use handmade_hero_interface::stereo_sample::StereoSample;
 use std::ffi::c_void;
 use std::ptr::null_mut;
+use std::slice;
 use windows::core::Result;
 
 pub struct DirectSoundBufferLockGuard<'ds> {
@@ -32,37 +35,36 @@ impl<'ds> DirectSoundBufferLockGuard<'ds> {
                 0,
             )?;
         }
-        Ok(Self {
+        let guard = Self {
             buffer,
             region1,
             region1_size,
             region2,
             region2_size,
-        })
+        };
+        Ok(guard)
+    }
+
+    pub fn region1_mut(&self) -> &mut [StereoSample] {
+        Self::region_slice_mut(self.region1, self.region1_size)
     }
 
     #[must_use]
     #[inline]
-    pub fn region1(&self) -> *mut c_void {
-        self.region1
+    pub fn region2_mut(&self) -> &mut [StereoSample] {
+        Self::region_slice_mut(self.region2, self.region2_size)
     }
 
-    #[must_use]
-    #[inline]
-    pub fn region1_size(&self) -> u32 {
-        self.region1_size
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn region2(&self) -> *mut c_void {
-        self.region2
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn region2_size(&self) -> u32 {
-        self.region2_size
+    fn region_slice_mut<'a>(region: *mut c_void, size: u32) -> &'a mut [StereoSample] {
+        if region.is_null() {
+            return &mut [];
+        }
+        let sample_count = size / size_of_u32::<StereoSample>();
+        let Ok(sample_count) = usize::try_from(sample_count) else {
+            return &mut [];
+        };
+        let sample_pointer = region.cast::<StereoSample>();
+        unsafe { slice::from_raw_parts_mut(sample_pointer, sample_count) }
     }
 }
 

@@ -1,21 +1,28 @@
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer_lock_guard::DirectSoundBufferLockGuard;
 use std::marker::PhantomData;
+use uom::si::u32::Information;
 use windows::Win32::Media::Audio::DirectSound::{DSBPLAY_LOOPING, IDirectSoundBuffer};
 use windows::core::Result;
 
 #[derive(Debug)]
 pub struct DirectSoundBuffer<'ds> {
+    _primary_buffer: IDirectSoundBuffer,
     pub(crate) buffer: IDirectSoundBuffer,
-    length: u32,
+    length: Information,
     direct_sound: PhantomData<&'ds DirectSound>,
 }
 
 impl DirectSoundBuffer<'_> {
     #[inline]
     #[must_use]
-    pub(crate) fn new(buffer: IDirectSoundBuffer, length: u32) -> Self {
+    pub(crate) fn new(
+        primary_buffer: IDirectSoundBuffer,
+        buffer: IDirectSoundBuffer,
+        length: Information,
+    ) -> Self {
         Self {
+            _primary_buffer: primary_buffer,
             buffer,
             length,
             direct_sound: PhantomData {},
@@ -24,7 +31,7 @@ impl DirectSoundBuffer<'_> {
 
     #[inline]
     #[must_use]
-    pub fn length(&self) -> u32 {
+    pub fn length(&self) -> Information {
         self.length
     }
 

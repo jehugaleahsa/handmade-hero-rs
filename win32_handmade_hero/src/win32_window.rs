@@ -18,21 +18,7 @@ use windows::{
     core::{Error, PCWSTR, Result as Win32Result, w},
 };
 
-#[expect(clippy::cast_possible_truncation)]
-const fn size_of_u32<T>() -> u32 {
-    const {
-        assert!(size_of::<T>() <= u32::MAX as usize);
-    }
-    size_of::<T>() as u32
-}
-
-#[expect(clippy::cast_possible_truncation)]
-const fn size_of_u16<T>() -> u16 {
-    const {
-        assert!(size_of::<T>() <= u16::MAX as usize);
-    }
-    size_of::<T>() as u16
-}
+use crate::win32_utils::{size_of_u16, size_of_u32};
 
 const BITS_PER_BYTE: u16 = 8;
 

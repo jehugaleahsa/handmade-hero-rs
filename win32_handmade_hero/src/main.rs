@@ -17,6 +17,8 @@ mod win32_keyboard;
 #[cfg(target_os = "windows")]
 mod win32_mouse;
 #[cfg(target_os = "windows")]
+mod win32_utils;
+#[cfg(target_os = "windows")]
 mod win32_window;
 
 use std::process::ExitCode;

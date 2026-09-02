@@ -7,7 +7,6 @@ use crate::win32_controller::{Win32Controller, Win32ControllerState};
 use crate::win32_keyboard::Win32Keyboard;
 use crate::win32_mouse::Win32Mouse;
 use crate::win32_window::Win32Window;
-use core::slice;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -513,7 +512,7 @@ impl Win32Application {
         };
         let play_cursor = Information::new::<byte>(play_cursor);
         let write_cursor = Information::new::<byte>(write_cursor);
-        let buffer_length = Information::new::<byte>(direct_sound_buffer.length());
+        let buffer_length = direct_sound_buffer.length();
         let bytes_per_sample = self.state.sound().bytes_per_sample();
         // Wrapping the sample index into the buffer before converting it to bytes keeps the
         // offset from overflowing once the index has been running for a few hours.
@@ -581,42 +580,27 @@ impl Win32Application {
             return;
         };
 
-        Self::copy_sound_buffer(
-            buffer_lock_guard.region1(),
-            buffer_lock_guard.region1_size(),
-            sound_buffer,
-            0,
-        );
+        let region1 = buffer_lock_guard.region1_mut();
+        Self::copy_sound_buffer(region1, sound_buffer, 0);
 
-        Self::copy_sound_buffer(
-            buffer_lock_guard.region2(),
-            buffer_lock_guard.region2_size(),
-            sound_buffer,
-            buffer_lock_guard.region1_size(),
-        );
+        let region2 = buffer_lock_guard.region2_mut();
+        Self::copy_sound_buffer(region2, sound_buffer, region1.len());
+
         let sample_count = u32::try_from(sample_count).unwrap_or(0); // Impossible?
-        self.sound_index = Some(sound_index.wrapping_add(sample_count));
+        let sound_index = sound_index.wrapping_add(sample_count);
+        self.sound_index = Some(sound_index);
     }
 
     fn copy_sound_buffer(
-        destination: *mut c_void,
-        destination_length_in_bytes: u32,
+        destination: &mut [StereoSample],
         source: &[StereoSample],
-        source_offset_in_bytes: u32,
+        source_offset_in_bytes: usize,
     ) {
-        if destination.is_null() {
-            return;
-        }
-        let sample_count =
-            usize::try_from(destination_length_in_bytes).unwrap_or(0) / size_of::<StereoSample>();
-        let sample_out =
-            unsafe { slice::from_raw_parts_mut(destination.cast::<StereoSample>(), sample_count) };
-        let source_offset =
-            usize::try_from(source_offset_in_bytes).unwrap_or(0) / size_of::<StereoSample>();
-        let source_end = source_offset.saturating_add(sample_count);
+        let source_offset = source_offset_in_bytes / size_of::<StereoSample>();
+        let source_end = source_offset.saturating_add(destination.len());
         let source_slice = &source[source_offset..source_end];
-        debug_assert_eq!(source_slice.len(), sample_out.len());
-        sample_out.copy_from_slice(source_slice);
+        debug_assert_eq!(source_slice.len(), destination.len());
+        destination.copy_from_slice(source_slice);
     }
 
     fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
