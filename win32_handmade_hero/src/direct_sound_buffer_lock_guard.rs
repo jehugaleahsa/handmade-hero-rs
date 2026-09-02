@@ -1,5 +1,5 @@
 use crate::direct_sound_buffer::DirectSoundBuffer;
-use crate::win32_utils::size_of_u32;
+use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use std::ffi::c_void;
 use std::ptr::null_mut;
@@ -56,10 +56,10 @@ impl<'ds> DirectSoundBufferLockGuard<'ds> {
     }
 
     fn region_slice_mut<'a>(region: *mut c_void, size: u32) -> &'a mut [StereoSample] {
-        if region.is_null() {
+        if region.is_null() || size == 0 {
             return &mut [];
         }
-        let sample_count = size / size_of_u32::<StereoSample>();
+        let sample_count = size / narrow_unsigned!(size_of::<StereoSample>() => u32);
         let Ok(sample_count) = usize::try_from(sample_count) else {
             return &mut [];
         };

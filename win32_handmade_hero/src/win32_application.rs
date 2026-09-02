@@ -17,6 +17,7 @@ use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
+use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
@@ -261,9 +262,7 @@ impl Win32Application {
 
     fn find_monitor_refresh_rate() -> Frequency {
         let default_refresh_rate = Frequency::new::<hertz>(DEFAULT_REFRESH_RATE);
-        let Ok(size) = u16::try_from(size_of::<DEVMODEW>()) else {
-            return default_refresh_rate;
-        };
+        let size = narrow_unsigned!(size_of::<DEVMODEW>() => u16);
         let mut mode = DEVMODEW {
             dmSize: size,
             ..DEVMODEW::default()
@@ -297,12 +296,8 @@ impl Win32Application {
     ) -> Option<DirectSoundBuffer<'a>> {
         direct_sound.as_ref().and_then(|ds| {
             let sound_state = self.state.sound();
-            let buffer = ds.create_buffer(
-                sound_state.channel_count(),
-                sound_state.samples_per_second(),
-                sound_state.bits_per_sample(),
-                sound_state.buffer_size(),
-            );
+            let buffer =
+                ds.create_buffer(sound_state.samples_per_second(), sound_state.buffer_size());
             buffer.ok()
         })
     }

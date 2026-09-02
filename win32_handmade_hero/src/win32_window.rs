@@ -1,6 +1,8 @@
 use std::ffi::c_void;
 
-use handmade_hero_interface::{back_buffer::BackBuffer, color::Color, units::si::length::pixel};
+use handmade_hero_interface::{
+    back_buffer::BackBuffer, color::Color, narrow_unsigned, units::si::length::pixel,
+};
 use windows::{
     Win32::{
         Foundation::{COLORREF, FALSE, HINSTANCE, HWND, POINT, RECT},
@@ -17,8 +19,6 @@ use windows::{
     },
     core::{Error, PCWSTR, Result as Win32Result, w},
 };
-
-use crate::win32_utils::{size_of_u16, size_of_u32};
 
 const BITS_PER_BYTE: u16 = 8;
 
@@ -43,9 +43,9 @@ impl Win32Window {
         // We configure these header field here once since they never change after set.
         let mut bitmap_info = BITMAPINFO::default();
         let header = &mut bitmap_info.bmiHeader;
-        header.biSize = size_of_u32::<BITMAPINFOHEADER>();
+        header.biSize = narrow_unsigned!(size_of::<BITMAPINFOHEADER>() => u32);
         header.biPlanes = 1;
-        header.biBitCount = size_of_u16::<Color<u8>>() * BITS_PER_BYTE;
+        header.biBitCount = narrow_unsigned!(size_of::<Color<u8>>() => u16) * BITS_PER_BYTE;
         header.biCompression = BI_RGB.0;
         bitmap_info
     }

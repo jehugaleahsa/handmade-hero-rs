@@ -24,5 +24,6 @@ pub mod tile_map;
 pub mod tile_map_coordinate;
 pub mod tile_map_key;
 pub mod units;
+pub mod utils;
 pub mod world;
 pub mod world_coordinate;

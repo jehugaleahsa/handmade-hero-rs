@@ -1,5 +1,6 @@
 use crate::direct_sound_buffer::DirectSoundBuffer;
-use crate::win32_utils::size_of_u32;
+use handmade_hero_interface::narrow_unsigned;
+use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::information::Information;
 use uom::si::frequency::hertz;
@@ -33,14 +34,12 @@ impl DirectSound {
 
     pub fn create_buffer(
         &self,
-        channel_count: u16,
         samples_per_second: Frequency,
-        sample_bits: u16,
         buffer_size: Information,
     ) -> Result<DirectSoundBuffer<'_>> {
         let primary_buffer_description = Self::create_primary_buffer_description();
         let primary_buffer = self.create_sound_buffer(&primary_buffer_description)?;
-        let mut format = Self::create_buffer_format(channel_count, samples_per_second, sample_bits);
+        let mut format = Self::create_buffer_format(samples_per_second);
         unsafe {
             primary_buffer.SetFormat(&raw const format)?;
         }
@@ -54,27 +53,24 @@ impl DirectSound {
     }
 
     fn create_primary_buffer_description() -> DSBUFFERDESC {
-        let mut description = DSBUFFERDESC::default();
-        let description_size = size_of_u32::<DSBUFFERDESC>();
-        description.dwSize = description_size;
-        description.dwFlags = DSBCAPS_PRIMARYBUFFER;
-        // NOTE: The buffer size for the primary buffer should be 0.
-        description
+        // NOTE: The buffer size for the primary buffer should be 0!
+        DSBUFFERDESC {
+            dwSize: narrow_unsigned!(size_of::<DSBUFFERDESC>() => u32),
+            dwFlags: DSBCAPS_PRIMARYBUFFER,
+            ..DSBUFFERDESC::default()
+        }
     }
 
-    fn create_buffer_format(
-        channel_count: u16,
-        samples_per_second: Frequency,
-        bits_per_sample: u16,
-    ) -> WAVEFORMATEX {
-        let block_align = channel_count * bits_per_sample / 8;
+    fn create_buffer_format(samples_per_second: Frequency) -> WAVEFORMATEX {
+        const BITS_PER_BYTE: u16 = 8;
+
         let samples_per_second_hz = samples_per_second.get::<hertz>();
+        let block_align = narrow_unsigned!(size_of::<StereoSample>() => u16);
+        let bits_per_sample = block_align / StereoSample::CHANNEL_COUNT * BITS_PER_BYTE;
         let average_bytes_per_second = samples_per_second_hz * u32::from(block_align);
-        #[expect(clippy::cast_possible_truncation)]
-        let format = WAVE_FORMAT_PCM as u16;
         WAVEFORMATEX {
-            wFormatTag: format,
-            nChannels: channel_count,
+            wFormatTag: narrow_unsigned!(WAVE_FORMAT_PCM => u16),
+            nChannels: StereoSample::CHANNEL_COUNT,
             nSamplesPerSec: samples_per_second_hz,
             wBitsPerSample: bits_per_sample,
             nBlockAlign: block_align,
@@ -87,13 +83,12 @@ impl DirectSound {
         buffer_size: Information,
         format: &mut WAVEFORMATEX,
     ) -> DSBUFFERDESC {
-        let mut description = DSBUFFERDESC::default();
-        #[expect(clippy::cast_possible_truncation)]
-        let description_size = size_of::<DSBUFFERDESC>() as u32;
-        description.dwSize = description_size;
-        description.dwBufferBytes = buffer_size.get::<byte>();
-        description.lpwfxFormat = format;
-        description
+        DSBUFFERDESC {
+            dwSize: narrow_unsigned!(size_of::<DSBUFFERDESC>() => u32),
+            dwBufferBytes: buffer_size.get::<byte>(),
+            lpwfxFormat: format,
+            ..DSBUFFERDESC::default()
+        }
     }
 
     fn create_sound_buffer(&self, description: &DSBUFFERDESC) -> Result<IDirectSoundBuffer> {
