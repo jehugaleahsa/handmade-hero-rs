@@ -1,10 +1,9 @@
 use crate::direct_sound_buffer::DirectSoundBuffer;
 use handmade_hero_interface::narrow_unsigned;
-use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::information::Information;
 use uom::si::frequency::hertz;
-use uom::si::information::byte;
+use uom::si::information::{bit, byte};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Media::Audio::DirectSound::{
     DSBCAPS_PRIMARYBUFFER, DSBUFFERDESC, DSSCL_PRIORITY, DirectSoundCreate, IDirectSound,
@@ -34,16 +33,19 @@ impl DirectSound {
 
     pub fn create_buffer(
         &self,
-        samples_per_second: Frequency,
-        buffer_size: Information,
+        sample_rate: Frequency,
+        channel_size: Information,
+        channel_count: u16,
+        duration: uom::si::u32::Time,
     ) -> Result<DirectSoundBuffer<'_>> {
         let primary_buffer_description = Self::create_primary_buffer_description();
         let primary_buffer = self.create_sound_buffer(&primary_buffer_description)?;
-        let mut format = Self::create_buffer_format(samples_per_second);
+        let mut format = Self::create_buffer_format(sample_rate, channel_size, channel_count);
         unsafe {
             primary_buffer.SetFormat(&raw const format)?;
         }
 
+        let buffer_size = Self::buffer_size(sample_rate, channel_size, channel_count, duration);
         let secondary_buffer_description =
             Self::create_secondary_buffer_description(buffer_size, &mut format);
         let secondary_buffer = self.create_sound_buffer(&secondary_buffer_description)?;
@@ -61,22 +63,38 @@ impl DirectSound {
         }
     }
 
-    fn create_buffer_format(samples_per_second: Frequency) -> WAVEFORMATEX {
-        const BITS_PER_BYTE: u16 = 8;
-
-        let samples_per_second_hz = samples_per_second.get::<hertz>();
-        let block_align = narrow_unsigned!(size_of::<StereoSample>() => u16);
-        let bits_per_sample = block_align / StereoSample::CHANNEL_COUNT * BITS_PER_BYTE;
-        let average_bytes_per_second = samples_per_second_hz * u32::from(block_align);
+    fn create_buffer_format(
+        sample_rate: Frequency,
+        channel_size: Information,
+        channel_count: u16,
+    ) -> WAVEFORMATEX {
+        let sample_rate_hz = sample_rate.get::<hertz>();
+        let bits_per_channel = channel_size.get::<bit>();
+        #[expect(clippy::cast_possible_truncation)]
+        let bits_per_channel = bits_per_channel as u16;
+        let bytes_per_sample = channel_size.get::<byte>() * u32::from(channel_count);
+        #[expect(clippy::cast_possible_truncation)]
+        let bytes_per_sample = bytes_per_sample as u16;
+        let average_bytes_per_second = sample_rate_hz * u32::from(bytes_per_sample);
         WAVEFORMATEX {
             wFormatTag: narrow_unsigned!(WAVE_FORMAT_PCM => u16),
-            nChannels: StereoSample::CHANNEL_COUNT,
-            nSamplesPerSec: samples_per_second_hz,
-            wBitsPerSample: bits_per_sample,
-            nBlockAlign: block_align,
+            nChannels: channel_count,
+            nSamplesPerSec: sample_rate_hz,
+            wBitsPerSample: bits_per_channel,
+            nBlockAlign: bytes_per_sample,
             nAvgBytesPerSec: average_bytes_per_second,
             ..Default::default()
         }
+    }
+
+    fn buffer_size(
+        sample_rate: Frequency,
+        channel_size: Information,
+        channel_count: u16,
+        duration: uom::si::u32::Time,
+    ) -> Information {
+        let sample_size = channel_size * u32::from(channel_count);
+        (sample_rate * duration * sample_size).into()
     }
 
     fn create_secondary_buffer_description(

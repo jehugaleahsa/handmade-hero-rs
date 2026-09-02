@@ -1,5 +1,6 @@
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer_lock_guard::DirectSoundBufferLockGuard;
+use handmade_hero_interface::sample::Sample;
 use std::marker::PhantomData;
 use uom::si::u32::Information;
 use windows::Win32::Media::Audio::DirectSound::{DSBPLAY_LOOPING, IDirectSoundBuffer};
@@ -50,11 +51,12 @@ impl DirectSoundBuffer<'_> {
         Ok((play_cursor, write_cursor))
     }
 
-    pub fn lock(
+    #[inline]
+    pub fn lock<T: Sample>(
         &self,
         write_offset: u32,
-        write_length: u32,
-    ) -> Result<DirectSoundBufferLockGuard<'_>> {
-        DirectSoundBufferLockGuard::create(self, write_offset, write_length)
+        write_size: Information,
+    ) -> Result<DirectSoundBufferLockGuard<'_, T>> {
+        DirectSoundBufferLockGuard::create(self, write_offset, write_size)
     }
 }

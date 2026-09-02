@@ -7,7 +7,9 @@ macro_rules! narrow_unsigned {
                 v <= <$t>::MAX as u128,
                 concat!("value does not fit in ", stringify!($t))
             );
-            v as $t
+            #[allow(clippy::cast_possible_truncation)]
+            let result = v as $t;
+            result
         }
     };
 }

@@ -19,6 +19,7 @@ use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::render_context::RenderContext;
+use handmade_hero_interface::sample::Sample;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::information::Information;
@@ -28,7 +29,7 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
-use uom::num::{Saturating, Zero};
+use uom::num::Zero;
 use uom::si::f32::{Ratio, Time};
 use uom::si::frequency::hertz;
 use uom::si::information::byte;
@@ -296,15 +297,19 @@ impl Win32Application {
     ) -> Option<DirectSoundBuffer<'a>> {
         direct_sound.as_ref().and_then(|ds| {
             let sound_state = self.state.sound();
-            let buffer =
-                ds.create_buffer(sound_state.samples_per_second(), sound_state.buffer_size());
+            let buffer = ds.create_buffer(
+                sound_state.samples_per_second(),
+                sound_state.channel_size(),
+                sound_state.channel_count(),
+                uom::si::u32::Time::new::<second>(1),
+            );
             buffer.ok()
         })
     }
 
     /// Half a frame of audio, used as the margin the write cursor must stay ahead of playback.
     fn calculate_sound_safety_margin(&self, monitor_refresh_rate: Frequency) -> Information {
-        self.sound_bytes_per_frame(monitor_refresh_rate) / 2
+        self.sample_size_per_frame(monitor_refresh_rate) / 2
     }
 
     /// Bytes of audio consumed by a single game frame.
@@ -313,9 +318,9 @@ impl Win32Application {
     /// rate by the refresh rate cancels the per-second term and leaves a byte count. Dividing
     /// last keeps every term an integer, so this needs no float round trip and carries no
     /// rounding error.
-    fn sound_bytes_per_frame(&self, monitor_refresh_rate: Frequency) -> Information {
-        let bytes_per_second = self.state.sound().bytes_per_second();
-        (bytes_per_second * u32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate).into()
+    fn sample_size_per_frame(&self, monitor_refresh_rate: Frequency) -> Information {
+        let sample_rate = self.state.sound().sample_rate();
+        (sample_rate * u32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate).into()
     }
 
     fn exe_directory() -> Result<PathBuf> {
@@ -505,58 +510,58 @@ impl Win32Application {
         let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
             return;
         };
-        let play_cursor = Information::new::<byte>(play_cursor);
-        let write_cursor = Information::new::<byte>(write_cursor);
         let buffer_length = direct_sound_buffer.length();
-        let bytes_per_sample = self.state.sound().bytes_per_sample();
+        let sample_size = self.state.sound().sample_size();
         // Wrapping the sample index into the buffer before converting it to bytes keeps the
         // offset from overflowing once the index has been running for a few hours.
-        let buffer_samples = (buffer_length / bytes_per_sample).value;
-        let write_offset = bytes_per_sample * (sound_index % buffer_samples);
+        let buffer_samples = (buffer_length / sample_size).value;
+        let write_offset = sample_size.value * (sound_index % buffer_samples);
 
         let safe_write_cursor = write_cursor
-            .saturating_add(self.sound_safety_margin)
+            .saturating_add(self.sound_safety_margin.value)
             .saturating_add(if write_cursor < play_cursor {
-                buffer_length
+                buffer_length.value
             } else {
-                Information::zero()
+                0
             });
         let frame_time_elapsed =
             Time::new::<second>(performance_counter.metrics().elapsed_time().as_secs_f32());
         let target_frame_duration = self.state.frame_duration();
         let remaining_frame_time = (target_frame_duration - frame_time_elapsed).max(Time::zero());
         let remaining_time_ratio: Ratio = remaining_frame_time / target_frame_duration;
-        let bytes_per_frame = self.sound_bytes_per_frame(monitor_refresh_rate);
+        let frame_size = self.sample_size_per_frame(monitor_refresh_rate);
         // The fraction of the frame still to elapse is genuinely fractional, so this one step
         // stays in floating point. `f64::from` is lossless from both `f32` and `u32`, and the
         // ratio is in [0, 1], so the only thing `as` discards here is the fraction of a byte.
-        let remaining_bytes = f64::from(remaining_time_ratio.get::<ratio>())
-            * f64::from(bytes_per_frame.get::<byte>());
+        let remaining_bytes =
+            f64::from(remaining_time_ratio.get::<ratio>()) * f64::from(frame_size.get::<byte>());
         #[expect(clippy::cast_sign_loss)]
         #[expect(clippy::cast_possible_truncation)]
-        let remaining_bytes = Information::new::<byte>(remaining_bytes as u32);
+        let remaining_bytes = remaining_bytes as u32;
         let expected_frame_boundary = play_cursor.saturating_add(remaining_bytes);
         let audio_is_latent = safe_write_cursor >= expected_frame_boundary;
         let target_cursor = if audio_is_latent {
             write_cursor
-                .saturating_add(self.sound_safety_margin)
-                .saturating_add(bytes_per_frame)
+                .saturating_add(self.sound_safety_margin.value)
+                .saturating_add(frame_size.value)
         } else {
-            expected_frame_boundary.saturating_add(bytes_per_frame)
+            expected_frame_boundary.saturating_add(frame_size.value)
         };
-        let target_cursor = target_cursor % buffer_length;
+        let target_cursor = target_cursor % buffer_length.value;
         let bytes_to_write = match write_offset.cmp(&target_cursor) {
             Ordering::Greater => buffer_length
+                .value
                 .saturating_sub(write_offset)
                 .saturating_add(target_cursor),
             Ordering::Less => target_cursor.saturating_sub(write_offset),
-            Ordering::Equal => Information::zero(),
+            Ordering::Equal => 0,
         };
-        if bytes_to_write == Information::zero() {
+        let write_size = Information::new::<byte>(bytes_to_write);
+        if write_size == Information::zero() {
             return;
         }
 
-        let sample_count = (bytes_to_write / bytes_per_sample).value;
+        let sample_count = (write_size / sample_size).value;
         let sample_count = usize::try_from(sample_count).unwrap_or(0); // 16-bit OS?
         let buffer_samples = usize::try_from(buffer_samples).unwrap_or(0); // 16-bit OS?
         let sound_buffer = self
@@ -569,8 +574,7 @@ impl Win32Application {
         };
         application.write_sound(context);
 
-        let buffer_lock_guard =
-            direct_sound_buffer.lock(write_offset.get::<byte>(), bytes_to_write.get::<byte>());
+        let buffer_lock_guard = direct_sound_buffer.lock::<StereoSample>(write_offset, write_size);
         let Ok(buffer_lock_guard) = buffer_lock_guard else {
             return;
         };
@@ -586,12 +590,7 @@ impl Win32Application {
         self.sound_index = Some(sound_index);
     }
 
-    fn copy_sound_buffer(
-        destination: &mut [StereoSample],
-        source: &[StereoSample],
-        source_offset_in_bytes: usize,
-    ) {
-        let source_offset = source_offset_in_bytes / size_of::<StereoSample>();
+    fn copy_sound_buffer<T: Sample>(destination: &mut [T], source: &[T], source_offset: usize) {
         let source_end = source_offset.saturating_add(destination.len());
         let source_slice = &source[source_offset..source_end];
         debug_assert_eq!(source_slice.len(), destination.len());
@@ -601,7 +600,7 @@ impl Win32Application {
     fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
         let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
         let write_cursor = Information::new::<byte>(write_cursor);
-        let bytes_per_sample = self.state.sound().bytes_per_sample();
+        let bytes_per_sample = self.state.sound().sample_size();
         let index = (write_cursor / bytes_per_sample).value;
         Some(index)
     }

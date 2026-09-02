@@ -18,6 +18,7 @@ pub mod player;
 pub mod point_2d;
 pub mod rectangle;
 pub mod render_context;
+pub mod sample;
 pub mod sound_state;
 pub mod stereo_sample;
 pub mod tile_map;

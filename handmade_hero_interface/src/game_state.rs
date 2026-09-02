@@ -1,5 +1,7 @@
 use crate::player::Player;
+use crate::sample::Sample;
 use crate::sound_state::SoundState;
+use crate::stereo_sample::StereoSample;
 use crate::tile_map_key::TileMapKey;
 use crate::units::si::length::Length;
 use crate::units::si::time::Time;
@@ -21,7 +23,8 @@ impl GameState {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        let sound = SoundState::new();
+        let sample = StereoSample::default();
+        let sound = SoundState::new(sample.channel_count(), sample.channel_size());
         let tile_size = Length::new::<meter>(1.4f32);
         let x_offset = -(tile_size / 1.6f32);
         let y_offset = -(tile_size / 3.5f32);

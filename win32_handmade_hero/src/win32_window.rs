@@ -3,6 +3,10 @@ use std::ffi::c_void;
 use handmade_hero_interface::{
     back_buffer::BackBuffer, color::Color, narrow_unsigned, units::si::length::pixel,
 };
+use uom::si::{
+    information::{bit, byte},
+    u32::Information,
+};
 use windows::{
     Win32::{
         Foundation::{COLORREF, FALSE, HINSTANCE, HWND, POINT, RECT},
@@ -19,8 +23,6 @@ use windows::{
     },
     core::{Error, PCWSTR, Result as Win32Result, w},
 };
-
-const BITS_PER_BYTE: u16 = 8;
 
 #[derive(Debug)]
 pub struct Win32Window {
@@ -45,7 +47,10 @@ impl Win32Window {
         let header = &mut bitmap_info.bmiHeader;
         header.biSize = narrow_unsigned!(size_of::<BITMAPINFOHEADER>() => u32);
         header.biPlanes = 1;
-        header.biBitCount = narrow_unsigned!(size_of::<Color<u8>>() => u16) * BITS_PER_BYTE;
+        let byte_count = narrow_unsigned!(size_of::<Color<u8>>() => u32);
+        #[expect(clippy::cast_possible_truncation)]
+        let bit_count = Information::new::<byte>(byte_count).get::<bit>() as u16;
+        header.biBitCount = bit_count;
         header.biCompression = BI_RGB.0;
         bitmap_info
     }
