@@ -55,14 +55,12 @@ impl<T> DirectSoundBufferLockGuard<'_, T>
 where
     T: Sample,
 {
-    pub fn region1_mut(&self) -> &mut [T] {
-        Self::region_slice_mut(self.region1, self.region1_size)
-    }
+    pub fn copy_from(&mut self, source: &[T]) {
+        let region1 = Self::region_slice_mut(self.region1, self.region1_size);
+        Self::copy_sound_buffer(region1, source, 0);
 
-    #[must_use]
-    #[inline]
-    pub fn region2_mut(&self) -> &mut [T] {
-        Self::region_slice_mut(self.region2, self.region2_size)
+        let region2 = Self::region_slice_mut(self.region2, self.region2_size);
+        Self::copy_sound_buffer(region2, source, region1.len());
     }
 
     fn region_slice_mut<'a>(region: *mut c_void, size: u32) -> &'a mut [T] {
@@ -75,6 +73,13 @@ where
         };
         let sample_pointer = region.cast::<T>();
         unsafe { slice::from_raw_parts_mut(sample_pointer, sample_count) }
+    }
+
+    fn copy_sound_buffer(destination: &mut [T], source: &[T], source_offset: usize) {
+        let source_end = source_offset.saturating_add(destination.len());
+        let source_slice = &source[source_offset..source_end];
+        debug_assert_eq!(source_slice.len(), destination.len());
+        destination.copy_from_slice(source_slice);
     }
 }
 

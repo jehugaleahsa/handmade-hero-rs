@@ -19,7 +19,6 @@ use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::render_context::RenderContext;
-use handmade_hero_interface::sample::Sample;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::information::Information;
@@ -575,26 +574,14 @@ impl Win32Application {
         application.write_sound(context);
 
         let buffer_lock_guard = direct_sound_buffer.lock::<StereoSample>(write_offset, write_size);
-        let Ok(buffer_lock_guard) = buffer_lock_guard else {
+        let Ok(mut buffer_lock_guard) = buffer_lock_guard else {
             return;
         };
-
-        let region1 = buffer_lock_guard.region1_mut();
-        Self::copy_sound_buffer(region1, sound_buffer, 0);
-
-        let region2 = buffer_lock_guard.region2_mut();
-        Self::copy_sound_buffer(region2, sound_buffer, region1.len());
+        buffer_lock_guard.copy_from(sound_buffer);
 
         let sample_count = u32::try_from(sample_count).unwrap_or(0); // Impossible?
         let sound_index = sound_index.wrapping_add(sample_count);
         self.sound_index = Some(sound_index);
-    }
-
-    fn copy_sound_buffer<T: Sample>(destination: &mut [T], source: &[T], source_offset: usize) {
-        let source_end = source_offset.saturating_add(destination.len());
-        let source_slice = &source[source_offset..source_end];
-        debug_assert_eq!(source_slice.len(), destination.len());
-        destination.copy_from_slice(source_slice);
     }
 
     fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
