@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uom::si::frequency::hertz;
 
 const SAMPLES_PER_SECOND: u32 = 48_000u32;
-const DEFAULT_VOLUME: i16 = 500;
+const DEFAULT_VOLUME: i16 = 1_000;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SoundState {

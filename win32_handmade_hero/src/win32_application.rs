@@ -511,10 +511,10 @@ impl Win32Application {
         };
         let buffer_length = direct_sound_buffer.length();
         let sample_size = self.state.sound().sample_size();
-        // Wrapping the sample index into the buffer before converting it to bytes keeps the
-        // offset from overflowing once the index has been running for a few hours.
+        // The sample index is kept inside the buffer, so converting it to bytes gives the write
+        // offset directly.
         let buffer_samples = (buffer_length / sample_size).get::<ratio>();
-        let write_offset = sample_size.get::<byte>() * (sound_index % buffer_samples);
+        let write_offset = sample_size.get::<byte>() * sound_index;
 
         let safe_write_cursor = write_cursor
             .saturating_add(self.sound_safety_margin.get::<byte>())
@@ -562,10 +562,10 @@ impl Win32Application {
 
         let sample_count = (write_size / sample_size).get::<ratio>();
         let sample_count = usize::try_from(sample_count).unwrap_or(0); // 16-bit OS?
-        let buffer_samples = usize::try_from(buffer_samples).unwrap_or(0); // 16-bit OS?
-        let sound_buffer = self
-            .sound_buffer
-            .get_or_insert_with(|| vec![StereoSample::default(); buffer_samples]);
+        let sound_buffer = self.sound_buffer.get_or_insert_with(|| {
+            let buffer_samples = usize::try_from(buffer_samples).unwrap_or(0); // 16-bit OS?
+            vec![StereoSample::default(); buffer_samples]
+        });
         let sound_buffer = &mut sound_buffer[..sample_count];
         let context = AudioContext {
             state: &mut self.state,
@@ -580,8 +580,13 @@ impl Win32Application {
         buffer_lock_guard.copy_from(sound_buffer);
 
         let sample_count = u32::try_from(sample_count).unwrap_or(0); // Impossible?
-        let sound_index = sound_index.wrapping_add(sample_count);
-        self.sound_index = Some(sound_index);
+        // A single write never covers the whole buffer, so the advanced index wraps at most once.
+        // The maximum DirectSound buffer is less than u32::MAX, so using + for addition is fine.
+        let mut next_index = sound_index + sample_count;
+        if next_index >= buffer_samples {
+            next_index -= buffer_samples;
+        }
+        self.sound_index = Some(next_index);
     }
 
     fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
