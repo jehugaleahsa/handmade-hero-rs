@@ -11,11 +11,11 @@ const DEFAULT_VOLUME: i16 = 500;
 pub struct SoundState {
     channel_count: u16,
     channel_size: Information,
-    /// The pitch of the experimental tone generator.
-    hertz: u32,
     /// The phase of the experimental tone generator.
     theta: f32,
     volume: i16,
+    counter: u32,
+    up: bool,
 }
 
 impl SoundState {
@@ -25,9 +25,10 @@ impl SoundState {
         Self {
             channel_count,
             channel_size,
-            hertz: 256,
             theta: 0f32,
             volume: DEFAULT_VOLUME,
+            counter: 0,
+            up: true,
         }
     }
 
@@ -45,7 +46,7 @@ impl SoundState {
 
     #[inline]
     #[must_use]
-    pub fn samples_per_second(&self) -> Frequency {
+    pub fn frequency(&self) -> Frequency {
         Frequency::new::<hertz>(SAMPLES_PER_SECOND)
     }
 
@@ -66,6 +67,28 @@ impl SoundState {
     #[inline]
     #[must_use]
     pub fn sample_rate(&self) -> InformationRate {
-        (self.sample_size() * self.samples_per_second()).into()
+        (self.sample_size() * self.frequency()).into()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn counter(&self) -> u32 {
+        self.counter
+    }
+
+    #[inline]
+    pub fn set_counter(&mut self, value: u32) {
+        self.counter = value;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn up(&self) -> bool {
+        self.up
+    }
+
+    #[inline]
+    pub fn set_up(&mut self, value: bool) {
+        self.up = value;
     }
 }

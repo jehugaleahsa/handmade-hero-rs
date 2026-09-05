@@ -12,15 +12,19 @@ use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
+use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::tile_map::TileMap;
 use handmade_hero_interface::tile_map_coordinate::TileMapCoordinate;
 use handmade_hero_interface::tile_map_key::TileMapKey;
+use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::{Length, pixel};
 use handmade_hero_interface::units::si::time::Time;
 use handmade_hero_interface::world::World;
 use handmade_hero_interface::world_coordinate::WorldCoordinate;
 use std::cmp::Ordering;
+use uom::si::frequency::hertz;
 use uom::si::length::meter;
+use uom::si::ratio::ratio;
 use uom::si::time::second;
 
 /// `World::TILE_ROWS` / `TILE_COLUMNS` as array dimensions. Array lengths must be `usize`
@@ -528,5 +532,36 @@ impl Application for ApplicationPlugin {
     }
 
     #[inline]
-    fn write_sound(&self, _context: AudioContext<'_>) {}
+    fn write_sound(&self, context: AudioContext<'_>) {
+        const MIDDLE_C_HERTZ: u32 = 261;
+        let AudioContext {
+            sound_buffer,
+            state,
+            ..
+        } = context;
+        let sound_state = state.sound();
+        let tone = Frequency::new::<hertz>(MIDDLE_C_HERTZ);
+        // Sample rate over tone frequency is a dimensionless count of samples per half period.
+        let period = (sound_state.frequency() / tone).get::<ratio>();
+
+        let volume = sound_state.volume();
+        let mut counter = sound_state.counter();
+        let mut up = sound_state.up();
+        for outbound in sound_buffer {
+            if counter == period {
+                counter = 0;
+                up = !up;
+            }
+            let sample = if up {
+                StereoSample::from_left_right(volume, volume)
+            } else {
+                StereoSample::from_left_right(-volume, -volume)
+            };
+            *outbound = sample;
+            counter += 1;
+        }
+        let sound_state = state.sound_mut();
+        sound_state.set_counter(counter);
+        sound_state.set_up(up);
+    }
 }

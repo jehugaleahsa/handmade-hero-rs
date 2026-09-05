@@ -297,7 +297,7 @@ impl Win32Application {
         direct_sound.as_ref().and_then(|ds| {
             let sound_state = self.state.sound();
             let buffer = ds.create_buffer(
-                sound_state.samples_per_second(),
+                sound_state.frequency(),
                 sound_state.channel_size(),
                 sound_state.channel_count(),
                 uom::si::u32::Time::new::<second>(1),
@@ -513,13 +513,13 @@ impl Win32Application {
         let sample_size = self.state.sound().sample_size();
         // Wrapping the sample index into the buffer before converting it to bytes keeps the
         // offset from overflowing once the index has been running for a few hours.
-        let buffer_samples = (buffer_length / sample_size).value;
-        let write_offset = sample_size.value * (sound_index % buffer_samples);
+        let buffer_samples = (buffer_length / sample_size).get::<ratio>();
+        let write_offset = sample_size.get::<byte>() * (sound_index % buffer_samples);
 
         let safe_write_cursor = write_cursor
-            .saturating_add(self.sound_safety_margin.value)
+            .saturating_add(self.sound_safety_margin.get::<byte>())
             .saturating_add(if write_cursor < play_cursor {
-                buffer_length.value
+                buffer_length.get::<byte>()
             } else {
                 0
             });
@@ -541,15 +541,15 @@ impl Win32Application {
         let audio_is_latent = safe_write_cursor >= expected_frame_boundary;
         let target_cursor = if audio_is_latent {
             write_cursor
-                .saturating_add(self.sound_safety_margin.value)
-                .saturating_add(frame_size.value)
+                .saturating_add(self.sound_safety_margin.get::<byte>())
+                .saturating_add(frame_size.get::<byte>())
         } else {
-            expected_frame_boundary.saturating_add(frame_size.value)
+            expected_frame_boundary.saturating_add(frame_size.get::<byte>())
         };
-        let target_cursor = target_cursor % buffer_length.value;
+        let target_cursor = target_cursor % buffer_length.get::<byte>();
         let bytes_to_write = match write_offset.cmp(&target_cursor) {
             Ordering::Greater => buffer_length
-                .value
+                .get::<byte>()
                 .saturating_sub(write_offset)
                 .saturating_add(target_cursor),
             Ordering::Less => target_cursor.saturating_sub(write_offset),
@@ -560,7 +560,7 @@ impl Win32Application {
             return;
         }
 
-        let sample_count = (write_size / sample_size).value;
+        let sample_count = (write_size / sample_size).get::<ratio>();
         let sample_count = usize::try_from(sample_count).unwrap_or(0); // 16-bit OS?
         let buffer_samples = usize::try_from(buffer_samples).unwrap_or(0); // 16-bit OS?
         let sound_buffer = self
@@ -588,7 +588,7 @@ impl Win32Application {
         let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
         let write_cursor = Information::new::<byte>(write_cursor);
         let bytes_per_sample = self.state.sound().sample_size();
-        let index = (write_cursor / bytes_per_sample).value;
+        let index = (write_cursor / bytes_per_sample).get::<ratio>();
         Some(index)
     }
 
