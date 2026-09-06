@@ -11,7 +11,7 @@ const DEFAULT_VOLUME: i16 = 3_000;
 pub struct SoundState {
     channel_count: u16,
     channel_size: Information,
-    theta: u32,
+    theta: f32,
     volume: i16,
 }
 
@@ -22,7 +22,7 @@ impl SoundState {
         Self {
             channel_count,
             channel_size,
-            theta: 0,
+            theta: 0f32,
             volume: DEFAULT_VOLUME,
         }
     }
@@ -67,12 +67,12 @@ impl SoundState {
 
     #[inline]
     #[must_use]
-    pub fn theta(&self) -> u32 {
+    pub fn theta(&self) -> f32 {
         self.theta
     }
 
     #[inline]
-    pub fn set_theta(&mut self, value: u32) {
+    pub fn set_theta(&mut self, value: f32) {
         self.theta = value;
     }
 }

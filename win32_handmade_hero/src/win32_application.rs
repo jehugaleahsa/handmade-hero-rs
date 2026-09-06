@@ -264,7 +264,6 @@ impl Win32Application {
     }
 
     fn find_monitor_refresh_rate() -> Frequency {
-        let default_refresh_rate = Frequency::new::<hertz>(DEFAULT_REFRESH_RATE);
         let size = narrow_unsigned!(size_of::<DEVMODEW>() => u16);
         let mut mode = DEVMODEW {
             dmSize: size,
@@ -272,11 +271,11 @@ impl Win32Application {
         };
         let success = unsafe { EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, &raw mut mode) };
         if !success.as_bool() {
-            return default_refresh_rate;
+            return Frequency::new::<hertz>(DEFAULT_REFRESH_RATE);
         }
         let frequency = mode.dmDisplayFrequency;
         if frequency == 0 || frequency == 1 {
-            return default_refresh_rate;
+            return Frequency::new::<hertz>(DEFAULT_REFRESH_RATE);
         }
         Frequency::new::<hertz>(frequency)
     }
@@ -309,9 +308,9 @@ impl Win32Application {
         })
     }
 
-    /// Half a frame of audio, used as the margin the write cursor must stay ahead of playback.
+    /// A portion of a frame of audio, used as the margin the write cursor must stay ahead of playback.
     fn calculate_sound_safety_margin(&self, monitor_refresh_rate: Frequency) -> Information {
-        self.sample_size_per_frame(monitor_refresh_rate) / 2
+        self.sample_size_per_frame(monitor_refresh_rate) / 4
     }
 
     /// Bytes of audio consumed by a single game frame.
@@ -572,6 +571,7 @@ impl Win32Application {
         let sound_buffer = &mut sound_buffer[..sample_count];
         let context = AudioContext {
             state: &mut self.state,
+            input_state: &mut self.input,
             sound_buffer,
         };
         application.write_sound(context);

@@ -23,6 +23,7 @@ use handmade_hero_interface::world::World;
 use handmade_hero_interface::world_coordinate::WorldCoordinate;
 use std::cmp::Ordering;
 use std::f32;
+use uom::ConstZero;
 use uom::si::frequency::hertz;
 use uom::si::length::meter;
 use uom::si::ratio::ratio;
@@ -523,38 +524,57 @@ impl Application for ApplicationPlugin {
 
     #[inline]
     fn render(&self, context: RenderContext<'_>) {
-        let RenderContext {
-            input: _input,
-            state,
-            buffer,
-        } = context;
+        let RenderContext { state, buffer, .. } = context;
 
         Self::render_direct(state, buffer);
     }
 
     #[inline]
     fn write_sound(&self, context: AudioContext<'_>) {
-        const MIDDLE_C_HERTZ: u32 = 261;
+        const C_HERTZ: f32 = 261.63;
+        const TWO_PI: f32 = 2.0 * f32::consts::PI;
+
         let AudioContext {
             sound_buffer,
             state,
+            input_state,
             ..
         } = context;
         let sound_state = state.sound();
-        let tone = Frequency::new::<hertz>(MIDDLE_C_HERTZ);
-        let period = (sound_state.frequency() / tone).get::<ratio>();
+        let multiplier = if let Some(controller) = input_state.controllers().first() {
+            let left_joystick = controller.left_joystick();
+            let y_ratio = left_joystick.y_ratio();
+            1.0 + -y_ratio
+        } else {
+            1.0
+        };
+        #[expect(clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation)]
+        let tone = Frequency::new::<hertz>((C_HERTZ * multiplier) as u32);
+        let period = if tone == Frequency::ZERO {
+            0
+        } else {
+            (sound_state.frequency() / tone).get::<ratio>()
+        };
 
         let volume = sound_state.volume();
         let mut theta = sound_state.theta();
         for outbound in sound_buffer {
             #[expect(clippy::cast_precision_loss)]
-            let value = 2.0 * f32::consts::PI * (theta as f32 / period as f32);
-            let value = f32::from(volume) * value.sin();
+            let step = if period == 0 {
+                0.0
+            } else {
+                1.0 / period as f32
+            };
+            theta += TWO_PI * step;
+            if theta >= TWO_PI {
+                theta -= TWO_PI;
+            }
+            let value = f32::from(volume) * theta.sin();
             #[expect(clippy::cast_possible_truncation)]
             let value = value as i16;
             let sample = StereoSample::from_left_right(value, value);
             *outbound = sample;
-            theta = theta.wrapping_add(1);
         }
         let sound_state = state.sound_mut();
         sound_state.set_theta(theta);
