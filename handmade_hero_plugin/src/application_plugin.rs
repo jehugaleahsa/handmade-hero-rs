@@ -22,6 +22,7 @@ use handmade_hero_interface::units::si::time::Time;
 use handmade_hero_interface::world::World;
 use handmade_hero_interface::world_coordinate::WorldCoordinate;
 use std::cmp::Ordering;
+use std::f32;
 use uom::si::frequency::hertz;
 use uom::si::length::meter;
 use uom::si::ratio::ratio;
@@ -541,27 +542,21 @@ impl Application for ApplicationPlugin {
         } = context;
         let sound_state = state.sound();
         let tone = Frequency::new::<hertz>(MIDDLE_C_HERTZ);
-        // Sample rate over tone frequency is a dimensionless count of samples per half period.
         let period = (sound_state.frequency() / tone).get::<ratio>();
 
         let volume = sound_state.volume();
-        let mut counter = sound_state.counter();
-        let mut up = sound_state.up();
+        let mut theta = sound_state.theta();
         for outbound in sound_buffer {
-            if counter == period {
-                counter = 0;
-                up = !up;
-            }
-            let sample = if up {
-                StereoSample::from_left_right(volume, volume)
-            } else {
-                StereoSample::from_left_right(-volume, -volume)
-            };
+            #[expect(clippy::cast_precision_loss)]
+            let value = 2.0 * f32::consts::PI * (theta as f32 / period as f32);
+            let value = f32::from(volume) * value.sin();
+            #[expect(clippy::cast_possible_truncation)]
+            let value = value as i16;
+            let sample = StereoSample::from_left_right(value, value);
             *outbound = sample;
-            counter += 1;
+            theta = theta.wrapping_add(1);
         }
         let sound_state = state.sound_mut();
-        sound_state.set_counter(counter);
-        sound_state.set_up(up);
+        sound_state.set_theta(theta);
     }
 }

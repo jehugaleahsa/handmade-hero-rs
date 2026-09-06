@@ -238,6 +238,9 @@ impl Win32Application {
                 return Ok(code);
             }
             if self.closing {
+                if let Some(ref mut sound_buffer) = sound_buffer {
+                    sound_buffer.stop().unwrap_or(()); // Ignore errors
+                }
                 continue;
             }
 
@@ -581,8 +584,8 @@ impl Win32Application {
 
         let sample_count = u32::try_from(sample_count).unwrap_or(0); // Impossible?
         // A single write never covers the whole buffer, so the advanced index wraps at most once.
-        // The maximum DirectSound buffer is less than u32::MAX, so using + for addition is fine.
-        let mut next_index = sound_index + sample_count;
+        // Safety: The maximum DirectSound buffer is less than u32::MAX, so overflow isn't possible.
+        let mut next_index = sound_index.strict_add(sample_count);
         if next_index >= buffer_samples {
             next_index -= buffer_samples;
         }
@@ -591,9 +594,11 @@ impl Win32Application {
 
     fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
         let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
-        let write_cursor = Information::new::<byte>(write_cursor);
-        let bytes_per_sample = self.state.sound().sample_size();
-        let index = (write_cursor / bytes_per_sample).get::<ratio>();
+        let sample_size = self.state.sound().sample_size().get::<byte>();
+        if sample_size == 0 {
+            return None;
+        }
+        let index = write_cursor / sample_size;
         Some(index)
     }
 

@@ -37,8 +37,13 @@ impl DirectSoundBuffer<'_> {
     }
 
     #[inline]
-    pub fn play_looping(&self) -> Result<()> {
+    pub fn play_looping(&mut self) -> Result<()> {
         unsafe { self.buffer.Play(0, 0, DSBPLAY_LOOPING) }
+    }
+
+    #[inline]
+    pub fn stop(&mut self) -> Result<()> {
+        unsafe { self.buffer.Stop() }
     }
 
     pub fn get_cursors(&self) -> Result<(u32, u32)> {
@@ -53,7 +58,7 @@ impl DirectSoundBuffer<'_> {
 
     #[inline]
     pub fn lock<T: Sample>(
-        &self,
+        &mut self,
         write_offset: u32,
         write_size: Information,
     ) -> Result<DirectSoundBufferLockGuard<'_, T>> {

@@ -5,17 +5,14 @@ use serde::{Deserialize, Serialize};
 use uom::si::frequency::hertz;
 
 const SAMPLES_PER_SECOND: u32 = 48_000u32;
-const DEFAULT_VOLUME: i16 = 1_000;
+const DEFAULT_VOLUME: i16 = 3_000;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SoundState {
     channel_count: u16,
     channel_size: Information,
-    /// The phase of the experimental tone generator.
-    theta: f32,
+    theta: u32,
     volume: i16,
-    counter: u32,
-    up: bool,
 }
 
 impl SoundState {
@@ -25,10 +22,8 @@ impl SoundState {
         Self {
             channel_count,
             channel_size,
-            theta: 0f32,
+            theta: 0,
             volume: DEFAULT_VOLUME,
-            counter: 0,
-            up: true,
         }
     }
 
@@ -72,23 +67,12 @@ impl SoundState {
 
     #[inline]
     #[must_use]
-    pub fn counter(&self) -> u32 {
-        self.counter
+    pub fn theta(&self) -> u32 {
+        self.theta
     }
 
     #[inline]
-    pub fn set_counter(&mut self, value: u32) {
-        self.counter = value;
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn up(&self) -> bool {
-        self.up
-    }
-
-    #[inline]
-    pub fn set_up(&mut self, value: bool) {
-        self.up = value;
+    pub fn set_theta(&mut self, value: u32) {
+        self.theta = value;
     }
 }
