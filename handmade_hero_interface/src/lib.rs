@@ -14,6 +14,7 @@ pub mod input_context;
 pub mod input_state;
 pub mod joystick_state;
 pub mod mouse_state;
+pub mod performance_counter;
 pub mod player;
 pub mod point_2d;
 pub mod rectangle;

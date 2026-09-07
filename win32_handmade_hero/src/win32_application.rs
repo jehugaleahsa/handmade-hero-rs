@@ -1,7 +1,6 @@
 use crate::application_loader::{ApplicationLoader, ApplicationStub};
 use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
-use crate::performance_counter::PerformanceCounter;
 use crate::playback_recorder::PlaybackRecorder;
 use crate::win32_controller::{Win32Controller, Win32ControllerState};
 use crate::win32_keyboard::Win32Keyboard;
@@ -18,6 +17,7 @@ use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::narrow_unsigned;
+use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
@@ -37,7 +37,6 @@ use uom::si::ratio::ratio;
 use uom::si::time::second;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
-use windows::Win32::Media::{TIMERR_NOERROR, timeBeginPeriod};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GetWindowLongPtrW, MSG,
@@ -218,8 +217,6 @@ impl Win32Application {
         let monitor_refresh_rate = Self::find_monitor_refresh_rate();
         let frame_duration = Self::frame_duration(monitor_refresh_rate);
         self.state.set_frame_duration(frame_duration);
-        // Try to set the Windows scheduler granularity to 1ms!
-        let is_sleep_granular = unsafe { timeBeginPeriod(1) } == TIMERR_NOERROR;
 
         let direct_sound = DirectSound::initialize(self.window.handle()).ok();
         let mut sound_buffer = self.create_sound_buffer(direct_sound.as_ref());
@@ -256,7 +253,7 @@ impl Win32Application {
                 &counter,
             );
 
-            self.wait_for_framerate(&mut counter, is_sleep_granular);
+            self.wait_for_framerate(&mut counter);
 
             self.window.draw(&self.back_buffer);
             self.update_sound_index(sound_buffer.as_ref());
@@ -602,16 +599,14 @@ impl Win32Application {
         Some(index)
     }
 
-    fn wait_for_framerate(&self, counter: &mut PerformanceCounter, is_sleep_granular: bool) {
+    fn wait_for_framerate(&self, counter: &mut PerformanceCounter) {
         let mut metrics = counter.metrics();
         let mut time_elapsed = metrics.elapsed_time();
         let frame_duration = self.state.frame_duration().get::<second>();
         let frame_duration = Duration::from_secs_f32(frame_duration);
         while time_elapsed < frame_duration {
-            if is_sleep_granular {
-                let remaining = frame_duration.saturating_sub(time_elapsed);
-                std::thread::sleep(remaining);
-            }
+            let remaining = frame_duration.saturating_sub(time_elapsed);
+            std::thread::sleep(remaining);
 
             metrics = counter.metrics();
             time_elapsed = metrics.elapsed_time();

@@ -1,5 +1,4 @@
 mod application_loader;
-mod performance_counter;
 mod playback_recorder;
 
 #[cfg(target_os = "windows")]

@@ -19,17 +19,21 @@ pub struct PerformanceCounter {
 }
 
 impl PerformanceCounter {
+    #[must_use]
+    #[inline]
     pub fn start() -> Self {
         let last_instant = Instant::now();
         Self { last_instant }
     }
 
+    #[must_use]
     pub fn metrics(&self) -> PerformanceMetrics {
         let current = Instant::now();
         let elapsed_time = current.duration_since(self.last_instant);
         PerformanceMetrics { elapsed_time }
     }
 
+    #[inline]
     pub fn restart(&mut self) {
         self.last_instant = Instant::now();
     }
