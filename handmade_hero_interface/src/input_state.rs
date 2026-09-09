@@ -64,12 +64,15 @@ impl InputState {
         &self.controllers
     }
 
-    pub fn track_down(button_state: &mut ButtonState, is_down: bool) {
-        button_state.set_ended_down(is_down);
-        if is_down {
-            button_state.increment_half_transition_count();
-        } else {
-            button_state.reset_half_transition_count();
+    #[inline]
+    pub fn track_down(button_state: &mut ButtonState, is_pressed: bool) {
+        button_state.track_down(is_pressed);
+    }
+
+    pub fn reset_counts(&mut self) {
+        self.keyboard.reset_counts();
+        for controller in &mut self.controllers {
+            controller.reset_counts();
         }
     }
 }

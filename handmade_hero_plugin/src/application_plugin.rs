@@ -256,13 +256,25 @@ impl ApplicationPlugin {
     #[inline]
     #[must_use]
     fn calculate_controller_delta_x(controller: &ControllerState) -> f32 {
-        controller.left_joystick().x_ratio()
+        if controller.left().ended_down() {
+            -1.0
+        } else if controller.right().ended_down() {
+            1.0
+        } else {
+            controller.left_joystick().x_ratio()
+        }
     }
 
     #[inline]
     #[must_use]
-    fn calculate_controller_delta_y(controller_state: &ControllerState) -> f32 {
-        controller_state.left_joystick().y_ratio()
+    fn calculate_controller_delta_y(controller: &ControllerState) -> f32 {
+        if controller.up().ended_down() {
+            -1.0
+        } else if controller.down().ended_down() {
+            1.0
+        } else {
+            controller.left_joystick().y_ratio()
+        }
     }
 
     fn render_direct(state: &GameState, buffer: &mut BackBuffer) {

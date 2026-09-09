@@ -10,7 +10,6 @@ use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::back_buffer::BackBuffer;
-use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
@@ -231,6 +230,7 @@ impl Win32Application {
         let mut recorder = PlaybackRecorder::new(&exe_directory);
         let mut counter = PerformanceCounter::start();
         loop {
+            self.input.reset_counts();
             if let Some(code) = Self::process_message()? {
                 return Ok(code);
             }
@@ -419,24 +419,32 @@ impl Win32Application {
     }
 
     fn poll_controller_state(controller: &mut ControllerState, win32_controller: &Win32Controller) {
-        ButtonState::track_down(controller.a_mut(), win32_controller.is_a());
-        ButtonState::track_down(controller.b_mut(), win32_controller.is_b());
-        ButtonState::track_down(controller.x_mut(), win32_controller.is_x());
-        ButtonState::track_down(controller.y_mut(), win32_controller.is_y());
-        ButtonState::track_down(controller.start_mut(), win32_controller.is_start());
-        ButtonState::track_down(controller.back_mut(), win32_controller.is_back());
-        ButtonState::track_down(controller.up_mut(), win32_controller.is_dpad_up());
-        ButtonState::track_down(controller.down_mut(), win32_controller.is_dpad_down());
-        ButtonState::track_down(controller.left_mut(), win32_controller.is_dpad_left());
-        ButtonState::track_down(controller.right_mut(), win32_controller.is_dpad_right());
-        ButtonState::track_down(
-            controller.left_shoulder_mut(),
-            win32_controller.is_left_shoulder(),
-        );
-        ButtonState::track_down(
-            controller.right_shoulder_mut(),
-            win32_controller.is_right_shoulder(),
-        );
+        controller.a_mut().track_down(win32_controller.is_a());
+        controller.b_mut().track_down(win32_controller.is_b());
+        controller.x_mut().track_down(win32_controller.is_x());
+        controller.y_mut().track_down(win32_controller.is_y());
+        controller
+            .start_mut()
+            .track_down(win32_controller.is_start());
+        controller.back_mut().track_down(win32_controller.is_back());
+        controller
+            .up_mut()
+            .track_down(win32_controller.is_dpad_up());
+        controller
+            .down_mut()
+            .track_down(win32_controller.is_dpad_down());
+        controller
+            .left_mut()
+            .track_down(win32_controller.is_dpad_left());
+        controller
+            .right_mut()
+            .track_down(win32_controller.is_dpad_right());
+        controller
+            .left_shoulder_mut()
+            .track_down(win32_controller.is_left_shoulder());
+        controller
+            .right_shoulder_mut()
+            .track_down(win32_controller.is_right_shoulder());
 
         let left_joystick = controller.left_joystick_mut();
         left_joystick.set_x_ratio(win32_controller.left_joystick_x());

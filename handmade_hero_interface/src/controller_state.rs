@@ -225,6 +225,21 @@ impl ControllerState {
         &mut self.right_joystick
     }
 
+    pub fn reset_counts(&mut self) {
+        self.a.reset_half_transition_count();
+        self.b.reset_half_transition_count();
+        self.x.reset_half_transition_count();
+        self.y.reset_half_transition_count();
+        self.left_shoulder.reset_half_transition_count();
+        self.right_shoulder.reset_half_transition_count();
+        self.up.reset_half_transition_count();
+        self.down.reset_half_transition_count();
+        self.left.reset_half_transition_count();
+        self.right.reset_half_transition_count();
+        self.start.reset_half_transition_count();
+        self.back.reset_half_transition_count();
+    }
+
     pub fn clear(&mut self) {
         self.a.clear();
         self.b.clear();
