@@ -238,5 +238,9 @@ impl ControllerState {
         self.right.clear();
         self.start.clear();
         self.back.clear();
+        self.left_trigger_ratio = 0.0;
+        self.right_trigger_ratio = 0.0;
+        self.left_joystick.clear();
+        self.right_joystick.clear();
     }
 }

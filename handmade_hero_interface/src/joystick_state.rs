@@ -28,4 +28,9 @@ impl JoystickState {
     pub fn set_y_ratio(&mut self, value: f32) {
         self.y_ratio = value;
     }
+
+    pub fn clear(&mut self) {
+        self.x_ratio = 0.0;
+        self.y_ratio = 0.0;
+    }
 }
