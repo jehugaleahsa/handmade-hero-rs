@@ -1,3 +1,4 @@
+use crate::button::Button;
 use crate::button_state::ButtonState;
 use crate::joystick_state::JoystickState;
 use serde::{Deserialize, Serialize};
@@ -223,6 +224,43 @@ impl ControllerState {
     #[must_use]
     pub fn right_joystick_mut(&mut self) -> &mut JoystickState {
         &mut self.right_joystick
+    }
+
+    /// Looks a button up by name, so callers can be written once for every button.
+    #[must_use]
+    pub fn button(&self, button: Button) -> &ButtonState {
+        match button {
+            Button::A => &self.a,
+            Button::B => &self.b,
+            Button::X => &self.x,
+            Button::Y => &self.y,
+            Button::LeftShoulder => &self.left_shoulder,
+            Button::RightShoulder => &self.right_shoulder,
+            Button::Up => &self.up,
+            Button::Down => &self.down,
+            Button::Left => &self.left,
+            Button::Right => &self.right,
+            Button::Start => &self.start,
+            Button::Back => &self.back,
+        }
+    }
+
+    #[must_use]
+    pub fn button_mut(&mut self, button: Button) -> &mut ButtonState {
+        match button {
+            Button::A => &mut self.a,
+            Button::B => &mut self.b,
+            Button::X => &mut self.x,
+            Button::Y => &mut self.y,
+            Button::LeftShoulder => &mut self.left_shoulder,
+            Button::RightShoulder => &mut self.right_shoulder,
+            Button::Up => &mut self.up,
+            Button::Down => &mut self.down,
+            Button::Left => &mut self.left,
+            Button::Right => &mut self.right,
+            Button::Start => &mut self.start,
+            Button::Back => &mut self.back,
+        }
     }
 
     pub fn reset_counts(&mut self) {
