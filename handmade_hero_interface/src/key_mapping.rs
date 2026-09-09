@@ -1,9 +1,12 @@
+use smallvec::SmallVec;
+
 use crate::button::Button;
 use crate::key::Key;
 use crate::key_mapping_error::KeyMappingError;
 
 /// How many keys may drive a single button. Two covers WASD plus arrows; four leaves headroom.
 pub const MAX_KEYS_PER_BUTTON: usize = 4;
+type KeysForButtonVec = SmallVec<[Key; MAX_KEYS_PER_BUTTON]>;
 
 /// A many-to-one binding from keys to controller buttons.
 ///
@@ -14,17 +17,22 @@ pub const MAX_KEYS_PER_BUTTON: usize = 4;
 #[derive(Debug, Clone)]
 pub struct KeyMapping {
     button_for_key: [Option<Button>; Key::COUNT],
-    keys_for_button: [[Option<Key>; MAX_KEYS_PER_BUTTON]; Button::COUNT],
+    keys_for_button: [KeysForButtonVec; Button::COUNT],
 }
 
 impl KeyMapping {
     /// A mapping with no bindings at all.
+    /// NOTE: In the future, we should be able to make this const, but `core::array::from_fn`
+    /// can't be called from a const context yet.
     #[inline]
     #[must_use]
-    pub const fn empty() -> Self {
+    pub fn empty() -> Self {
+        const BUTTON_COUNT: usize = Button::COUNT;
         Self {
             button_for_key: [None; Key::COUNT],
-            keys_for_button: [[None; MAX_KEYS_PER_BUTTON]; Button::COUNT],
+            keys_for_button: core::array::from_fn::<_, BUTTON_COUNT, _>(|_| {
+                KeysForButtonVec::new()
+            }),
         }
     }
 
@@ -39,10 +47,7 @@ impl KeyMapping {
             return Err(KeyMappingError::KeyAlreadyBound { key, button });
         }
         let slots = &mut self.keys_for_button[button.index()];
-        let Some(slot) = slots.iter_mut().find(|slot| slot.is_none()) else {
-            return Err(KeyMappingError::ButtonFull { button });
-        };
-        *slot = Some(key);
+        slots.push(key);
         self.button_for_key[key.index()] = Some(button);
         Ok(())
     }
@@ -52,11 +57,8 @@ impl KeyMapping {
         let Some(button) = self.button_for_key[key.index()].take() else {
             return;
         };
-        for slot in &mut self.keys_for_button[button.index()] {
-            if *slot == Some(key) {
-                *slot = None;
-            }
-        }
+        let keys = &mut self.keys_for_button[button.index()];
+        keys.retain(|x| *x != key);
     }
 
     /// The button `key` drives, if any.
@@ -68,11 +70,8 @@ impl KeyMapping {
 
     /// Every key that drives `button`.
     #[inline]
-    pub fn keys_for(&self, button: Button) -> impl Iterator<Item = Key> + '_ {
-        self.keys_for_button[button.index()]
-            .iter()
-            .flatten()
-            .copied()
+    pub fn keys_for(&self, button: Button) -> impl Iterator<Item = Key> {
+        self.keys_for_button[button.index()].iter().copied()
     }
 }
 
@@ -113,7 +112,7 @@ fn default_mapping() -> KeyMapping {
 mod tests {
     use crate::button::Button;
     use crate::key::Key;
-    use crate::key_mapping::{KeyMapping, MAX_KEYS_PER_BUTTON};
+    use crate::key_mapping::KeyMapping;
     use crate::key_mapping_error::KeyMappingError;
 
     #[test]
@@ -143,21 +142,6 @@ mod tests {
             })
         );
         assert_eq!(mapping.keys_for(Button::Down).count(), 0);
-    }
-
-    #[test]
-    fn test_button_has_a_key_limit() {
-        let mut mapping = KeyMapping::empty();
-        let keys = [Key::A, Key::B, Key::C, Key::D, Key::E];
-        for key in &keys[..MAX_KEYS_PER_BUTTON] {
-            mapping.bind(*key, Button::A).unwrap();
-        }
-        let result = mapping.bind(keys[MAX_KEYS_PER_BUTTON], Button::A);
-        assert_eq!(
-            result,
-            Err(KeyMappingError::ButtonFull { button: Button::A })
-        );
-        assert_eq!(mapping.button_for(keys[MAX_KEYS_PER_BUTTON]), None);
     }
 
     #[test]
