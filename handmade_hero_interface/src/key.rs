@@ -1,11 +1,4 @@
 /// A physical key on a keyboard, named after its label on a US layout.
-///
-/// This is the platform-agnostic vocabulary the platform layer translates its native key codes
-/// into. The game never sees these directly; a [`crate::key_mapping::KeyMapping`] turns them into
-/// controller buttons. Modifiers keep their left and right identities because collapsing them
-/// later is trivial and splitting them later is not.
-///
-/// The enum is `repr(u8)` so a key can index a fixed-size array without a hash map.
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Key {
@@ -129,7 +122,7 @@ pub enum Key {
 
 impl Key {
     /// The number of keys, suitable for sizing an array indexed by [`Key::index`].
-    pub const COUNT: usize = Key::Pause as usize + 1;
+    pub const COUNT: usize = Key::Pause.index() + 1;
 
     /// The letter keys in alphabetical order, so `LETTERS[0]` is A.
     pub const LETTERS: [Key; 26] = [

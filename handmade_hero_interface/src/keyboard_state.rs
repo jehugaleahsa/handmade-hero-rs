@@ -17,9 +17,6 @@ use crate::key_mapping::KeyMapping;
 /// The mapping is not stored here. This type is serialized as part of the game's input so a
 /// recording can be replayed, and the bindings are configuration rather than input. The caller
 /// passes the mapping in with each key event instead.
-///
-/// Nothing here is Windows specific. The platform translates its native key codes into [`Key`]
-/// before calling in, so this type compiles and tests on any platform.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyboardState {
     keys: SmallVec<[ButtonState; Key::COUNT]>,
@@ -69,11 +66,26 @@ impl KeyboardState {
         self.is_key_down(Key::LeftAlt) || self.is_key_down(Key::RightAlt)
     }
 
-    /// The controller the keyboard currently looks like.
+    /// The controller state mirroring the currently captured keyboard events.
     #[inline]
     #[must_use]
     pub fn as_controller(&self) -> &ControllerState {
         &self.controller
+    }
+
+    /// Applies a full snapshot of which keys are physically down.
+    ///
+    /// Use this when the window regains keyboard focus. Any key the user pressed or released
+    /// while another window had focus never sent this window a message, so the tracked state is
+    /// stale until it is reconciled with what the operating system reports.
+    pub fn synchronize(
+        &mut self,
+        mapping: &KeyMapping,
+        states: impl IntoIterator<Item = (Key, bool)>,
+    ) {
+        for (key, is_down) in states {
+            self.track_key(mapping, key, is_down);
+        }
     }
 
     /// Records that `key` is now down or up, and updates the button it drives, if any.
@@ -93,19 +105,13 @@ impl KeyboardState {
         }
     }
 
-    /// Applies a full snapshot of which keys are physically down.
-    ///
-    /// Use this when the window regains keyboard focus. Any key the user pressed or released
-    /// while another window had focus never sent this window a message, so the tracked state is
-    /// stale until it is reconciled with what the operating system reports.
-    pub fn synchronize(
-        &mut self,
-        mapping: &KeyMapping,
-        states: impl IntoIterator<Item = (Key, bool)>,
-    ) {
-        for (key, is_down) in states {
-            self.track_key(mapping, key, is_down);
-        }
+    /// A button is down while any key bound to it is down. `track_down` only counts a
+    /// transition when that OR flips, so holding two keys for one button is one press.
+    fn derive_button(&mut self, mapping: &KeyMapping, button: Button) {
+        let any_down = mapping
+            .keys_for(button)
+            .any(|key| self.keys[key.index()].ended_down());
+        self.controller.button_mut(button).track_down(any_down);
     }
 
     /// Releases every key, counting a transition for each one that was held.
@@ -128,15 +134,6 @@ impl KeyboardState {
             key.reset_half_transition_count();
         }
         self.controller.reset_counts();
-    }
-
-    /// A button is down while any key bound to it is down. `track_down` only counts a
-    /// transition when that OR flips, so holding two keys for one button is one press.
-    fn derive_button(&mut self, mapping: &KeyMapping, button: Button) {
-        let any_down = mapping
-            .keys_for(button)
-            .any(|key| self.keys[key.index()].ended_down());
-        self.controller.button_mut(button).track_down(any_down);
     }
 }
 

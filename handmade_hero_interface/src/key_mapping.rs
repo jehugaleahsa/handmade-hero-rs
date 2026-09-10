@@ -12,7 +12,7 @@ type KeysForButtonVec = SmallVec<[Key; KEYS_PER_BUTTON_WATERMARK]>;
 ///
 /// A key drives at most one button. A button may be driven by several keys, which is what lets
 /// W and Up Arrow both mean "up". Both directions are stored so each lookup is a single array
-/// index: the platform asks which button a key drives when a key event arrives, and the
+/// index. The platform asks which button a key drives when a key event arrives, and the
 /// aggregation step asks which keys drive that button so it can OR their states together.
 #[derive(Debug, Clone)]
 pub struct KeyMapping {
@@ -36,7 +36,7 @@ impl KeyMapping {
         }
     }
 
-    /// Makes `key` drive `button`.
+    /// Maps `key` to the `button`.
     ///
     /// # Errors
     ///
@@ -76,7 +76,7 @@ impl KeyMapping {
 
 impl Default for KeyMapping {
     /// The bindings the game ships with: WASD and the arrow keys for the D-pad, Q and E for the
-    /// shoulders, and Escape for Start.
+    /// shoulders, and Escape for Start. Should be game-specific and not hard-coded here.
     fn default() -> Self {
         default_mapping()
     }
@@ -99,7 +99,6 @@ fn default_mapping() -> KeyMapping {
 
     let mut mapping = KeyMapping::empty();
     for (key, button) in BINDINGS {
-        // The table above is fixed, so a failure here is a programming error in the table itself.
         mapping
             .bind(key, button)
             .expect("The default key mapping must bind each key exactly once");

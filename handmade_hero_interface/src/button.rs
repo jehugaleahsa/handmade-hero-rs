@@ -1,7 +1,4 @@
-/// A digital button on a [`crate::controller_state::ControllerState`].
-///
-/// Naming the buttons lets a key mapping be data instead of a chain of `if` statements, and lets
-/// code iterate every button without knowing the struct's fields.
+/// A controller button or keyboard key.
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Button {
@@ -22,7 +19,7 @@ pub enum Button {
 
 impl Button {
     /// The number of buttons, suitable for sizing an array indexed by [`Button::index`].
-    pub const COUNT: usize = Button::Back as usize + 1;
+    pub const COUNT: usize = Button::Back.index() + 1;
 
     /// Every button, in index order.
     pub const ALL: [Button; Button::COUNT] = [

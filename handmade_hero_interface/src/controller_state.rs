@@ -245,6 +245,7 @@ impl ControllerState {
         }
     }
 
+    /// Looks a button up by name, so callers can be written once for every button.
     #[must_use]
     pub fn button_mut(&mut self, button: Button) -> &mut ButtonState {
         match button {
