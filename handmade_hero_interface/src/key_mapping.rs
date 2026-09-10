@@ -4,9 +4,9 @@ use crate::button::Button;
 use crate::key::Key;
 use crate::key_mapping_error::KeyMappingError;
 
-/// How many keys may drive a single button. Two covers WASD plus arrows; four leaves headroom.
-pub const MAX_KEYS_PER_BUTTON: usize = 4;
-type KeysForButtonVec = SmallVec<[Key; MAX_KEYS_PER_BUTTON]>;
+/// A realistic maximum number of keys mapped to a single button, with headroom.
+const KEYS_PER_BUTTON_WATERMARK: usize = 4;
+type KeysForButtonVec = SmallVec<[Key; KEYS_PER_BUTTON_WATERMARK]>;
 
 /// A many-to-one binding from keys to controller buttons.
 ///
