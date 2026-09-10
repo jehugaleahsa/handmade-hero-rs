@@ -1,3 +1,6 @@
+use serde::{Deserialize, Serialize};
+use smallvec::{SmallVec, smallvec};
+
 use crate::button::Button;
 use crate::button_state::ButtonState;
 use crate::controller_state::ControllerState;
@@ -13,24 +16,20 @@ use crate::key_mapping::KeyMapping;
 ///
 /// Nothing here is Windows specific. The platform translates its native key codes into [`Key`]
 /// before calling in, so this type compiles and tests on any platform.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct KeyboardState {
-    keys: [ButtonState; Key::COUNT],
-    mapping: KeyMapping,
+    keys: SmallVec<[ButtonState; Key::COUNT]>,
     controller: ControllerState,
 }
 
 impl KeyboardState {
     #[must_use]
-    pub fn new(mapping: KeyMapping) -> Self {
+    pub fn new() -> Self {
+        let keys = smallvec![ButtonState::default(); Key::COUNT];
         // A keyboard is always present, unlike a gamepad that may be unplugged.
         let mut controller = ControllerState::default();
         controller.set_enabled(true);
-        Self {
-            keys: [ButtonState::default(); Key::COUNT],
-            mapping,
-            controller,
-        }
+        Self { keys, controller }
     }
 
     #[inline]
@@ -66,12 +65,6 @@ impl KeyboardState {
         self.is_key_down(Key::LeftAlt) || self.is_key_down(Key::RightAlt)
     }
 
-    #[inline]
-    #[must_use]
-    pub fn mapping(&self) -> &KeyMapping {
-        &self.mapping
-    }
-
     /// The controller the keyboard currently looks like.
     ///
     /// Copy this into the game's input once per frame, after the platform has pumped its
@@ -89,9 +82,6 @@ impl KeyboardState {
     /// purely to avoid the wasted work.
     pub fn track_key(&mut self, key: Key, is_down: bool) {
         self.keys[key.index()].track_down(is_down);
-        if let Some(button) = self.mapping.button_for(key) {
-            self.derive_button(button);
-        }
     }
 
     /// Applies a full snapshot of which keys are physically down.
@@ -127,22 +117,20 @@ impl KeyboardState {
         self.controller.reset_counts();
     }
 
-    /// Recomputes one button from the keys bound to it. This is the aggregation step: the
-    /// button is down while *any* of its keys is down, and its own `track_down` decides whether
-    /// that amounts to a transition.
-    fn derive_button(&mut self, button: Button) {
-        let any_down = self
-            .mapping
-            .keys_for(button)
-            .any(|key| self.keys[key.index()].ended_down());
-        self.controller.button_mut(button).track_down(any_down);
+    pub fn derived_buttons(&mut self, mapping: &KeyMapping) {
+        for button in Button::ALL {
+            let any_down = mapping
+                .keys_for(button)
+                .any(|key| self.keys[key.index()].ended_down());
+            self.controller.button_mut(button).track_down(any_down);
+        }
     }
 }
 
 impl Default for KeyboardState {
     #[inline]
     fn default() -> Self {
-        Self::new(KeyMapping::default())
+        Self::new()
     }
 }
 
@@ -160,45 +148,56 @@ mod tests {
 
     #[test]
     fn test_single_key_press_and_release() {
+        let mapping = KeyMapping::default();
         let mut keyboard = KeyboardState::default();
 
         keyboard.track_key(Key::W, true);
+        keyboard.derived_buttons(&mapping);
         assert!(keyboard.is_key_down(Key::W));
         assert_eq!(up_button(&keyboard), (true, 1));
 
         keyboard.track_key(Key::W, false);
+        keyboard.derived_buttons(&mapping);
         assert!(!keyboard.is_key_down(Key::W));
         assert_eq!(up_button(&keyboard), (false, 2));
     }
 
     #[test]
     fn test_autorepeat_does_not_count_as_a_transition() {
+        let mapping = KeyMapping::default();
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::W, true);
         keyboard.track_key(Key::W, true);
         keyboard.track_key(Key::W, true);
+        keyboard.derived_buttons(&mapping);
         assert_eq!(up_button(&keyboard), (true, 1));
     }
 
     #[test]
     fn test_button_stays_down_while_any_bound_key_is_held() {
         // Hold W, tap Up Arrow, and the character must keep moving.
+        let mapping = KeyMapping::default();
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::W, true);
         keyboard.track_key(Key::Up, true);
+        keyboard.derived_buttons(&mapping);
         assert_eq!(up_button(&keyboard), (true, 1));
 
         keyboard.track_key(Key::Up, false);
+        keyboard.derived_buttons(&mapping);
         assert_eq!(up_button(&keyboard), (true, 1));
 
         keyboard.track_key(Key::W, false);
+        keyboard.derived_buttons(&mapping);
         assert_eq!(up_button(&keyboard), (false, 2));
     }
 
     #[test]
     fn test_unbound_keys_do_not_touch_the_controller() {
+        let mapping = KeyMapping::default();
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::L, true);
+        keyboard.derived_buttons(&mapping);
         assert!(keyboard.is_key_down(Key::L));
         for button in Button::ALL {
             let state = keyboard.controller().button(button);
@@ -226,20 +225,25 @@ mod tests {
 
     #[test]
     fn test_reset_counts_keeps_held_keys_held() {
+        let mapping = KeyMapping::default();
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::W, true);
+        keyboard.derived_buttons(&mapping);
         keyboard.reset_counts();
 
         assert!(keyboard.is_key_down(Key::W));
         assert_eq!(keyboard.key(Key::W).half_transition_count(), 0);
+        keyboard.derived_buttons(&mapping);
         assert_eq!(up_button(&keyboard), (true, 0));
     }
 
     #[test]
     fn test_release_all_lowers_keys_and_buttons_with_a_transition() {
+        let mapping = KeyMapping::default();
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::W, true);
         keyboard.track_key(Key::LeftControl, true);
+        keyboard.derived_buttons(&mapping);
         keyboard.reset_counts();
 
         keyboard.release_all();
@@ -257,8 +261,10 @@ mod tests {
 
     #[test]
     fn test_synchronize_applies_a_snapshot() {
+        let mapping = KeyMapping::default();
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::W, true);
+        keyboard.derived_buttons(&mapping);
         keyboard.reset_counts();
 
         // While the window was unfocused the user let go of W and pressed D and Right Control.
@@ -268,6 +274,8 @@ mod tests {
             (Key::RightControl, true),
             (Key::S, false),
         ]);
+
+        keyboard.derived_buttons(&mapping);
 
         assert_eq!(up_button(&keyboard), (false, 1));
         let right = keyboard.controller().button(Button::Right);
@@ -283,12 +291,14 @@ mod tests {
     fn test_custom_mapping_is_honored() {
         let mut mapping = KeyMapping::empty();
         mapping.bind(Key::Space, Button::A).unwrap();
-        let mut keyboard = KeyboardState::new(mapping);
+        let mut keyboard = KeyboardState::new();
 
         keyboard.track_key(Key::Space, true);
+        keyboard.derived_buttons(&mapping);
         assert!(keyboard.controller().button(Button::A).ended_down());
         // W means nothing under this mapping.
         keyboard.track_key(Key::W, true);
+        keyboard.derived_buttons(&mapping);
         assert!(!keyboard.controller().button(Button::Up).ended_down());
     }
 

@@ -208,8 +208,8 @@ impl ApplicationPlugin {
 
     fn calculate_delta_x_y(input: &InputState, state: &GameState) -> (f32, f32) {
         let keyboard = input.keyboard();
-        let mut delta_x = Self::calculate_keyboard_delta_x(keyboard);
-        let mut delta_y = Self::calculate_keyboard_delta_y(keyboard);
+        let mut delta_x = Self::calculate_keyboard_delta_x(keyboard.controller());
+        let mut delta_y = Self::calculate_keyboard_delta_y(keyboard.controller());
         if delta_x == 0f32 && delta_y == 0f32 {
             for controller in input.controllers() {
                 if controller.enabled() {
