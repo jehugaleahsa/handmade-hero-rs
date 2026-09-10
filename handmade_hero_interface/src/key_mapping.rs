@@ -40,8 +40,7 @@ impl KeyMapping {
     ///
     /// # Errors
     ///
-    /// Fails if the key already drives a button, or if the button already has
-    /// [`MAX_KEYS_PER_BUTTON`] keys bound to it. The mapping is unchanged on failure.
+    /// Fails if the key already drives a button. The mapping is unchanged on failure.
     pub fn bind(&mut self, key: Key, button: Button) -> Result<(), KeyMappingError> {
         if let Some(button) = self.button_for_key[key.index()] {
             return Err(KeyMappingError::KeyAlreadyBound { key, button });

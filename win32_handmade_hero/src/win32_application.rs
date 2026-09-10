@@ -17,6 +17,7 @@ use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::key::Key;
 use handmade_hero_interface::key_mapping::KeyMapping;
+use handmade_hero_interface::keyboard_state::KeyboardState;
 use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::render_context::RenderContext;
@@ -65,6 +66,7 @@ pub enum RecordingState {
 pub struct Win32Application {
     state: GameState,
     input: InputState,
+    keyboard: KeyboardState,
     key_mapping: KeyMapping,
     window: Win32Window,
     back_buffer: BackBuffer,
@@ -81,6 +83,7 @@ impl Win32Application {
         Win32Application {
             state: GameState::new(),
             input: InputState::new(),
+            keyboard: KeyboardState::new(),
             key_mapping: KeyMapping::default(),
             window,
             back_buffer: BackBuffer::default(),
@@ -162,7 +165,7 @@ impl Win32Application {
             WM_KILLFOCUS => {
                 // Any key still held will be released into some other window, so we would never
                 // hear about it. Let go of everything now rather than leave keys stuck down.
-                self.input.keyboard_mut().release_all();
+                self.keyboard.release_all();
                 LRESULT(0)
             }
             WM_SETFOCUS => {
@@ -180,7 +183,7 @@ impl Win32Application {
     /// stale-but-harmless state we already had.
     fn synchronize_keyboard(&mut self) {
         if let Ok(key_states) = win32_key_event::physical_key_states() {
-            self.input.keyboard_mut().synchronize(key_states);
+            self.keyboard.synchronize(&self.key_mapping, key_states);
         }
     }
 
@@ -204,11 +207,11 @@ impl Win32Application {
             return LRESULT(0);
         };
         let is_down = key_event.is_down();
-        self.input.keyboard_mut().track_key(key, is_down);
+        self.keyboard.track_key(&self.key_mapping, key, is_down);
 
         // Allow exiting with ALT+F4. Handling WM_SYSKEYDOWN ourselves means Windows no longer
         // does this for us.
-        if key == Key::F4 && is_down && self.input.keyboard().is_alt_down() {
+        if key == Key::F4 && is_down && self.keyboard.is_alt_down() {
             return self.prepare_close();
         }
         LRESULT(0)
@@ -222,13 +225,10 @@ impl Win32Application {
     /// held. Doing this once per frame instead of inside the message handler also means a tap
     /// that lands entirely between two frames still toggles, thanks to the half-transition count.
     fn process_recording_hotkey(&mut self) {
-        if !self.input.keyboard().key(Key::L).was_pressed() {
+        if !self.keyboard.key(Key::L).was_pressed() {
             return;
         }
-        self.recording_state = match (
-            &self.recording_state,
-            self.input.keyboard().is_control_down(),
-        ) {
+        self.recording_state = match (&self.recording_state, self.keyboard.is_control_down()) {
             (_, true) => RecordingState::None,
             (RecordingState::None | RecordingState::Playing, false) => RecordingState::Recording,
             (RecordingState::Recording, false) => RecordingState::Playing,
@@ -256,6 +256,7 @@ impl Win32Application {
             // A new frame starts with every half-transition count at zero, while each button
             // keeps whether it ended the last frame down.
             self.input.reset_counts();
+            self.keyboard.reset_counts();
             if let Some(code) = Self::process_message()? {
                 return Ok(code);
             }
@@ -408,11 +409,10 @@ impl Win32Application {
                 recorder.reset_playback().unwrap_or_default(); // We miss a frame here
             }
         } else {
-            // The keyboard has been accumulating key events all frame.
-            // Convert them into simulated controller actions.
-            self.input
-                .keyboard_mut()
-                .simulate_controller_actions(&self.key_mapping);
+            // The keyboard has been accumulating key events all frame. Publish a copy as the
+            // input the game sees. Because this happens every live frame, stopping playback needs
+            // no special reset: the next frame simply shows the real keys again.
+            *self.input.keyboard_mut() = self.keyboard.clone();
             self.poll_all_controller_state();
             if let Ok(client_coordinates) = self.window.client_coordinate() {
                 self.capture_mouse_state(client_coordinates)
