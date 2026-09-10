@@ -3,7 +3,7 @@ use crate::direct_sound::DirectSound;
 use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::playback_recorder::PlaybackRecorder;
 use crate::win32_controller::{Win32Controller, Win32ControllerState};
-use crate::win32_keyboard::Win32Keyboard;
+use crate::win32_key_event::{self, Win32KeyEvent};
 use crate::win32_mouse::Win32Mouse;
 use crate::win32_window::Win32Window;
 use handmade_hero_interface::application::Application;
@@ -15,6 +15,9 @@ use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
+use handmade_hero_interface::key::Key;
+use handmade_hero_interface::key_mapping::KeyMapping;
+use handmade_hero_interface::keyboard_state::KeyboardState;
 use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::render_context::RenderContext;
@@ -40,8 +43,8 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GetWindowLongPtrW, MSG,
     PM_REMOVE, PeekMessageW, PostQuitMessage, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP,
-    WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_NCCREATE, WM_PAINT, WM_QUIT, WM_SYSKEYDOWN,
-    WM_SYSKEYUP,
+    WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_NCCREATE, WM_PAINT, WM_QUIT,
+    WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::{Error, Result as Win32Result};
 
@@ -63,6 +66,8 @@ pub enum RecordingState {
 pub struct Win32Application {
     state: GameState,
     input: InputState,
+    keyboard: KeyboardState,
+    key_mapping: KeyMapping,
     window: Win32Window,
     back_buffer: BackBuffer,
     sound_buffer: Option<Vec<StereoSample>>,
@@ -78,6 +83,8 @@ impl Win32Application {
         Win32Application {
             state: GameState::new(),
             input: InputState::new(),
+            keyboard: KeyboardState::new(),
+            key_mapping: KeyMapping::default(),
             window,
             back_buffer: BackBuffer::default(),
             sound_buffer: None,
@@ -155,7 +162,28 @@ impl Win32Application {
             WM_SYSKEYDOWN | WM_SYSKEYUP | WM_KEYDOWN | WM_KEYUP => {
                 self.handle_key_press(w_param, l_param)
             }
+            WM_KILLFOCUS => {
+                // Any key still held will be released into some other window, so we would never
+                // hear about it. Let go of everything now rather than leave keys stuck down.
+                self.keyboard.release_all();
+                LRESULT(0)
+            }
+            WM_SETFOCUS => {
+                self.synchronize_keyboard();
+                LRESULT(0)
+            }
             _ => unsafe { DefWindowProcW(self.window.handle(), message, w_param, l_param) },
+        }
+    }
+
+    /// Reconciles the tracked keyboard with what is physically held, for when focus returns.
+    ///
+    /// A user who ALT+TABs away and comes back with a key already down would otherwise have to
+    /// release and re-press it before the game noticed. Errors are ignored: the fallback is the
+    /// stale-but-harmless state we already had.
+    fn synchronize_keyboard(&mut self) {
+        if let Ok(key_states) = win32_key_event::physical_key_states() {
+            self.keyboard.synchronize(&self.key_mapping, key_states);
         }
     }
 
@@ -165,51 +193,46 @@ impl Win32Application {
         LRESULT(0)
     }
 
+    /// Translates one key message into the platform-agnostic keyboard.
+    ///
+    /// This is deliberately the only place Windows key codes appear. Which button a key drives,
+    /// and what happens when several keys drive the same button, is the keyboard's business.
     fn handle_key_press(&mut self, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-        let win_keyboard = Win32Keyboard::from_params(w_param, l_param);
-        let was_down = win_keyboard.was_key_down();
-        let is_down = win_keyboard.is_key_down();
-        if was_down == is_down {
-            // Ignore repeated messages
+        let key_event = Win32KeyEvent::from_params(w_param, l_param);
+        if key_event.is_repeat() {
+            // A held key autorepeats as a stream of key-down messages. Only real changes matter.
             return LRESULT(0);
         }
+        let Some(key) = key_event.key() else {
+            return LRESULT(0);
+        };
+        let is_down = key_event.is_down();
+        self.keyboard.track_key(&self.key_mapping, key, is_down);
 
-        let keyboard = self.input.keyboard_mut();
-        if win_keyboard.is_alt() && win_keyboard.is_f4() {
-            // Allow exiting with ALT+F4
+        // Allow exiting with ALT+F4. Handling WM_SYSKEYDOWN ourselves means Windows no longer
+        // does this for us.
+        if key == Key::F4 && is_down && self.keyboard.is_alt_down() {
             return self.prepare_close();
-        } else if win_keyboard.is_w() || win_keyboard.is_up() {
-            InputState::track_down(keyboard.up_mut(), is_down);
-        } else if win_keyboard.is_a() || win_keyboard.is_left() {
-            InputState::track_down(keyboard.left_mut(), is_down);
-        } else if win_keyboard.is_s() || win_keyboard.is_down() {
-            InputState::track_down(keyboard.down_mut(), is_down);
-        } else if win_keyboard.is_d() || win_keyboard.is_right() {
-            InputState::track_down(keyboard.right_mut(), is_down);
-        } else if win_keyboard.is_q() {
-            InputState::track_down(keyboard.left_shoulder_mut(), is_down);
-        } else if win_keyboard.is_e() {
-            InputState::track_down(keyboard.right_shoulder_mut(), is_down);
-        } else if win_keyboard.is_escape() {
-            InputState::track_down(keyboard.start_mut(), is_down);
-        } else if win_keyboard.is_l() && is_down {
-            // Hitting 'L' begins a recording sessions.
-            // Hitting 'L' again causes the recording session to end.
-            // The recording will play back in an infinite loop until CTRL+L is hit.
-            match (&self.recording_state, win_keyboard.is_control()) {
-                (RecordingState::None | RecordingState::Playing, false) => {
-                    self.recording_state = RecordingState::Recording;
-                }
-                (RecordingState::Recording, false) => {
-                    self.recording_state = RecordingState::Playing;
-                }
-                (_, true) => {
-                    self.recording_state = RecordingState::None;
-                    keyboard.clear();
-                }
-            }
         }
         LRESULT(0)
+    }
+
+    /// Hitting 'L' begins a recording session. Hitting 'L' again ends it and starts looping
+    /// playback. CTRL+L stops playback and returns to live input.
+    ///
+    /// Toggling is a discrete action, so it asks whether L *was pressed* this frame rather than
+    /// whether it is down. Checking `ended_down` would flip the state on every frame the key is
+    /// held. Doing this once per frame instead of inside the message handler also means a tap
+    /// that lands entirely between two frames still toggles, thanks to the half-transition count.
+    fn process_recording_hotkey(&mut self) {
+        if !self.keyboard.key(Key::L).was_pressed() {
+            return;
+        }
+        self.recording_state = match (&self.recording_state, self.keyboard.is_control_down()) {
+            (_, true) => RecordingState::None,
+            (RecordingState::None | RecordingState::Playing, false) => RecordingState::Recording,
+            (RecordingState::Recording, false) => RecordingState::Playing,
+        };
     }
 
     pub fn run(&mut self) -> Result<ExitCode> {
@@ -230,10 +253,14 @@ impl Win32Application {
         let mut recorder = PlaybackRecorder::new(&exe_directory);
         let mut counter = PerformanceCounter::start();
         loop {
+            // A new frame starts with every half-transition count at zero, while each button
+            // keeps whether it ended the last frame down.
             self.input.reset_counts();
+            self.keyboard.reset_counts();
             if let Some(code) = Self::process_message()? {
                 return Ok(code);
             }
+            self.process_recording_hotkey();
             if self.closing {
                 if let Some(ref mut sound_buffer) = sound_buffer {
                     sound_buffer.stop().unwrap_or(()); // Ignore errors
@@ -382,6 +409,10 @@ impl Win32Application {
                 recorder.reset_playback().unwrap_or_default(); // We miss a frame here
             }
         } else {
+            // The keyboard has been accumulating key events all frame. Publish a copy as the
+            // input the game sees. Because this happens every live frame, stopping playback needs
+            // no special reset: the next frame simply shows the real keys again.
+            *self.input.keyboard_mut() = self.keyboard.clone();
             self.poll_all_controller_state();
             if let Ok(client_coordinates) = self.window.client_coordinate() {
                 self.capture_mouse_state(client_coordinates)

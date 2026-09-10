@@ -12,7 +12,7 @@ mod win32_application;
 #[cfg(target_os = "windows")]
 mod win32_controller;
 #[cfg(target_os = "windows")]
-mod win32_keyboard;
+mod win32_key_event;
 #[cfg(target_os = "windows")]
 mod win32_mouse;
 #[cfg(target_os = "windows")]

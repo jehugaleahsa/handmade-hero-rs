@@ -8,6 +8,7 @@ bincode = { workspace = true }
 thiserror = { workspace = true }
 uom = { workspace = true }
 serde = { workspace = true }
+smallvec = { workspace = true }
 
 [lints]
 workspace = true

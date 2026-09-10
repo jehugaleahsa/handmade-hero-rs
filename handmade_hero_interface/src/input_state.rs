@@ -1,3 +1,4 @@
+use crate::keyboard_state::KeyboardState;
 use crate::mouse_state::MouseState;
 use crate::{button_state::ButtonState, controller_state::ControllerState};
 use serde::{Deserialize, Serialize};
@@ -5,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InputState {
     mouse: MouseState,
-    keyboard: ControllerState,
+    keyboard: KeyboardState,
     controllers: Vec<ControllerState>,
 }
 
@@ -13,14 +14,9 @@ impl InputState {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        // The keyboard is always enabled. Controllers will be enabled/disabled
-        // as they are detected.
-        let mut keyboard = ControllerState::default();
-        keyboard.set_enabled(true);
-
         Self {
             mouse: MouseState::default(),
-            keyboard,
+            keyboard: KeyboardState::new(),
             controllers: Vec::new(),
         }
     }
@@ -39,13 +35,13 @@ impl InputState {
 
     #[inline]
     #[must_use]
-    pub fn keyboard(&self) -> &ControllerState {
+    pub fn keyboard(&self) -> &KeyboardState {
         &self.keyboard
     }
 
     #[inline]
     #[must_use]
-    pub fn keyboard_mut(&mut self) -> &mut ControllerState {
+    pub fn keyboard_mut(&mut self) -> &mut KeyboardState {
         &mut self.keyboard
     }
 
