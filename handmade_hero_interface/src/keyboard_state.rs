@@ -71,7 +71,7 @@ impl KeyboardState {
     /// messages, so the game sees every transition that happened during the frame.
     #[inline]
     #[must_use]
-    pub fn controller(&self) -> &ControllerState {
+    pub fn as_controller(&self) -> &ControllerState {
         &self.controller
     }
 
@@ -117,7 +117,7 @@ impl KeyboardState {
         self.controller.reset_counts();
     }
 
-    pub fn derived_buttons(&mut self, mapping: &KeyMapping) {
+    pub fn simulate_controller_actions(&mut self, mapping: &KeyMapping) {
         for button in Button::ALL {
             let any_down = mapping
                 .keys_for(button)
@@ -142,7 +142,7 @@ mod tests {
     use crate::keyboard_state::KeyboardState;
 
     fn up_button(keyboard: &KeyboardState) -> (bool, u16) {
-        let up = keyboard.controller().button(Button::Up);
+        let up = keyboard.as_controller().button(Button::Up);
         (up.ended_down(), up.half_transition_count())
     }
 
@@ -152,12 +152,12 @@ mod tests {
         let mut keyboard = KeyboardState::default();
 
         keyboard.track_key(Key::W, true);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         assert!(keyboard.is_key_down(Key::W));
         assert_eq!(up_button(&keyboard), (true, 1));
 
         keyboard.track_key(Key::W, false);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         assert!(!keyboard.is_key_down(Key::W));
         assert_eq!(up_button(&keyboard), (false, 2));
     }
@@ -169,7 +169,7 @@ mod tests {
         keyboard.track_key(Key::W, true);
         keyboard.track_key(Key::W, true);
         keyboard.track_key(Key::W, true);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         assert_eq!(up_button(&keyboard), (true, 1));
     }
 
@@ -180,15 +180,15 @@ mod tests {
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::W, true);
         keyboard.track_key(Key::Up, true);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         assert_eq!(up_button(&keyboard), (true, 1));
 
         keyboard.track_key(Key::Up, false);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         assert_eq!(up_button(&keyboard), (true, 1));
 
         keyboard.track_key(Key::W, false);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         assert_eq!(up_button(&keyboard), (false, 2));
     }
 
@@ -197,10 +197,10 @@ mod tests {
         let mapping = KeyMapping::default();
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::L, true);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         assert!(keyboard.is_key_down(Key::L));
         for button in Button::ALL {
-            let state = keyboard.controller().button(button);
+            let state = keyboard.as_controller().button(button);
             assert!(!state.ended_down());
             assert_eq!(state.half_transition_count(), 0);
         }
@@ -228,12 +228,12 @@ mod tests {
         let mapping = KeyMapping::default();
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::W, true);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         keyboard.reset_counts();
 
         assert!(keyboard.is_key_down(Key::W));
         assert_eq!(keyboard.key(Key::W).half_transition_count(), 0);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         assert_eq!(up_button(&keyboard), (true, 0));
     }
 
@@ -243,7 +243,7 @@ mod tests {
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::W, true);
         keyboard.track_key(Key::LeftControl, true);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         keyboard.reset_counts();
 
         keyboard.release_all();
@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(up_button(&keyboard), (false, 1));
         // Keys that were already up are untouched.
         assert_eq!(keyboard.key(Key::S).half_transition_count(), 0);
-        let down = keyboard.controller().button(Button::Down);
+        let down = keyboard.as_controller().button(Button::Down);
         assert_eq!(down.half_transition_count(), 0);
     }
 
@@ -264,7 +264,7 @@ mod tests {
         let mapping = KeyMapping::default();
         let mut keyboard = KeyboardState::default();
         keyboard.track_key(Key::W, true);
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
         keyboard.reset_counts();
 
         // While the window was unfocused the user let go of W and pressed D and Right Control.
@@ -275,10 +275,10 @@ mod tests {
             (Key::S, false),
         ]);
 
-        keyboard.derived_buttons(&mapping);
+        keyboard.simulate_controller_actions(&mapping);
 
         assert_eq!(up_button(&keyboard), (false, 1));
-        let right = keyboard.controller().button(Button::Right);
+        let right = keyboard.as_controller().button(Button::Right);
         assert_eq!(
             (right.ended_down(), right.half_transition_count()),
             (true, 1)
@@ -294,17 +294,17 @@ mod tests {
         let mut keyboard = KeyboardState::new();
 
         keyboard.track_key(Key::Space, true);
-        keyboard.derived_buttons(&mapping);
-        assert!(keyboard.controller().button(Button::A).ended_down());
+        keyboard.simulate_controller_actions(&mapping);
+        assert!(keyboard.as_controller().button(Button::A).ended_down());
         // W means nothing under this mapping.
         keyboard.track_key(Key::W, true);
-        keyboard.derived_buttons(&mapping);
-        assert!(!keyboard.controller().button(Button::Up).ended_down());
+        keyboard.simulate_controller_actions(&mapping);
+        assert!(!keyboard.as_controller().button(Button::Up).ended_down());
     }
 
     #[test]
     fn test_keyboard_controller_is_always_enabled() {
         let keyboard = KeyboardState::default();
-        assert!(keyboard.controller().enabled());
+        assert!(keyboard.as_controller().enabled());
     }
 }

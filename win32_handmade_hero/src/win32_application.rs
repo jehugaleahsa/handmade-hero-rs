@@ -409,7 +409,10 @@ impl Win32Application {
             }
         } else {
             // The keyboard has been accumulating key events all frame.
-            self.input.keyboard_mut().derived_buttons(&self.key_mapping);
+            // Convert them into simulated controller actions.
+            self.input
+                .keyboard_mut()
+                .simulate_controller_actions(&self.key_mapping);
             self.poll_all_controller_state();
             if let Ok(client_coordinates) = self.window.client_coordinate() {
                 self.capture_mouse_state(client_coordinates)
