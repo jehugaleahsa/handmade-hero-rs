@@ -3,20 +3,9 @@ use crate::button_state::ButtonState;
 use crate::joystick_state::JoystickState;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ControllerState {
-    a: ButtonState,
-    b: ButtonState,
-    x: ButtonState,
-    y: ButtonState,
-    left_shoulder: ButtonState,
-    right_shoulder: ButtonState,
-    up: ButtonState,
-    down: ButtonState,
-    left: ButtonState,
-    right: ButtonState,
-    start: ButtonState,
-    back: ButtonState,
+    buttons: [ButtonState; Button::COUNT],
     left_joystick: JoystickState,
     right_joystick: JoystickState,
     left_trigger_ratio: f32,
@@ -39,145 +28,145 @@ impl ControllerState {
     #[inline]
     #[must_use]
     pub fn a(&self) -> &ButtonState {
-        &self.a
+        self.button(Button::A)
     }
 
     #[inline]
     #[must_use]
     pub fn a_mut(&mut self) -> &mut ButtonState {
-        &mut self.a
+        self.button_mut(Button::A)
     }
 
     #[inline]
     #[must_use]
     pub fn b(&self) -> &ButtonState {
-        &self.b
+        self.button(Button::B)
     }
 
     #[inline]
     #[must_use]
     pub fn b_mut(&mut self) -> &mut ButtonState {
-        &mut self.b
+        self.button_mut(Button::B)
     }
 
     #[inline]
     #[must_use]
     pub fn x(&self) -> &ButtonState {
-        &self.x
+        self.button(Button::X)
     }
 
     #[inline]
     #[must_use]
     pub fn x_mut(&mut self) -> &mut ButtonState {
-        &mut self.x
+        self.button_mut(Button::X)
     }
 
     #[inline]
     #[must_use]
     pub fn y(&self) -> &ButtonState {
-        &self.y
+        self.button(Button::Y)
     }
 
     #[inline]
     #[must_use]
     pub fn y_mut(&mut self) -> &mut ButtonState {
-        &mut self.y
+        self.button_mut(Button::Y)
     }
 
     #[inline]
     #[must_use]
     pub fn start(&self) -> &ButtonState {
-        &self.start
+        self.button(Button::Start)
     }
 
     #[inline]
     #[must_use]
     pub fn start_mut(&mut self) -> &mut ButtonState {
-        &mut self.start
+        self.button_mut(Button::Start)
     }
 
     #[inline]
     #[must_use]
     pub fn back(&self) -> &ButtonState {
-        &self.back
+        self.button(Button::Back)
     }
 
     #[inline]
     #[must_use]
     pub fn back_mut(&mut self) -> &mut ButtonState {
-        &mut self.back
+        self.button_mut(Button::Back)
     }
 
     #[inline]
     #[must_use]
     pub fn up(&self) -> &ButtonState {
-        &self.up
+        self.button(Button::Up)
     }
 
     #[inline]
     #[must_use]
     pub fn up_mut(&mut self) -> &mut ButtonState {
-        &mut self.up
+        self.button_mut(Button::Up)
     }
 
     #[inline]
     #[must_use]
     pub fn down(&self) -> &ButtonState {
-        &self.down
+        self.button(Button::Down)
     }
 
     #[inline]
     #[must_use]
     pub fn down_mut(&mut self) -> &mut ButtonState {
-        &mut self.down
+        self.button_mut(Button::Down)
     }
 
     #[inline]
     #[must_use]
     pub fn left(&self) -> &ButtonState {
-        &self.left
+        self.button(Button::Left)
     }
 
     #[inline]
     #[must_use]
     pub fn left_mut(&mut self) -> &mut ButtonState {
-        &mut self.left
+        self.button_mut(Button::Left)
     }
 
     #[inline]
     #[must_use]
     pub fn right(&self) -> &ButtonState {
-        &self.right
+        self.button(Button::Right)
     }
 
     #[inline]
     #[must_use]
     pub fn right_mut(&mut self) -> &mut ButtonState {
-        &mut self.right
+        self.button_mut(Button::Right)
     }
 
     #[inline]
     #[must_use]
     pub fn left_shoulder(&self) -> &ButtonState {
-        &self.left_shoulder
+        self.button(Button::LeftShoulder)
     }
 
     #[inline]
     #[must_use]
     pub fn left_shoulder_mut(&mut self) -> &mut ButtonState {
-        &mut self.left_shoulder
+        self.button_mut(Button::LeftShoulder)
     }
 
     #[inline]
     #[must_use]
     pub fn right_shoulder(&self) -> &ButtonState {
-        &self.right_shoulder
+        self.button(Button::RightShoulder)
     }
 
     #[inline]
     #[must_use]
     pub fn right_shoulder_mut(&mut self) -> &mut ButtonState {
-        &mut self.right_shoulder
+        self.button_mut(Button::RightShoulder)
     }
 
     #[inline]
@@ -229,72 +218,130 @@ impl ControllerState {
     /// Looks a button up by name, so callers can be written once for every button.
     #[must_use]
     pub fn button(&self, button: Button) -> &ButtonState {
-        match button {
-            Button::A => &self.a,
-            Button::B => &self.b,
-            Button::X => &self.x,
-            Button::Y => &self.y,
-            Button::LeftShoulder => &self.left_shoulder,
-            Button::RightShoulder => &self.right_shoulder,
-            Button::Up => &self.up,
-            Button::Down => &self.down,
-            Button::Left => &self.left,
-            Button::Right => &self.right,
-            Button::Start => &self.start,
-            Button::Back => &self.back,
-        }
+        let button_index = button.index();
+        &self.buttons[button_index]
     }
 
     /// Looks a button up by name, so callers can be written once for every button.
     #[must_use]
     pub fn button_mut(&mut self, button: Button) -> &mut ButtonState {
-        match button {
-            Button::A => &mut self.a,
-            Button::B => &mut self.b,
-            Button::X => &mut self.x,
-            Button::Y => &mut self.y,
-            Button::LeftShoulder => &mut self.left_shoulder,
-            Button::RightShoulder => &mut self.right_shoulder,
-            Button::Up => &mut self.up,
-            Button::Down => &mut self.down,
-            Button::Left => &mut self.left,
-            Button::Right => &mut self.right,
-            Button::Start => &mut self.start,
-            Button::Back => &mut self.back,
-        }
+        let button_index = button.index();
+        &mut self.buttons[button_index]
     }
 
     pub fn reset_counts(&mut self) {
-        self.a.reset_half_transition_count();
-        self.b.reset_half_transition_count();
-        self.x.reset_half_transition_count();
-        self.y.reset_half_transition_count();
-        self.left_shoulder.reset_half_transition_count();
-        self.right_shoulder.reset_half_transition_count();
-        self.up.reset_half_transition_count();
-        self.down.reset_half_transition_count();
-        self.left.reset_half_transition_count();
-        self.right.reset_half_transition_count();
-        self.start.reset_half_transition_count();
-        self.back.reset_half_transition_count();
+        for button in &mut self.buttons {
+            button.reset_half_transition_count();
+        }
     }
 
     pub fn clear(&mut self) {
-        self.a.clear();
-        self.b.clear();
-        self.x.clear();
-        self.y.clear();
-        self.left_shoulder.clear();
-        self.right_shoulder.clear();
-        self.up.clear();
-        self.down.clear();
-        self.left.clear();
-        self.right.clear();
-        self.start.clear();
-        self.back.clear();
+        for button in &mut self.buttons {
+            button.clear();
+        }
         self.left_trigger_ratio = 0.0;
         self.right_trigger_ratio = 0.0;
         self.left_joystick.clear();
         self.right_joystick.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::button::Button;
+    use crate::controller_state::ControllerState;
+
+    #[test]
+    fn test_button_bindings() {
+        let controller = ControllerState::default();
+        assert!(core::ptr::eq(controller.a(), controller.button(Button::A)));
+        assert!(core::ptr::eq(controller.b(), controller.button(Button::B)));
+        assert!(core::ptr::eq(controller.x(), controller.button(Button::X)));
+        assert!(core::ptr::eq(controller.y(), controller.button(Button::Y)));
+        assert!(core::ptr::eq(
+            controller.start(),
+            controller.button(Button::Start)
+        ));
+        assert!(core::ptr::eq(
+            controller.back(),
+            controller.button(Button::Back)
+        ));
+        assert!(core::ptr::eq(
+            controller.up(),
+            controller.button(Button::Up)
+        ));
+        assert!(core::ptr::eq(
+            controller.down(),
+            controller.button(Button::Down)
+        ));
+        assert!(core::ptr::eq(
+            controller.left(),
+            controller.button(Button::Left)
+        ));
+        assert!(core::ptr::eq(
+            controller.right(),
+            controller.button(Button::Right)
+        ));
+        assert!(core::ptr::eq(
+            controller.left_shoulder(),
+            controller.button(Button::LeftShoulder)
+        ));
+        assert!(core::ptr::eq(
+            controller.right_shoulder(),
+            controller.button(Button::RightShoulder)
+        ));
+    }
+
+    #[test]
+    fn test_button_bindings_mut() {
+        let mut controller = ControllerState::default();
+        assert!(core::ptr::eq(
+            controller.a_mut(),
+            controller.button_mut(Button::A)
+        ));
+        assert!(core::ptr::eq(
+            controller.b_mut(),
+            controller.button_mut(Button::B)
+        ));
+        assert!(core::ptr::eq(
+            controller.x_mut(),
+            controller.button_mut(Button::X)
+        ));
+        assert!(core::ptr::eq(
+            controller.y_mut(),
+            controller.button_mut(Button::Y)
+        ));
+        assert!(core::ptr::eq(
+            controller.start_mut(),
+            controller.button_mut(Button::Start)
+        ));
+        assert!(core::ptr::eq(
+            controller.back_mut(),
+            controller.button_mut(Button::Back)
+        ));
+        assert!(core::ptr::eq(
+            controller.up_mut(),
+            controller.button_mut(Button::Up)
+        ));
+        assert!(core::ptr::eq(
+            controller.down_mut(),
+            controller.button_mut(Button::Down)
+        ));
+        assert!(core::ptr::eq(
+            controller.left_mut(),
+            controller.button_mut(Button::Left)
+        ));
+        assert!(core::ptr::eq(
+            controller.right_mut(),
+            controller.button_mut(Button::Right)
+        ));
+        assert!(core::ptr::eq(
+            controller.left_shoulder_mut(),
+            controller.button_mut(Button::LeftShoulder)
+        ));
+        assert!(core::ptr::eq(
+            controller.right_shoulder_mut(),
+            controller.button_mut(Button::RightShoulder)
+        ));
     }
 }
