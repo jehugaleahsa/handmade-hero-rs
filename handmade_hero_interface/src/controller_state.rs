@@ -216,6 +216,7 @@ impl ControllerState {
     }
 
     /// Looks a button up by name, so callers can be written once for every button.
+    #[inline]
     #[must_use]
     pub fn button(&self, button: Button) -> &ButtonState {
         let button_index = button.index();
@@ -223,6 +224,7 @@ impl ControllerState {
     }
 
     /// Looks a button up by name, so callers can be written once for every button.
+    #[inline]
     #[must_use]
     pub fn button_mut(&mut self, button: Button) -> &mut ButtonState {
         let button_index = button.index();

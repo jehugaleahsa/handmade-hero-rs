@@ -38,8 +38,8 @@ impl Player {
         Rectangle::new(offset.y(), offset.x(), self.height, self.width)
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn collision_bounds(&self) -> Rectangle<f32> {
         let offset = self.coordinate.tile_offset();
         let bound_height = self.height / 4f32;

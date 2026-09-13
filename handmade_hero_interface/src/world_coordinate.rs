@@ -115,10 +115,7 @@ impl WorldCoordinate {
             tile_offset: tile_offset_y,
         } = Self::shifted_axis(y_shift, delta_y, tile_size, self.rows);
 
-        let new_tile_map_key = TileMapKey {
-            x: tile_map_x,
-            y: tile_map_y,
-        };
+        let new_tile_map_key = TileMapKey::from_x_y(tile_map_x, tile_map_y);
         let new_tile_offset = Point2d::from_x_y(tile_offset_x, tile_offset_y);
         let new_tile_coordinate = TileMapCoordinate::at_x_y_offset(tile_x, tile_y, new_tile_offset);
         WorldCoordinate::new_internal(

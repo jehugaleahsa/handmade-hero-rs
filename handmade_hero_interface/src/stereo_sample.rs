@@ -21,10 +21,12 @@ impl StereoSample {
 }
 
 impl Sample for StereoSample {
+    #[inline]
     fn channel_count(&self) -> u16 {
         Self::CHANNEL_COUNT
     }
 
+    #[inline]
     fn channel_size(&self) -> Information {
         Information::new::<byte>(Self::CHANNEL_SIZE_IN_BYTES)
     }

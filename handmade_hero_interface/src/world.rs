@@ -24,24 +24,25 @@ impl World {
     pub const TILE_ROWS: u16 = 9;
     pub const TILE_COLUMNS: u16 = 17;
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn rows(&self) -> u16 {
         self.rows
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn columns(&self) -> u16 {
         self.columns
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn tile_size(&self) -> Length {
         self.tile_size
     }
 
+    #[must_use]
     pub fn add_tile_map(&mut self, id: TileMapKey) -> &mut TileMap {
         let tile_map = TileMap::new(self.rows, self.columns);
         let entry = self.tile_maps.entry(id);
@@ -77,8 +78,8 @@ impl World {
             .is_some_and(|t| t == 0)
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn get_tile_map(&self, key: TileMapKey) -> Option<&TileMap> {
         self.tile_maps.get(&key)
     }

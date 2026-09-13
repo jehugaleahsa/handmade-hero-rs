@@ -19,8 +19,8 @@ pub struct PerformanceCounter {
 }
 
 impl PerformanceCounter {
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn start() -> Self {
         let last_instant = Instant::now();
         Self { last_instant }

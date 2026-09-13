@@ -55,6 +55,7 @@ impl BackBuffer {
     }
 
     #[inline]
+    #[must_use]
     pub fn pixels_mut(&mut self) -> &mut [Color<u8>] {
         self.pixels.as_mut_slice()
     }

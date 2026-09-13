@@ -15,8 +15,8 @@ impl<T> Rectangle<T>
 where
     T: Add<Output = T> + Sub<Output = T> + PartialOrd + Copy,
 {
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn new(bottom: T, left: T, height: T, width: T) -> Self {
         Self {
             top: bottom + height,
@@ -98,8 +98,8 @@ where
         }
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn contains_point(&self, point: Point2d<T>) -> bool {
         point.x() >= self.left
             && point.x() < self.right
@@ -107,6 +107,7 @@ where
             && point.y() >= self.bottom
     }
 
+    #[inline]
     #[must_use]
     pub fn overlaps(&self, other: &Self) -> bool {
         other.left < self.right
@@ -115,26 +116,26 @@ where
             && other.top > self.bottom
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn top_left(&self) -> Point2d<T> {
         Point2d::from_x_y(self.left, self.top)
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn bottom_left(&self) -> Point2d<T> {
         Point2d::from_x_y(self.left, self.bottom)
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn top_right(&self) -> Point2d<T> {
         Point2d::from_x_y(self.right, self.top)
     }
 
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn bottom_right(&self) -> Point2d<T> {
         Point2d::from_x_y(self.right, self.bottom)
     }

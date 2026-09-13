@@ -63,15 +63,15 @@ impl ApplicationPlugin {
 
         // Load the world tile maps
         let world = state.world_mut();
-        let hub = world.add_tile_map(TileMapKey { x: 0, y: 0 }); // Origin
+        let hub = world.add_tile_map(TileMapKey::from_x_y(0, 0));
         Self::load_hub_tile_map(hub);
-        let south = world.add_tile_map(TileMapKey { x: 0, y: -1 });
+        let south = world.add_tile_map(TileMapKey::from_x_y(0, -1));
         Self::load_south_tile_map(south);
-        let west = world.add_tile_map(TileMapKey { x: -1, y: 0 });
+        let west = world.add_tile_map(TileMapKey::from_x_y(-1, 0));
         Self::load_west_tile_map(west);
-        let east = world.add_tile_map(TileMapKey { x: 1, y: 0 });
+        let east = world.add_tile_map(TileMapKey::from_x_y(1, 0));
         Self::load_east_tile_map(east);
-        let north = world.add_tile_map(TileMapKey { x: 0, y: 1 });
+        let north = world.add_tile_map(TileMapKey::from_x_y(0, 1));
         Self::load_north_tile_map(north);
     }
 
@@ -339,10 +339,7 @@ impl ApplicationPlugin {
                     tile_size.get::<pixel>(),
                 );
 
-                let tile_map_key = TileMapKey {
-                    x: tile_map_x,
-                    y: tile_map_y,
-                };
+                let tile_map_key = TileMapKey::from_x_y(tile_map_x, tile_map_y);
                 let color = Self::determine_tile_color(
                     world,
                     player_coordinate,
@@ -474,10 +471,7 @@ impl ApplicationPlugin {
         let (start_tile_map_y, start_tile_y) =
             Self::determine_start(tile_map_y, tile_y, world.rows());
 
-        let start_tile_map_key = TileMapKey {
-            x: start_tile_map_x,
-            y: start_tile_map_y,
-        };
+        let start_tile_map_key = TileMapKey::from_x_y(start_tile_map_x, start_tile_map_y);
         let tile_map_coordinates = TileMapCoordinate::at_x_y(start_tile_x, start_tile_y);
         WorldCoordinate::new(world, start_tile_map_key, tile_map_coordinates)
     }
@@ -519,39 +513,15 @@ impl ApplicationPlugin {
         }
         Ok(())
     }
-}
 
-impl Application for ApplicationPlugin {
-    #[inline]
-    fn initialize(&self, context: InitializeContext<'_>) {
-        let InitializeContext { state, back_buffer } = context;
-        Self::initialize_direct(state, back_buffer);
-    }
-
-    #[inline]
-    fn process_input(&self, context: InputContext<'_>) {
-        let InputContext { input, state } = context;
-        Self::process_input_direct(input, state);
-    }
-
-    #[inline]
-    fn render(&self, context: RenderContext<'_>) {
-        let RenderContext { state, buffer, .. } = context;
-
-        Self::render_direct(state, buffer);
-    }
-
-    #[inline]
-    fn write_sound(&self, context: AudioContext<'_>) {
+    fn write_sound_direct(
+        state: &mut GameState,
+        input_state: &InputState,
+        sound_buffer: &mut [StereoSample],
+    ) {
         const C_HERTZ: f32 = 261.63;
         const TWO_PI: f32 = 2.0 * f32::consts::PI;
 
-        let AudioContext {
-            sound_buffer,
-            state,
-            input_state,
-            ..
-        } = context;
         let sound_state = state.sound();
         let multiplier = if let Some(controller) = input_state.controllers().first() {
             let left_joystick = controller.left_joystick();
@@ -590,5 +560,36 @@ impl Application for ApplicationPlugin {
         }
         let sound_state = state.sound_mut();
         sound_state.set_theta(theta);
+    }
+}
+
+impl Application for ApplicationPlugin {
+    #[inline]
+    fn initialize(&self, context: InitializeContext<'_>) {
+        let InitializeContext { state, back_buffer } = context;
+        Self::initialize_direct(state, back_buffer);
+    }
+
+    #[inline]
+    fn process_input(&self, context: InputContext<'_>) {
+        let InputContext { input, state } = context;
+        Self::process_input_direct(input, state);
+    }
+
+    #[inline]
+    fn render(&self, context: RenderContext<'_>) {
+        let RenderContext { state, buffer, .. } = context;
+        Self::render_direct(state, buffer);
+    }
+
+    #[inline]
+    fn write_sound(&self, context: AudioContext<'_>) {
+        let AudioContext {
+            state,
+            input_state,
+            sound_buffer,
+            ..
+        } = context;
+        Self::write_sound_direct(state, input_state, sound_buffer);
     }
 }

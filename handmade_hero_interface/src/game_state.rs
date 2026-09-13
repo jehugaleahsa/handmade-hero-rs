@@ -20,7 +20,6 @@ pub struct GameState {
 }
 
 impl GameState {
-    #[inline]
     #[must_use]
     pub fn new() -> Self {
         let sample = StereoSample::default();
@@ -36,7 +35,7 @@ impl GameState {
             tile_maps: HashMap::new(),
             tile_size,
         };
-        let current_tile_map_key = TileMapKey { x: 0, y: 0 };
+        let current_tile_map_key = TileMapKey::from_x_y(0, 0);
         let player = Player::new(&world, current_tile_map_key);
         Self {
             sound,

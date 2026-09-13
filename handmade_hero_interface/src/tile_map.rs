@@ -18,10 +18,12 @@ impl TileMap {
     #[inline]
     #[must_use]
     pub fn get(&self, row: u16, column: u16) -> Option<u32> {
-        self.tiles.get(self.offset_of(row, column)).copied()
+        let offset = self.offset_of(row, column);
+        self.tiles.get(offset).copied()
     }
 
     #[inline]
+    #[must_use]
     fn offset_of(&self, row: u16, column: u16) -> usize {
         usize::from(row) * usize::from(self.columns) + usize::from(column)
     }

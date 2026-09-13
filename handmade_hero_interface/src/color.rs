@@ -50,11 +50,13 @@ impl Color<u8> {
 
 impl Color<f32> {
     #[inline]
+    #[must_use]
     fn convert_to_f32(component: u8) -> f32 {
         f32::from(component) / f32::from(u8::MAX)
     }
 
     #[inline]
+    #[must_use]
     #[expect(clippy::cast_sign_loss)]
     #[expect(clippy::cast_possible_truncation)]
     fn convert_to_u8(component: f32) -> u8 {

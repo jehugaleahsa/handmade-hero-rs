@@ -3,7 +3,7 @@ use crate::mouse_state::MouseState;
 use crate::{button_state::ButtonState, controller_state::ControllerState};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct InputState {
     mouse: MouseState,
     keyboard: KeyboardState,
@@ -16,7 +16,7 @@ impl InputState {
     pub fn new() -> Self {
         Self {
             mouse: MouseState::default(),
-            keyboard: KeyboardState::new(),
+            keyboard: KeyboardState::default(),
             controllers: Vec::new(),
         }
     }
@@ -70,12 +70,5 @@ impl InputState {
         for controller in &mut self.controllers {
             controller.reset_counts();
         }
-    }
-}
-
-impl Default for InputState {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
     }
 }
