@@ -73,7 +73,6 @@ pub struct Win32Application {
     sound_buffer: Option<Vec<StereoSample>>,
     sound_index: Option<u32>,
     sound_safety_margin: Information,
-    closing: bool,
     recording_state: RecordingState,
 }
 
@@ -90,7 +89,6 @@ impl Win32Application {
             sound_buffer: None,
             sound_index: None,
             sound_safety_margin: Information::zero(),
-            closing: false,
             recording_state: RecordingState::None,
         }
     }
@@ -150,7 +148,7 @@ impl Win32Application {
         l_param: LPARAM,
     ) -> LRESULT {
         match message {
-            WM_CLOSE | WM_DESTROY => self.prepare_close(),
+            WM_CLOSE | WM_DESTROY => self.emit_quitting(),
             WM_ACTIVATEAPP => self
                 .window
                 .set_transparency(w_param.0 != 0)
@@ -187,8 +185,7 @@ impl Win32Application {
         }
     }
 
-    fn prepare_close(&mut self) -> LRESULT {
-        self.closing = true;
+    fn emit_quitting(&mut self) -> LRESULT {
         unsafe { PostQuitMessage(0) };
         LRESULT(0)
     }
@@ -212,7 +209,7 @@ impl Win32Application {
         // Allow exiting with ALT+F4. Handling WM_SYSKEYDOWN ourselves means Windows no longer
         // does this for us.
         if key == Key::F4 && is_down && self.keyboard.is_alt_down() {
-            return self.prepare_close();
+            return self.emit_quitting();
         }
         LRESULT(0)
     }
@@ -258,15 +255,12 @@ impl Win32Application {
             self.input.reset_counts();
             self.keyboard.reset_counts();
             if let Some(code) = Self::process_message()? {
-                return Ok(code);
-            }
-            self.process_recording_hotkey();
-            if self.closing {
                 if let Some(ref mut sound_buffer) = sound_buffer {
                     sound_buffer.stop().unwrap_or(()); // Ignore errors
                 }
-                continue;
+                return Ok(code);
             }
+            self.process_recording_hotkey();
 
             let application = self.load_application(&mut loader)?;
 
