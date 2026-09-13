@@ -25,8 +25,8 @@ use serde::{Deserialize, Serialize};
 /// [`was_pressed`]: ButtonState::was_pressed
 #[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 pub struct ButtonState {
+    half_transition_count: u8,
     ended_down: bool,
-    half_transition_count: u16,
 }
 
 impl ButtonState {
@@ -65,7 +65,7 @@ impl ButtonState {
     #[inline]
     #[must_use]
     pub fn half_transition_count(self) -> u16 {
-        self.half_transition_count
+        u16::from(self.half_transition_count)
     }
 
     #[inline]

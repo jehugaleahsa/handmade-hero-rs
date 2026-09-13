@@ -50,7 +50,8 @@ impl DirectSound {
             Self::create_secondary_buffer_description(buffer_size, &mut format);
         let secondary_buffer = self.create_sound_buffer(&secondary_buffer_description)?;
 
-        let buffer = DirectSoundBuffer::new(primary_buffer, secondary_buffer, buffer_size);
+        let mut buffer = DirectSoundBuffer::new(primary_buffer, secondary_buffer, buffer_size);
+        buffer.clear()?;
         Ok(buffer)
     }
 

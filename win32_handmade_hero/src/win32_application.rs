@@ -273,17 +273,21 @@ impl Win32Application {
             self.process_recording(&mut recorder);
             self.process_input(application);
             self.render_to_buffer(application);
-            self.fill_sound_buffer_if_available(
-                application,
-                sound_buffer.as_mut(),
-                monitor_refresh_rate,
-                &counter,
-            );
+            if let Some(ref mut sound_buffer) = sound_buffer {
+                self.fill_sound_buffer_if_available(
+                    application,
+                    sound_buffer,
+                    monitor_refresh_rate,
+                    &counter,
+                );
+            }
 
             self.wait_for_framerate(&mut counter);
 
             self.window.draw(&self.back_buffer);
-            self.update_sound_index(sound_buffer.as_ref());
+            if let Some(ref sound_buffer) = sound_buffer {
+                self.update_sound_index(sound_buffer);
+            }
         }
     }
 
@@ -334,7 +338,7 @@ impl Win32Application {
 
     /// A portion of a frame of audio, used as the margin the write cursor must stay ahead of playback.
     fn calculate_sound_safety_margin(&self, monitor_refresh_rate: Frequency) -> Information {
-        self.sample_size_per_frame(monitor_refresh_rate) / 4
+        self.sample_size_per_frame(monitor_refresh_rate) / 2
     }
 
     /// Bytes of audio consumed by a single game frame.
@@ -517,14 +521,11 @@ impl Win32Application {
     fn fill_sound_buffer_if_available(
         &mut self,
         application: &mut ApplicationStub,
-        sound_buffer: Option<&mut DirectSoundBuffer<'_>>,
+        sound_buffer: &mut DirectSoundBuffer<'_>,
         monitor_refresh_rate: Frequency,
         counter: &PerformanceCounter,
     ) {
         let Some(sound_index) = self.sound_index else {
-            return;
-        };
-        let Some(sound_buffer) = sound_buffer else {
             return;
         };
         self.fill_sound_buffer(
@@ -654,14 +655,12 @@ impl Win32Application {
         counter.restart();
     }
 
-    fn update_sound_index(&mut self, sound_buffer: Option<&DirectSoundBuffer<'_>>) {
+    fn update_sound_index(&mut self, sound_buffer: &DirectSoundBuffer<'_>) {
         // After a single frame, we have a better idea how far away the sound
         // play cursor is from the write cursor. We initialize the sound index
         // as a flag for sound to start being written now that the metrics are
         // recorded.
-        if self.sound_index.is_none()
-            && let Some(sound_buffer) = sound_buffer
-        {
+        if self.sound_index.is_none() {
             self.sound_index = self.get_sample_index(sound_buffer);
         }
     }
