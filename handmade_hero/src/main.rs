@@ -2,28 +2,11 @@ mod application_loader;
 mod playback_recorder;
 
 #[cfg(target_os = "windows")]
-mod direct_sound;
-#[cfg(target_os = "windows")]
-mod direct_sound_buffer;
-#[cfg(target_os = "windows")]
-mod direct_sound_buffer_lock_guard;
-#[cfg(target_os = "windows")]
-mod win32_application;
-#[cfg(target_os = "windows")]
-mod win32_controller;
-#[cfg(target_os = "windows")]
-mod win32_key_event;
-#[cfg(target_os = "windows")]
-mod win32_mouse;
-#[cfg(target_os = "windows")]
-mod win32_window;
+mod win32;
 
 use std::process::ExitCode;
 
 use handmade_hero_interface::application_error::Result;
-
-#[cfg(target_os = "windows")]
-use win32_application::Win32Application;
 
 fn main() -> ExitCode {
     #[cfg(target_os = "windows")]
@@ -32,6 +15,8 @@ fn main() -> ExitCode {
 
 #[cfg(target_os = "windows")]
 fn run_windows() -> Result<ExitCode> {
+    use win32::win32_application::Win32Application;
+
     let mut windows_application = Win32Application::new();
     windows_application.create_window(960, 540)?;
     windows_application.run()

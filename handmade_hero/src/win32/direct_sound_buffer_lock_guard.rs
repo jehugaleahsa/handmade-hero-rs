@@ -1,4 +1,4 @@
-use crate::direct_sound_buffer::{DirectSoundBuffer, LockRegions};
+use super::direct_sound_buffer::{DirectSoundBuffer, LockRegions};
 use handmade_hero_interface::sample::Sample;
 use std::marker::PhantomData;
 use uom::si::u32::Information;

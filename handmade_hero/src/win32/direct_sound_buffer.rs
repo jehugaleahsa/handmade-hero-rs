@@ -1,5 +1,5 @@
-use crate::direct_sound::DirectSound;
-use crate::direct_sound_buffer_lock_guard::DirectSoundBufferLockGuard;
+use super::direct_sound::DirectSound;
+use super::direct_sound_buffer_lock_guard::DirectSoundBufferLockGuard;
 use core::slice;
 use handmade_hero_interface::sample::Sample;
 use std::ffi::c_void;

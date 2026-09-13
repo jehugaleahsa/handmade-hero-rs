@@ -238,7 +238,7 @@ fn key_from_virtual_key_range(virtual_key: VIRTUAL_KEY) -> Option<Key> {
 
 #[cfg(test)]
 mod tests {
-    use crate::win32_key_event::{Win32KeyEvent, key_from_virtual_key};
+    use super::{Win32KeyEvent, key_from_virtual_key};
     use handmade_hero_interface::key::Key;
     use windows::Win32::Foundation::{LPARAM, WPARAM};
     use windows::Win32::UI::Input::KeyboardAndMouse::{

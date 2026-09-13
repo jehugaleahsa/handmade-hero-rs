@@ -1,4 +1,4 @@
-use crate::direct_sound_buffer::DirectSoundBuffer;
+use super::direct_sound_buffer::DirectSoundBuffer;
 use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::information::Information;

@@ -1,11 +1,11 @@
+use super::direct_sound::DirectSound;
+use super::direct_sound_buffer::DirectSoundBuffer;
+use super::win32_controller::{Win32Controller, Win32ControllerState};
+use super::win32_key_event::{self, Win32KeyEvent};
+use super::win32_mouse::Win32Mouse;
+use super::win32_window::Win32Window;
 use crate::application_loader::{ApplicationLoader, ApplicationStub};
-use crate::direct_sound::DirectSound;
-use crate::direct_sound_buffer::DirectSoundBuffer;
 use crate::playback_recorder::PlaybackRecorder;
-use crate::win32_controller::{Win32Controller, Win32ControllerState};
-use crate::win32_key_event::{self, Win32KeyEvent};
-use crate::win32_mouse::Win32Mouse;
-use crate::win32_window::Win32Window;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -148,7 +148,7 @@ impl Win32Application {
         l_param: LPARAM,
     ) -> LRESULT {
         match message {
-            WM_CLOSE | WM_DESTROY => self.emit_quitting(),
+            WM_CLOSE | WM_DESTROY => Self::emit_quitting(),
             WM_ACTIVATEAPP => self
                 .window
                 .set_transparency(w_param.0 != 0)
@@ -185,7 +185,7 @@ impl Win32Application {
         }
     }
 
-    fn emit_quitting(&mut self) -> LRESULT {
+    fn emit_quitting() -> LRESULT {
         unsafe { PostQuitMessage(0) };
         LRESULT(0)
     }
@@ -209,7 +209,7 @@ impl Win32Application {
         // Allow exiting with ALT+F4. Handling WM_SYSKEYDOWN ourselves means Windows no longer
         // does this for us.
         if key == Key::F4 && is_down && self.keyboard.is_alt_down() {
-            return self.emit_quitting();
+            return Self::emit_quitting();
         }
         LRESULT(0)
     }
