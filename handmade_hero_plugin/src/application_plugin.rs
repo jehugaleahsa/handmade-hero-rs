@@ -1,6 +1,7 @@
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::Result;
 use handmade_hero_interface::audio_context::AudioContext;
+use handmade_hero_interface::audio_state::AudioState;
 use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::color::Color;
@@ -515,14 +516,13 @@ impl ApplicationPlugin {
     }
 
     fn write_sound_direct(
-        state: &mut GameState,
         input_state: &InputState,
+        audio_state: &mut AudioState,
         sound_buffer: &mut [StereoSample],
     ) {
         const C_HERTZ: f32 = 261.63;
         const TWO_PI: f32 = 2.0 * f32::consts::PI;
 
-        let sound_state = state.sound();
         let multiplier = if let Some(controller) = input_state.controllers().first() {
             let left_joystick = controller.left_joystick();
             let y_ratio = left_joystick.y_ratio();
@@ -536,11 +536,11 @@ impl ApplicationPlugin {
         let period = if tone == Frequency::ZERO {
             0
         } else {
-            (sound_state.frequency() / tone).get::<ratio>()
+            (audio_state.frequency() / tone).get::<ratio>()
         };
 
-        let volume = sound_state.volume();
-        let mut theta = sound_state.theta();
+        let volume = audio_state.volume();
+        let mut theta = audio_state.theta();
         for outbound in sound_buffer {
             #[expect(clippy::cast_precision_loss)]
             let step = if period == 0 {
@@ -558,21 +558,22 @@ impl ApplicationPlugin {
             let sample = StereoSample::from_left_right(value, value);
             *outbound = sample;
         }
-        let sound_state = state.sound_mut();
-        sound_state.set_theta(theta);
+        audio_state.set_theta(theta);
     }
 }
 
 impl Application for ApplicationPlugin {
     #[inline]
     fn initialize(&self, context: InitializeContext<'_>) {
-        let InitializeContext { state, back_buffer } = context;
+        let InitializeContext {
+            state, back_buffer, ..
+        } = context;
         Self::initialize_direct(state, back_buffer);
     }
 
     #[inline]
     fn process_input(&self, context: InputContext<'_>) {
-        let InputContext { input, state } = context;
+        let InputContext { input, state, .. } = context;
         Self::process_input_direct(input, state);
     }
 
@@ -585,11 +586,11 @@ impl Application for ApplicationPlugin {
     #[inline]
     fn write_sound(&self, context: AudioContext<'_>) {
         let AudioContext {
-            state,
             input_state,
             sound_buffer,
+            audio_state,
             ..
         } = context;
-        Self::write_sound_direct(state, input_state, sound_buffer);
+        Self::write_sound_direct(input_state, audio_state, sound_buffer);
     }
 }

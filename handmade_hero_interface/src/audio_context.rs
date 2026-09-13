@@ -1,3 +1,4 @@
+use crate::audio_state::AudioState;
 use crate::game_state::GameState;
 use crate::input_state::InputState;
 use crate::stereo_sample::StereoSample;
@@ -6,5 +7,6 @@ use crate::stereo_sample::StereoSample;
 pub struct AudioContext<'a> {
     pub state: &'a mut GameState,
     pub input_state: &'a InputState,
+    pub audio_state: &'a mut AudioState,
     pub sound_buffer: &'a mut [StereoSample],
 }

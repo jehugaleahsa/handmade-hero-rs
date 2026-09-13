@@ -9,6 +9,7 @@ use crate::playback_recorder::PlaybackRecorder;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
+use handmade_hero_interface::audio_state::AudioState;
 use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::game_state::GameState;
@@ -21,6 +22,7 @@ use handmade_hero_interface::keyboard_state::KeyboardState;
 use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::render_context::RenderContext;
+use handmade_hero_interface::sample::Sample;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::information::Information;
@@ -70,6 +72,7 @@ pub struct Win32Application {
     key_mapping: KeyMapping,
     window: Win32Window,
     back_buffer: BackBuffer,
+    audio_state: AudioState,
     sound_buffer: Option<Vec<StereoSample>>,
     sound_index: Option<u32>,
     sound_safety_margin: Information,
@@ -79,6 +82,8 @@ pub struct Win32Application {
 impl Win32Application {
     pub fn new() -> Win32Application {
         let window = Win32Window::new();
+        let sample = StereoSample::default();
+        let audio_state = AudioState::new(sample.channel_count(), sample.channel_size());
         Win32Application {
             state: GameState::new(),
             input: InputState::new(),
@@ -86,6 +91,7 @@ impl Win32Application {
             key_mapping: KeyMapping::default(),
             window,
             back_buffer: BackBuffer::default(),
+            audio_state,
             sound_buffer: None,
             sound_index: None,
             sound_safety_margin: Information::zero(),
@@ -267,10 +273,13 @@ impl Win32Application {
             self.process_recording(&mut recorder);
             self.process_input(application);
             self.render_to_buffer(application);
-            if let Some(ref mut sound_buffer) = sound_buffer {
-                self.fill_sound_buffer_if_available(
+            if let Some(sound_index) = self.sound_index
+                && let Some(ref mut sound_buffer) = sound_buffer
+            {
+                self.fill_sound_buffer(
                     application,
                     sound_buffer,
+                    sound_index,
                     monitor_refresh_rate,
                     &counter,
                 );
@@ -319,11 +328,11 @@ impl Win32Application {
         direct_sound: Option<&'a DirectSound>,
     ) -> Option<DirectSoundBuffer<'a>> {
         direct_sound.as_ref().and_then(|ds| {
-            let sound_state = self.state.sound();
+            let audio_state = &self.audio_state;
             let buffer = ds.create_buffer(
-                sound_state.frequency(),
-                sound_state.channel_size(),
-                sound_state.channel_count(),
+                audio_state.frequency(),
+                audio_state.channel_size(),
+                audio_state.channel_count(),
                 uom::si::u32::Time::new::<second>(1),
             );
             buffer.ok()
@@ -342,7 +351,7 @@ impl Win32Application {
     /// last keeps every term an integer, so this needs no float round trip and carries no
     /// rounding error.
     fn sample_size_per_frame(&self, monitor_refresh_rate: Frequency) -> Information {
-        let sample_rate = self.state.sound().sample_rate();
+        let sample_rate = self.audio_state.sample_rate();
         (sample_rate * u32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate).into()
     }
 
@@ -390,6 +399,8 @@ impl Win32Application {
         let initialize_context = InitializeContext {
             state: &mut self.state,
             back_buffer: &mut self.back_buffer,
+            audio_state: &mut self.audio_state,
+            sound_buffer: self.sound_buffer.as_deref_mut(),
         };
         loader.load(initialize_context)
     }
@@ -512,25 +523,6 @@ impl Win32Application {
         application.render(context);
     }
 
-    fn fill_sound_buffer_if_available(
-        &mut self,
-        application: &mut ApplicationStub,
-        sound_buffer: &mut DirectSoundBuffer<'_>,
-        monitor_refresh_rate: Frequency,
-        counter: &PerformanceCounter,
-    ) {
-        let Some(sound_index) = self.sound_index else {
-            return;
-        };
-        self.fill_sound_buffer(
-            application,
-            sound_buffer,
-            sound_index,
-            monitor_refresh_rate,
-            counter,
-        );
-    }
-
     fn fill_sound_buffer(
         &mut self,
         application: &mut dyn Application,
@@ -543,7 +535,7 @@ impl Win32Application {
             return;
         };
         let buffer_length = direct_sound_buffer.length();
-        let sample_size = self.state.sound().sample_size();
+        let sample_size = self.audio_state.sample_size();
         // The sample index is kept inside the buffer, so converting it to bytes gives the write
         // offset directly.
         let buffer_samples = (buffer_length / sample_size).get::<ratio>();
@@ -603,6 +595,7 @@ impl Win32Application {
         let context = AudioContext {
             state: &mut self.state,
             input_state: &mut self.input,
+            audio_state: &mut self.audio_state,
             sound_buffer,
         };
         application.write_sound(context);
@@ -625,7 +618,7 @@ impl Win32Application {
 
     fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
         let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
-        let sample_size = self.state.sound().sample_size().get::<byte>();
+        let sample_size = self.audio_state.sample_size().get::<byte>();
         if sample_size == 0 {
             return None;
         }

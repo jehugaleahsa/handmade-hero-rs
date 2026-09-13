@@ -8,14 +8,14 @@ const SAMPLES_PER_SECOND: u32 = 48_000u32;
 const DEFAULT_VOLUME: i16 = 3_000;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SoundState {
+pub struct AudioState {
     channel_count: u16,
     channel_size: Information,
     theta: f32,
     volume: i16,
 }
 
-impl SoundState {
+impl AudioState {
     #[inline]
     #[must_use]
     pub fn new(channel_count: u16, channel_size: Information) -> Self {

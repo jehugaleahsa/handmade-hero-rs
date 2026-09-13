@@ -1,7 +1,4 @@
 use crate::player::Player;
-use crate::sample::Sample;
-use crate::sound_state::SoundState;
-use crate::stereo_sample::StereoSample;
 use crate::tile_map_key::TileMapKey;
 use crate::units::si::length::Length;
 use crate::units::si::time::Time;
@@ -13,7 +10,6 @@ use uom::si::length::meter;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GameState {
-    sound: SoundState,
     player: Player,
     frame_duration: Time,
     world: World,
@@ -22,8 +18,6 @@ pub struct GameState {
 impl GameState {
     #[must_use]
     pub fn new() -> Self {
-        let sample = StereoSample::default();
-        let sound = SoundState::new(sample.channel_count(), sample.channel_size());
         let tile_size = Length::new::<meter>(1.4f32);
         let x_offset = -(tile_size / 1.6f32);
         let y_offset = -(tile_size / 3.5f32);
@@ -38,23 +32,10 @@ impl GameState {
         let current_tile_map_key = TileMapKey::from_x_y(0, 0);
         let player = Player::new(&world, current_tile_map_key);
         Self {
-            sound,
             player,
             frame_duration: Time::zero(),
             world,
         }
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sound(&self) -> &SoundState {
-        &self.sound
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sound_mut(&mut self) -> &mut SoundState {
-        &mut self.sound
     }
 
     #[inline]
