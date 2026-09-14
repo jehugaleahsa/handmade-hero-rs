@@ -10,6 +10,9 @@ pub trait Application {
     fn create_plugin_state(&self) -> Box<dyn PluginState>;
 
     /// Rebuilds game-specific state from a stream the platform layer serialized earlier.
+    ///
+    /// # Errors
+    /// If the plugin state changes in an incompatible way between hot-reloads an error will be returned.
     fn deserialize_plugin_state(
         &self,
         deserializer: &mut dyn erased_serde::Deserializer<'_>,

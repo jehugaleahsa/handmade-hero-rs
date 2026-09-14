@@ -1,8 +1,7 @@
-use crate::game_state_snapshot::GameStateSnapshot;
+use crate::plugin_state_snapshot::PluginStateSnapshot;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
-use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::plugin_state::PluginState;
@@ -65,7 +64,7 @@ impl Application for ApplicationStub {
     }
 }
 
-/// Loads the game plugin, hot reloads it when a newer build lands on disk, and carries the game
+/// Loads the game plugin, hot reloads it when a newer build lands on disk, and carries the plugin
 /// state across the reload.
 ///
 /// The loader owns the one invariant that makes unloading safe: every object the plugin created
@@ -73,9 +72,9 @@ impl Application for ApplicationStub {
 /// afterward, even just to drop it, is undefined behavior.
 ///
 /// The loaded plugin is handed out as an `Rc` rather than a borrow. That lets the loader live as
-/// a field on the same struct as the game state without every frame turning into a borrow
+/// a field on the same struct as the plugin state without every frame turning into a borrow
 /// fight, and a field is what makes the drop order at shutdown enforceable: Rust drops fields
-/// in declaration order, so a loader declared after the state outlives the plugin objects whose
+/// in declaration order, so a loader declared after the plugin state outlives the objects whose
 /// vtables point into its library.
 #[derive(Debug)]
 pub struct ApplicationLoader {
@@ -87,10 +86,10 @@ pub struct ApplicationLoader {
 
 #[derive(Debug)]
 pub enum LoadedApplication {
-    /// The plugin is running with its game state intact, either because nothing changed or
+    /// The plugin is running with its plugin state intact, either because nothing changed or
     /// because the state was carried across a reload.
     Running(Rc<ApplicationStub>),
-    /// The plugin was just loaded and has no game state. The caller must start a fresh game.
+    /// The plugin was just loaded and has no plugin state. The caller must start a fresh game.
     Fresh(Rc<ApplicationStub>),
 }
 
@@ -108,17 +107,23 @@ impl ApplicationLoader {
 
     /// Returns the plugin for this frame, hot reloading it when a newer build is on disk.
     ///
-    /// A reload carries the game state across in three steps, in an order that matters. While
-    /// the old plugin is still loaded, the state is serialized and its plugin-owned part is
+    /// A reload carries the plugin state across in three steps, in an order that matters. While
+    /// the old plugin is still loaded, the state is taken out of `plugin_state`, serialized, and
     /// dropped. Only then is the library unloaded. Once the new library is up, it rebuilds the
-    /// state from the bytes and writes it back through `state`. If the new build changed the
-    /// state's layout so the bytes no longer fit, the result is [`LoadedApplication::Fresh`] and
-    /// the caller starts over as if freshly launched.
-    pub fn load(&mut self, state: &mut GameState) -> Result<LoadedApplication> {
+    /// state from the bytes and the result is written back through `plugin_state`. If the new
+    /// build changed the state's layout so the bytes no longer fit, `plugin_state` is left empty,
+    /// the result is [`LoadedApplication::Fresh`], and the caller starts over as if freshly
+    /// launched.
+    pub fn load(
+        &mut self,
+        plugin_state: &mut Option<Box<dyn PluginState>>,
+    ) -> Result<LoadedApplication> {
         let snapshot = if self.is_outdated()? {
-            let snapshot = GameStateSnapshot::capture(state).ok();
-            // Drop the plugin state while its drop glue is still mapped into memory.
-            drop(state.take_plugin_state());
+            // `take` moves the state out of the slot and into the closure, so it drops at the
+            // end of the closure while its drop glue is still mapped into memory.
+            let snapshot = plugin_state
+                .take()
+                .and_then(|state| PluginStateSnapshot::capture(state.as_ref()).ok());
             self.unload();
             snapshot
         } else {
@@ -130,14 +135,9 @@ impl ApplicationLoader {
         }
 
         let application = self.load_library()?;
-        let restored = snapshot.and_then(|s| s.restore(application.as_ref()).ok());
-        match restored {
-            Some(restored) => {
-                // Replacing through the reference drops the old value. Its plugin part was taken
-                // above, so nothing in it still points into the unloaded library.
-                *state = restored;
-                Ok(LoadedApplication::Running(application))
-            }
+        *plugin_state = snapshot.and_then(|s| s.restore(application.as_ref()).ok());
+        match plugin_state {
+            Some(_) => Ok(LoadedApplication::Running(application)),
             None => Ok(LoadedApplication::Fresh(application)),
         }
     }

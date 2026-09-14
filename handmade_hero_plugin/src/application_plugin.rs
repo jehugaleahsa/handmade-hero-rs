@@ -193,15 +193,16 @@ impl ApplicationPlugin {
         }
     }
 
-    fn process_input_direct(input: &InputState, state: &mut GameState) {
+    fn process_input_direct(
+        input: &InputState,
+        state: &GameState,
+        plugin_state: &mut PluginGameState,
+    ) {
         let (delta_x, delta_y) = Self::calculate_delta_x_y(input, state);
         if delta_x == 0f32 && delta_y == 0f32 {
             return;
         }
 
-        let Some(plugin_state) = state.plugin_state_mut::<PluginGameState>() else {
-            return;
-        };
         let world = plugin_state.world();
         let old_coordinates = plugin_state.player().coordinate();
         let new_coordinates = old_coordinates.shifted(delta_x, delta_y);
@@ -521,7 +522,8 @@ impl ApplicationPlugin {
     }
 
     fn write_sound_direct(
-        state: &mut GameState,
+        state: &GameState,
+        plugin_state: &mut PluginGameState,
         input_state: &InputState,
         sound_buffer: &mut [StereoSample],
     ) {
@@ -531,9 +533,6 @@ impl ApplicationPlugin {
         let audio_state = state.audio();
         let frequency = audio_state.frequency();
         let volume = audio_state.volume();
-        let Some(plugin_state) = state.plugin_state_mut::<PluginGameState>() else {
-            return;
-        };
 
         let multiplier = if let Some(controller) = input_state.controllers().first() {
             let left_joystick = controller.left_joystick();
@@ -593,21 +592,33 @@ impl Application for ApplicationPlugin {
 
     fn initialize(&self, context: InitializeContext<'_>) {
         let InitializeContext {
-            state, back_buffer, ..
+            plugin_state: plugin,
+            back_buffer,
+            ..
         } = context;
-        if let Some(plugin_state) = state.plugin_state_mut::<PluginGameState>() {
+        if let Some(plugin_state) = plugin.downcast_mut::<PluginGameState>() {
             Self::initialize_direct(plugin_state, back_buffer);
         }
     }
 
     fn process_input(&self, context: InputContext<'_>) {
-        let InputContext { input, state } = context;
-        Self::process_input_direct(input, state);
+        let InputContext {
+            input,
+            state,
+            plugin_state: plugin,
+        } = context;
+        if let Some(plugin_state) = plugin.downcast_mut::<PluginGameState>() {
+            Self::process_input_direct(input, state, plugin_state);
+        }
     }
 
     fn render(&self, context: RenderContext<'_>) {
-        let RenderContext { buffer, state, .. } = context;
-        if let Some(plugin_state) = state.plugin_state::<PluginGameState>() {
+        let RenderContext {
+            buffer,
+            plugin_state: plugin,
+            ..
+        } = context;
+        if let Some(plugin_state) = plugin.downcast_ref::<PluginGameState>() {
             Self::render_direct(plugin_state, buffer);
         }
     }
@@ -615,9 +626,12 @@ impl Application for ApplicationPlugin {
     fn write_sound(&self, context: AudioContext<'_>) {
         let AudioContext {
             state,
+            plugin_state: plugin,
             input_state,
             sound_buffer,
         } = context;
-        Self::write_sound_direct(state, input_state, sound_buffer);
+        if let Some(plugin_state) = plugin.downcast_mut::<PluginGameState>() {
+            Self::write_sound_direct(state, plugin_state, input_state, sound_buffer);
+        }
     }
 }

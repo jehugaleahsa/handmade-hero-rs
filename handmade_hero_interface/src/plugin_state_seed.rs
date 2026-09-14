@@ -1,11 +1,17 @@
 use std::fmt::{self, Debug, Formatter};
 
-use serde::de::{DeserializeSeed, Deserializer, Error, Visitor};
+use serde::de::{DeserializeSeed, Deserializer, Error};
 
 use crate::application::Application;
 use crate::plugin_state::PluginState;
 
-/// Deserializes an `Option<Box<dyn PluginState>>` by handing the work to the plugin.
+/// Deserializes a `Box<dyn PluginState>` by handing the work to the plugin.
+///
+/// Plain `Deserialize` cannot do this: the platform layer does not know the concrete type, and
+/// `Deserialize` has no way to pass in the plugin that does. A `DeserializeSeed` is a
+/// `Deserialize` that carries a value, and here the value is the plugin. Nothing about the
+/// payload's structure is interpreted on this side; the seed erases the deserializer and hands
+/// it straight across the plugin boundary.
 #[derive(Clone, Copy)]
 pub struct PluginStateSeed<'a> {
     application: &'a dyn Application,
@@ -20,38 +26,13 @@ impl<'a> PluginStateSeed<'a> {
 }
 
 impl<'de> DeserializeSeed<'de> for PluginStateSeed<'_> {
-    type Value = Option<Box<dyn PluginState>>;
+    type Value = Box<dyn PluginState>;
 
-    #[inline]
     fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        // The field is serialized as an `Option`, so ask for one. The format tells the visitor
-        // whether it found `None` or `Some`, and hands over a deserializer for the payload.
-        deserializer.deserialize_option(self)
-    }
-}
-
-impl<'de> Visitor<'de> for PluginStateSeed<'_> {
-    type Value = Option<Box<dyn PluginState>>;
-
-    fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str("optional plugin state")
-    }
-
-    #[inline]
-    fn visit_none<E: Error>(self) -> Result<Self::Value, E> {
-        Ok(None)
-    }
-
-    #[inline]
-    fn visit_unit<E: Error>(self) -> Result<Self::Value, E> {
-        // Some formats represent a missing option as a unit rather than calling `visit_none`.
-        Ok(None)
-    }
-
-    fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
         let mut erased = <dyn erased_serde::Deserializer<'de>>::erase(deserializer);
-        let state = self.application.deserialize_plugin_state(&mut erased);
-        state.map(Some).map_err(D::Error::custom)
+        self.application
+            .deserialize_plugin_state(&mut erased)
+            .map_err(D::Error::custom)
     }
 }
 

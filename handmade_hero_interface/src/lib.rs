@@ -11,7 +11,6 @@ pub mod button_state;
 pub mod color;
 pub mod controller_state;
 pub mod game_state;
-pub mod game_state_seed;
 pub mod initialize_context;
 pub mod input_context;
 pub mod input_state;

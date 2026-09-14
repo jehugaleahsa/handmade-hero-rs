@@ -1,11 +1,11 @@
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::game_state::GameState;
-use handmade_hero_interface::game_state_seed::GameStateSeed;
 use handmade_hero_interface::input_state::InputState;
-use serde::Serialize;
-use serde::de::{DeserializeSeed, Deserializer, Error, SeqAccess, Visitor};
-use std::fmt::{self, Debug, Formatter};
+use handmade_hero_interface::plugin_state::PluginState;
+use handmade_hero_interface::plugin_state_seed::PluginStateSeed;
+use serde::Deserialize;
+use serde::de::DeserializeSeed;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::PathBuf;
@@ -18,63 +18,12 @@ enum State {
     Playing(BufReader<File>),
 }
 
-/// One frame as it is written: the input the game saw and the state it produced.
-#[derive(Debug, Serialize)]
-struct PlaybackEncoding<'a>(&'a InputState, &'a GameState);
-
+/// One recorded frame: the input the game saw and the state it produced.
 #[derive(Debug)]
 pub struct PlaybackState {
     pub input: InputState,
     pub state: GameState,
-}
-
-/// Reads one frame back. `PlaybackEncoding` is written as a two-element tuple struct, so this
-/// reads a two-element tuple struct, deserializing the second element with a [`GameStateSeed`]
-/// because only the plugin can rebuild the plugin-owned parts of a [`GameState`].
-#[derive(Clone, Copy)]
-struct PlaybackSeed<'a> {
-    application: &'a dyn Application,
-}
-
-impl<'de> DeserializeSeed<'de> for PlaybackSeed<'_> {
-    type Value = PlaybackState;
-
-    #[inline]
-    fn deserialize<D: Deserializer<'de>>(
-        self,
-        deserializer: D,
-    ) -> std::result::Result<Self::Value, D::Error> {
-        deserializer.deserialize_tuple_struct("PlaybackEncoding", 2, self)
-    }
-}
-
-impl<'de> Visitor<'de> for PlaybackSeed<'_> {
-    type Value = PlaybackState;
-
-    fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str("a recorded frame of input and game state")
-    }
-
-    fn visit_seq<A: SeqAccess<'de>>(
-        self,
-        mut seq: A,
-    ) -> std::result::Result<Self::Value, A::Error> {
-        let input = seq
-            .next_element()?
-            .ok_or_else(|| Error::invalid_length(0, &self))?;
-        let state = seq
-            .next_element_seed(GameStateSeed::new(self.application))?
-            .ok_or_else(|| Error::invalid_length(1, &self))?;
-        Ok(PlaybackState { input, state })
-    }
-}
-
-impl Debug for PlaybackSeed<'_> {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("PlaybackSeed")
-            .finish_non_exhaustive()
-    }
+    pub plugin: Box<dyn PluginState>,
 }
 
 #[derive(Debug, Default)]
@@ -99,13 +48,23 @@ impl PlaybackRecorder {
         }
     }
 
-    pub fn record(&mut self, input: &InputState, state: &GameState) -> Result<()> {
+    /// Writes one frame as two consecutive values: the platform-owned part, then the plugin
+    /// state. bincode is a bare byte stream with no framing, so consecutive encodes into the same
+    /// writer simply concatenate, and [`Self::playback`] reads them back in the same order.
+    pub fn record(
+        &mut self,
+        input: &InputState,
+        state: &GameState,
+        plugin: &dyn PluginState,
+    ) -> Result<()> {
         let writer = self.get_recording_file()?;
-        let recording = PlaybackEncoding(input, state);
-        bincode::serde::encode_into_std_write(recording, writer, bincode::config::standard())
-            .map_err(|e| {
-                ApplicationError::wrap("Could not write the state to the recording file", e)
-            })?;
+        let config = bincode::config::standard();
+        bincode::serde::encode_into_std_write((input, state), writer, config).map_err(|e| {
+            ApplicationError::wrap("Could not write the game state to the recording file", e)
+        })?;
+        bincode::serde::encode_into_std_write(plugin, writer, config).map_err(|e| {
+            ApplicationError::wrap("Could not write the plugin state to the recording file", e)
+        })?;
         self.total_recordings += 1;
         Ok(())
     }
@@ -132,21 +91,25 @@ impl PlaybackRecorder {
         Ok(recording_file)
     }
 
-    /// Reads the next recorded frame. The plugin is needed because a frame contains state only
+    /// Reads the next recorded frame. The plugin is needed because a frame ends with state only
     /// the plugin knows how to rebuild.
     pub fn playback(&mut self, application: &dyn Application) -> Result<Option<PlaybackState>> {
         let Some(reader) = self.get_playback_file()? else {
             return Ok(None);
         };
-        // The convenience functions on `bincode::serde` want a `DeserializeOwned`, which a seed
-        // is not. Going one level down gives a plain `serde::Deserializer` a seed can drive.
-        // `BufReader` implements bincode's own `Reader` trait, so it plugs in directly.
         let mut decoder =
             bincode::serde::OwnedSerdeDecoder::from_reader(reader, bincode::config::standard());
-        let seed = PlaybackSeed { application };
-        if let Ok(playback) = seed.deserialize(decoder.as_deserializer()) {
+        let platform = <(InputState, GameState)>::deserialize(decoder.as_deserializer());
+        let seed = PluginStateSeed::new(application);
+        let plugin = seed.deserialize(decoder.as_deserializer());
+        if let (Ok((input, state)), Ok(plugin)) = (platform, plugin) {
             self.remaining_recordings -= 1;
-            Ok(Some(playback))
+            let playback_state = PlaybackState {
+                input,
+                state,
+                plugin,
+            };
+            Ok(Some(playback_state))
         } else {
             self.state = State::None;
             Ok(None)

@@ -1,6 +1,6 @@
 mod application_loader;
-mod game_state_snapshot;
 mod playback_recorder;
+mod plugin_state_snapshot;
 
 #[cfg(target_os = "windows")]
 mod win32;

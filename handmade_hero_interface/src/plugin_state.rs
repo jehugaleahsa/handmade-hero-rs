@@ -18,6 +18,24 @@ pub trait PluginState: erased_serde::Serialize + Any + Debug {}
 impl<T: serde::Serialize + Any + Debug> PluginState for T {}
 
 // `erased_serde::Serialize` is object safe but is not `serde::Serialize`. This macro bridges the
-// gap by implementing `serde::Serialize` for `dyn PluginState`, which lets `Box<dyn PluginState>`
-// take part in a derived `Serialize` like any other field.
+// gap by implementing `serde::Serialize` for `dyn PluginState`, which lets a `&dyn PluginState`
+// be handed to any serde-based encoder like any other value.
 erased_serde::serialize_trait_object!(PluginState);
+
+impl dyn PluginState {
+    /// This state as its concrete type, or `None` when it is some other type.
+    #[inline]
+    #[must_use]
+    pub fn downcast_ref<P: Any>(&self) -> Option<&P> {
+        // Trait upcasting: `Any` is a supertrait, so `&dyn PluginState` coerces to `&dyn Any`.
+        let any: &dyn Any = self;
+        any.downcast_ref()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn downcast_mut<P: Any>(&mut self) -> Option<&mut P> {
+        let any: &mut dyn Any = self;
+        any.downcast_mut()
+    }
+}

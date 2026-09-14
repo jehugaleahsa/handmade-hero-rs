@@ -20,6 +20,7 @@ use handmade_hero_interface::key_mapping::KeyMapping;
 use handmade_hero_interface::keyboard_state::KeyboardState;
 use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
+use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
@@ -67,6 +68,7 @@ pub enum RecordingState {
 pub struct Win32Application {
     state: GameState,
     input: InputState,
+    plugin_state: Option<Box<dyn PluginState>>,
     keyboard: KeyboardState,
     key_mapping: KeyMapping,
     window: Win32Window,
@@ -76,9 +78,7 @@ pub struct Win32Application {
     sound_safety_margin: Information,
     recording_state: RecordingState,
     recorder: PlaybackRecorder,
-    // NOTE: The loader must be declared after `state`. Fields drop in declaration order, and the
-    // plugin state inside `state` has vtables that point into the loader's library. Dropping the
-    // library first would leave `state` to call drop glue through a dangling pointer.
+    // NOTE: Keep the loader last so it is dropped last
     loader: ApplicationLoader,
 }
 
@@ -87,6 +87,7 @@ impl Win32Application {
         Win32Application {
             state: GameState::new(),
             input: InputState::new(),
+            plugin_state: None,
             keyboard: KeyboardState::new(),
             key_mapping: KeyMapping::default(),
             window: Win32Window::new(),
@@ -383,7 +384,7 @@ impl Win32Application {
     /// Returns the plugin for this frame. The loader handles hot reloading and carrying the game
     /// state across it..
     fn load_application(&mut self) -> Result<Rc<ApplicationStub>> {
-        match self.loader.load(&mut self.state)? {
+        match self.loader.load(&mut self.plugin_state)? {
             LoadedApplication::Running(application) => Ok(application),
             LoadedApplication::Fresh(application) => {
                 self.initialize_application(application.as_ref());
@@ -394,10 +395,10 @@ impl Win32Application {
 
     /// Starts a brand new game with the given plugin.
     fn initialize_application(&mut self, application: &ApplicationStub) {
-        self.state
-            .set_plugin_state(application.create_plugin_state());
+        let plugin = self.plugin_state.insert(application.create_plugin_state());
         let initialize_context = InitializeContext {
             state: &mut self.state,
+            plugin_state: plugin.as_mut(),
             back_buffer: &mut self.back_buffer,
             sound_buffer: self.sound_buffer.as_deref_mut(),
         };
@@ -411,8 +412,11 @@ impl Win32Application {
         // other sound artifacts. So we just capture theta upfront and restore it after.
         // Hopefully this gets addressed in a later episode.
         if let RecordingState::Playing = self.recording_state {
-            if let Some(state) = self.recorder.playback(application).unwrap_or_default() {
-                (self.input, self.state) = (state.input, state.state);
+            if let Some(playback) = self.recorder.playback(application).unwrap_or_default() {
+                // Assigning drops the previous plugin state.
+                self.input = playback.input;
+                self.state = playback.state;
+                self.plugin_state = Some(playback.plugin);
             } else {
                 self.recorder.reset_playback().unwrap_or_default(); // We miss a frame here
             }
@@ -427,18 +431,24 @@ impl Win32Application {
                     .unwrap_or_default(); // Ignore errors
             }
 
-            if let RecordingState::Recording = self.recording_state {
+            if let RecordingState::Recording = self.recording_state
+                && let Some(plugin) = self.plugin_state.as_deref()
+            {
                 self.recorder
-                    .record(&self.input, &self.state)
+                    .record(&self.input, &self.state, plugin)
                     .unwrap_or_default(); // Ignore errors
             }
         }
     }
 
     fn process_input(&mut self, application: &ApplicationStub) {
+        let Some(plugin) = self.plugin_state.as_deref_mut() else {
+            return;
+        };
         let context = InputContext {
             input: &self.input,
             state: &mut self.state,
+            plugin_state: plugin,
         };
         application.process_input(context);
     }
@@ -514,8 +524,12 @@ impl Win32Application {
     }
 
     fn render_to_buffer(&mut self, application: &ApplicationStub) {
+        let Some(plugin) = self.plugin_state.as_deref_mut() else {
+            return;
+        };
         let context = RenderContext {
             state: &mut self.state,
+            plugin_state: plugin,
             input: &self.input,
             buffer: &mut self.back_buffer,
         };
@@ -591,8 +605,12 @@ impl Win32Application {
             vec![StereoSample::default(); buffer_samples]
         });
         let sound_buffer = &mut sound_buffer[..sample_count];
+        let Some(plugin) = self.plugin_state.as_deref_mut() else {
+            return;
+        };
         let context = AudioContext {
             state: &mut self.state,
+            plugin_state: plugin,
             input_state: &self.input,
             sound_buffer,
         };
