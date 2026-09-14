@@ -397,7 +397,7 @@ impl Win32Application {
     fn initialize_application(&mut self, application: &ApplicationStub) {
         let plugin = self.plugin_state.insert(application.create_plugin_state());
         let initialize_context = InitializeContext {
-            state: &mut self.state,
+            game_state: &mut self.state,
             plugin_state: plugin.as_mut(),
             back_buffer: &mut self.back_buffer,
             sound_buffer: self.sound_buffer.as_deref_mut(),
@@ -446,8 +446,8 @@ impl Win32Application {
             return;
         };
         let context = InputContext {
-            input: &self.input,
-            state: &mut self.state,
+            input_state: &self.input,
+            game_state: &mut self.state,
             plugin_state: plugin,
         };
         application.process_input(context);
@@ -528,9 +528,9 @@ impl Win32Application {
             return;
         };
         let context = RenderContext {
-            state: &mut self.state,
+            game_state: &mut self.state,
             plugin_state: plugin,
-            input: &self.input,
+            input_state: &self.input,
             buffer: &mut self.back_buffer,
         };
         application.render(context);
@@ -609,7 +609,7 @@ impl Win32Application {
             return;
         };
         let context = AudioContext {
-            state: &mut self.state,
+            game_state: &mut self.state,
             plugin_state: plugin,
             input_state: &self.input,
             sound_buffer,

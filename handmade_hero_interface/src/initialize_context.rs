@@ -5,7 +5,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct InitializeContext<'a> {
-    pub state: &'a mut GameState,
+    pub game_state: &'a mut GameState,
     pub plugin_state: &'a mut dyn PluginState,
     pub back_buffer: &'a mut BackBuffer,
     pub sound_buffer: Option<&'a mut [StereoSample]>,

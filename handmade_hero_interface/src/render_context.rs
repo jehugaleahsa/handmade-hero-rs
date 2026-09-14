@@ -5,8 +5,8 @@ use crate::plugin_state::PluginState;
 
 #[derive(Debug)]
 pub struct RenderContext<'a> {
-    pub input: &'a InputState,
-    pub state: &'a mut GameState,
+    pub input_state: &'a InputState,
+    pub game_state: &'a mut GameState,
     pub plugin_state: &'a mut dyn PluginState,
     pub buffer: &'a mut BackBuffer,
 }
