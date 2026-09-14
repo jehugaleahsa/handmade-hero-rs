@@ -1,5 +1,10 @@
+use crate::tile_map::TileMap;
+use crate::tile_map_coordinate::TileMapCoordinate;
+use crate::tile_map_key::TileMapKey;
+use crate::world::World;
+use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::application::Application;
-use handmade_hero_interface::application_error::Result;
+use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button_state::ButtonState;
@@ -9,18 +14,14 @@ use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
+use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
-use handmade_hero_interface::tile_map::TileMap;
-use handmade_hero_interface::tile_map_coordinate::TileMapCoordinate;
-use handmade_hero_interface::tile_map_key::TileMapKey;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::{Length, pixel};
 use handmade_hero_interface::units::si::time::Time;
-use handmade_hero_interface::world::World;
-use handmade_hero_interface::world_coordinate::WorldCoordinate;
 use std::cmp::Ordering;
 use std::f32;
 use uom::ConstZero;
@@ -28,6 +29,8 @@ use uom::si::frequency::hertz;
 use uom::si::length::meter;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
+
+use crate::plugin_game_state::PluginGameState;
 
 /// `World::TILE_ROWS` / `TILE_COLUMNS` as array dimensions. Array lengths must be `usize`
 /// and `usize::from` cannot be called in const position, so the widening happens here once
@@ -45,24 +48,24 @@ impl ApplicationPlugin {
         Box::new(Self {})
     }
 
-    fn initialize_direct(state: &mut GameState, back_buffer: &mut BackBuffer) {
+    fn initialize_direct(plugin_state: &mut PluginGameState, back_buffer: &mut BackBuffer) {
         // Put the player somewhere in the middle
         let width = back_buffer.width().get::<pixel>();
         let height = back_buffer.height().get::<pixel>();
-        let x = width / 2f32 + state.player().render_bounds().width() / 3f32;
+        let x = width / 2f32 + plugin_state.player().render_bounds().width() / 3f32;
         let y = height / 2f32;
-        let tile_map_coordinates = state
+        let tile_map_coordinates = plugin_state
             .world()
             .get_tile_map_coordinate(Point2d::from_x_y(x, y));
         let new_coordinates = WorldCoordinate::new(
-            state.world(),
-            state.player().tile_map_key(),
+            plugin_state.world(),
+            plugin_state.player().tile_map_key(),
             tile_map_coordinates,
         );
-        state.player_mut().set_coordinates(new_coordinates);
+        plugin_state.player_mut().set_coordinates(new_coordinates);
 
         // Load the world tile maps
-        let world = state.world_mut();
+        let world = plugin_state.world_mut();
         let hub = world.add_tile_map(TileMapKey::from_x_y(0, 0));
         Self::load_hub_tile_map(hub);
         let south = world.add_tile_map(TileMapKey::from_x_y(0, -1));
@@ -190,28 +193,32 @@ impl ApplicationPlugin {
         }
     }
 
-    fn process_input_direct(input: &InputState, state: &mut GameState) {
-        let (delta_x, delta_y) = Self::calculate_delta_x_y(input, state);
+    fn process_input_direct(
+        input_state: &InputState,
+        game_state: &GameState,
+        plugin_state: &mut PluginGameState,
+    ) {
+        let (delta_x, delta_y) = Self::calculate_delta_x_y(input_state, game_state);
         if delta_x == 0f32 && delta_y == 0f32 {
             return;
         }
 
-        let world = state.world();
-        let old_coordinates = state.player().coordinate();
+        let world = plugin_state.world();
+        let old_coordinates = plugin_state.player().coordinate();
         let new_coordinates = old_coordinates.shifted(delta_x, delta_y);
-        if !world.is_traversable(&new_coordinates, state.player().collision_bounds()) {
+        if !world.is_traversable(&new_coordinates, plugin_state.player().collision_bounds()) {
             return;
         }
 
-        state.player_mut().set_coordinates(new_coordinates);
+        plugin_state.player_mut().set_coordinates(new_coordinates);
     }
 
-    fn calculate_delta_x_y(input: &InputState, state: &GameState) -> (f32, f32) {
-        let keyboard = input.keyboard();
+    fn calculate_delta_x_y(input_state: &InputState, game_state: &GameState) -> (f32, f32) {
+        let keyboard = input_state.keyboard();
         let mut delta_x = Self::calculate_keyboard_delta_x(keyboard.as_controller());
         let mut delta_y = Self::calculate_keyboard_delta_y(keyboard.as_controller());
         if delta_x == 0f32 && delta_y == 0f32 {
-            for controller in input.controllers() {
+            for controller in input_state.controllers() {
                 if controller.enabled() {
                     delta_x = Self::calculate_controller_delta_x(controller);
                     delta_y = Self::calculate_controller_delta_y(controller);
@@ -221,7 +228,7 @@ impl ApplicationPlugin {
                 }
             }
         }
-        let frame_duration = state.frame_duration();
+        let frame_duration = game_state.frame_duration();
         let max_speed = Length::new::<meter>(3f32) / Time::new::<second>(1f32);
         let max_distance = frame_duration * max_speed;
         let max_distance_px = max_distance.get::<pixel>();
@@ -277,22 +284,24 @@ impl ApplicationPlugin {
         }
     }
 
-    fn render_direct(state: &GameState, buffer: &mut BackBuffer) {
+    fn render_direct(plugin_state: &PluginGameState, buffer: &mut BackBuffer) {
         let width = buffer.width();
         let height = buffer.height();
         let window_bounds = Rectangle::new(0f32, 0f32, height.get::<pixel>(), width.get::<pixel>());
 
-        let world = state.world();
-        let player_coordinate = state.player().coordinate();
+        let world = plugin_state.world();
+        let player_coordinate = plugin_state.player().coordinate();
         let start_coordinate = Self::determine_start_coordinate(world, player_coordinate);
 
-        Self::render_tilemap(state, &window_bounds, &start_coordinate, buffer).unwrap_or_default(); // Ignore errors
+        Self::render_tilemap(plugin_state, &window_bounds, &start_coordinate, buffer)
+            .unwrap_or_default(); // Ignore errors
 
-        Self::render_player(state, &window_bounds, &start_coordinate, buffer).unwrap_or_default(); // Ignore errors
+        Self::render_player(plugin_state, &window_bounds, &start_coordinate, buffer)
+            .unwrap_or_default(); // Ignore errors
     }
 
     fn render_tilemap(
-        state: &GameState,
+        plugin_state: &PluginGameState,
         window_bounds: &Rectangle<f32>,
         start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
@@ -318,8 +327,8 @@ impl ApplicationPlugin {
         // When this happens, we switch our strategy, rendering more of the current tile map. This
         // means once the player gets past the center, they will no longer stay in the center and
         // start moving toward the outer edge. This avoids rendering a bunch of emptiness.
-        let world = state.world();
-        let player_coordinate = state.player().coordinate();
+        let world = plugin_state.world();
+        let player_coordinate = plugin_state.player().coordinate();
 
         let tile_size = world.tile_size;
         let mut tile_map_y = start_coordinate.tile_map_y();
@@ -400,7 +409,7 @@ impl ApplicationPlugin {
     }
 
     fn render_player(
-        state: &GameState,
+        plugin_state: &PluginGameState,
         window_bounds: &Rectangle<f32>,
         start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
@@ -408,8 +417,8 @@ impl ApplicationPlugin {
         let height = buffer.height();
         let pixels = buffer.pixels_mut();
 
-        let world = state.world();
-        let player = state.player();
+        let world = plugin_state.world();
+        let player = plugin_state.player();
         let player_coordinate = player.coordinate();
         let tile_size = world.tile_size().get::<pixel>();
         let x_offset = Self::determine_player_offset(
@@ -515,14 +524,18 @@ impl ApplicationPlugin {
     }
 
     fn write_sound_direct(
-        state: &mut GameState,
+        game_state: &GameState,
+        plugin_state: &mut PluginGameState,
         input_state: &InputState,
         sound_buffer: &mut [StereoSample],
     ) {
         const C_HERTZ: f32 = 261.63;
         const TWO_PI: f32 = 2.0 * f32::consts::PI;
 
-        let sound_state = state.sound();
+        let audio_state = game_state.audio();
+        let frequency = audio_state.frequency();
+        let volume = audio_state.volume();
+
         let multiplier = if let Some(controller) = input_state.controllers().first() {
             let left_joystick = controller.left_joystick();
             let y_ratio = left_joystick.y_ratio();
@@ -536,11 +549,11 @@ impl ApplicationPlugin {
         let period = if tone == Frequency::ZERO {
             0
         } else {
-            (sound_state.frequency() / tone).get::<ratio>()
+            (frequency / tone).get::<ratio>()
         };
 
-        let volume = sound_state.volume();
-        let mut theta = sound_state.theta();
+        let plugin_audio_state = plugin_state.audio_mut();
+        let mut theta = plugin_audio_state.theta();
         for outbound in sound_buffer {
             #[expect(clippy::cast_precision_loss)]
             let step = if period == 0 {
@@ -558,38 +571,71 @@ impl ApplicationPlugin {
             let sample = StereoSample::from_left_right(value, value);
             *outbound = sample;
         }
-        let sound_state = state.sound_mut();
-        sound_state.set_theta(theta);
+        plugin_audio_state.set_theta(theta);
     }
 }
 
 impl Application for ApplicationPlugin {
     #[inline]
+    fn create_plugin_state(&self) -> Box<dyn PluginState> {
+        Box::new(PluginGameState::new())
+    }
+
+    fn deserialize_plugin_state(
+        &self,
+        deserializer: &mut dyn erased_serde::Deserializer<'_>,
+    ) -> Result<Box<dyn PluginState>> {
+        // This is the only place that knows the bytes describe a `PluginGameState`, which is
+        // why deserialization has to happen on this side of the plugin boundary.
+        let plugin_state: PluginGameState = erased_serde::deserialize(deserializer)
+            .map_err(|e| ApplicationError::wrap("Could not deserialize the game state", e))?;
+        Ok(Box::new(plugin_state))
+    }
+
     fn initialize(&self, context: InitializeContext<'_>) {
-        let InitializeContext { state, back_buffer } = context;
-        Self::initialize_direct(state, back_buffer);
+        let InitializeContext {
+            plugin_state,
+            back_buffer,
+            ..
+        } = context;
+        if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
+            Self::initialize_direct(plugin_state, back_buffer);
+        }
     }
 
-    #[inline]
     fn process_input(&self, context: InputContext<'_>) {
-        let InputContext { input, state } = context;
-        Self::process_input_direct(input, state);
+        let InputContext {
+            input_state,
+            game_state,
+            plugin_state,
+            ..
+        } = context;
+        if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
+            Self::process_input_direct(input_state, game_state, plugin_state);
+        }
     }
 
-    #[inline]
     fn render(&self, context: RenderContext<'_>) {
-        let RenderContext { state, buffer, .. } = context;
-        Self::render_direct(state, buffer);
+        let RenderContext {
+            buffer,
+            plugin_state,
+            ..
+        } = context;
+        if let Some(plugin_state) = plugin_state.downcast_ref::<PluginGameState>() {
+            Self::render_direct(plugin_state, buffer);
+        }
     }
 
-    #[inline]
     fn write_sound(&self, context: AudioContext<'_>) {
         let AudioContext {
-            state,
+            game_state,
+            plugin_state,
             input_state,
             sound_buffer,
             ..
         } = context;
-        Self::write_sound_direct(state, input_state, sound_buffer);
+        if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
+            Self::write_sound_direct(game_state, plugin_state, input_state, sound_buffer);
+        }
     }
 }

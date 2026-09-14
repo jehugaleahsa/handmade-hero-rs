@@ -1,8 +1,8 @@
-use crate::point_2d::Point2d;
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
-use crate::units::si::length::{Length, pixel};
 use crate::world::World;
+use handmade_hero_interface::point_2d::Point2d;
+use handmade_hero_interface::units::si::length::{Length, pixel};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone)]

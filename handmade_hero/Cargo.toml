@@ -9,6 +9,8 @@ windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_
 libloading = { version = "0.9.0" }
 bincode = { workspace = true }
 uom = { workspace = true }
+serde = { workspace = true }
+erased-serde = { workspace = true }
 
 [lints]
 workspace = true

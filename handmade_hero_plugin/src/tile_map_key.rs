@@ -15,13 +15,13 @@ impl TileMapKey {
 
     #[inline]
     #[must_use]
-    pub fn x(&self) -> i16 {
+    pub fn x(self) -> i16 {
         self.x
     }
 
     #[inline]
     #[must_use]
-    pub fn y(&self) -> i16 {
+    pub fn y(self) -> i16 {
         self.y
     }
 }

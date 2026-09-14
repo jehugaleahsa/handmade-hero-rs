@@ -1,10 +1,10 @@
-use crate::point_2d::Point2d;
-use crate::rectangle::Rectangle;
 use crate::tile_map::TileMap;
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
-use crate::units::si::length::{Length, pixel};
 use crate::world_coordinate::WorldCoordinate;
+use handmade_hero_interface::point_2d::Point2d;
+use handmade_hero_interface::rectangle::Rectangle;
+use handmade_hero_interface::units::si::length::{Length, pixel};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
