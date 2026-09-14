@@ -4,7 +4,7 @@ use super::win32_controller::{Win32Controller, Win32ControllerState};
 use super::win32_key_event::{self, Win32KeyEvent};
 use super::win32_mouse::Win32Mouse;
 use super::win32_window::Win32Window;
-use crate::application_loader::{ApplicationLoad, ApplicationLoader, ApplicationStub};
+use crate::application_loader::{ApplicationLoader, ApplicationStub, LoadedApplication};
 use crate::playback_recorder::PlaybackRecorder;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
@@ -262,17 +262,18 @@ impl Win32Application {
                 if let Some(ref mut sound_buffer) = sound_buffer {
                     sound_buffer.stop().unwrap_or(()); // Ignore errors
                 }
+                // The application is shutting down, we don't care about cleaning these up
+                if let Some(plugin_game_state) = self.plugin_game_state.take() {
+                    Box::leak(plugin_game_state);
+                }
+                if let Some(plugin_audio_state) = self.plugin_audio_state.take() {
+                    Box::leak(plugin_audio_state);
+                }
                 return Ok(code);
             }
             self.process_recording_hotkey();
 
             let application = self.load_application(&mut loader)?;
-            if self.plugin_game_state.is_none() {
-                self.plugin_game_state = Some(application.create_game_state());
-            }
-            if self.plugin_audio_state.is_none() {
-                self.plugin_audio_state = Some(application.create_audio_state());
-            }
 
             self.process_recording(&mut recorder);
             self.process_input(application);
@@ -402,8 +403,8 @@ impl Win32Application {
     ) -> Result<&'a mut ApplicationStub> {
         let result = loader.load()?;
         match result {
-            ApplicationLoad::Cached(application) => Ok(application),
-            ApplicationLoad::Loaded(application) => {
+            LoadedApplication::Cached(application) => Ok(application),
+            LoadedApplication::Loaded(application) => {
                 self.plugin_game_state = Some(application.create_game_state());
                 self.plugin_audio_state = Some(application.create_audio_state());
                 let initialize_context = InitializeContext {

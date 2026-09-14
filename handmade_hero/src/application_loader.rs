@@ -55,7 +55,7 @@ pub struct ApplicationLoader {
     stub: Option<ApplicationStub>,
 }
 
-pub enum ApplicationLoad<'a> {
+pub enum LoadedApplication<'a> {
     Cached(&'a mut ApplicationStub),
     Loaded(&'a mut ApplicationStub),
 }
@@ -72,7 +72,7 @@ impl ApplicationLoader {
         }
     }
 
-    pub fn load(&mut self) -> Result<ApplicationLoad<'_>> {
+    pub fn load(&mut self) -> Result<LoadedApplication<'_>> {
         let normal_name = self
             .plugin_directory
             .join(library_filename("handmade_hero_plugin"));
@@ -102,7 +102,7 @@ impl ApplicationLoader {
         }
 
         if let Some(ref mut stub) = self.stub {
-            Ok(ApplicationLoad::Cached(stub))
+            Ok(LoadedApplication::Cached(stub))
         } else {
             let library = unsafe {
                 Library::new(&running_name).expect("Could not load the application library")
@@ -118,7 +118,7 @@ impl ApplicationLoader {
                 _library: library,
             };
             self.stub.replace(application);
-            Ok(ApplicationLoad::Loaded(
+            Ok(LoadedApplication::Loaded(
                 self.stub.as_mut().expect("Application just set"),
             ))
         }
