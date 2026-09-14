@@ -1,4 +1,5 @@
 use crate::player::Player;
+use crate::plugin_audio_state::PluginAudioState;
 use crate::tile_map_key::TileMapKey;
 use crate::world::World;
 use handmade_hero_interface::units::si::length::Length;
@@ -10,6 +11,7 @@ use uom::si::length::meter;
 pub struct PluginGameState {
     player: Player,
     world: World,
+    audio: PluginAudioState,
 }
 
 impl PluginGameState {
@@ -28,7 +30,11 @@ impl PluginGameState {
         };
         let current_tile_map_key = TileMapKey::from_x_y(0, 0);
         let player = Player::new(&world, current_tile_map_key);
-        Self { player, world }
+        Self {
+            player,
+            world,
+            audio: PluginAudioState::new(),
+        }
     }
 
     #[inline]
@@ -53,6 +59,12 @@ impl PluginGameState {
     #[must_use]
     pub fn world_mut(&mut self) -> &mut World {
         &mut self.world
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn audio_mut(&mut self) -> &mut PluginAudioState {
+        &mut self.audio
     }
 }
 

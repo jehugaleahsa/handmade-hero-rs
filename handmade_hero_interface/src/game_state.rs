@@ -1,14 +1,19 @@
-use serde::{Deserialize, Serialize};
+use std::any::Any;
+
+use serde::Serialize;
 use uom::num::Zero;
 
 use crate::{
-    audio_state::AudioState, sample::Sample, stereo_sample::StereoSample, units::si::time::Time,
+    audio_state::AudioState, plugin_state::PluginState, sample::Sample,
+    stereo_sample::StereoSample, units::si::time::Time,
 };
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Only `Serialize` is derived. Deserializing needs the plugin to build the `plugin` field.
+#[derive(Debug, Serialize)]
 pub struct GameState {
-    frame_duration: Time,
-    audio: AudioState,
+    pub(crate) frame_duration: Time,
+    pub(crate) audio: AudioState,
+    pub(crate) plugin: Option<Box<dyn PluginState>>,
 }
 
 impl GameState {
@@ -21,6 +26,7 @@ impl GameState {
         Self {
             frame_duration: Time::zero(),
             audio: AudioState::new(channel_count, channel_size),
+            plugin: None,
         }
     }
 
@@ -45,6 +51,34 @@ impl GameState {
     #[must_use]
     pub fn audio_mut(&mut self) -> &mut AudioState {
         &mut self.audio
+    }
+
+    /// The plugin's state as its concrete type, or `None` when no plugin state has been set or
+    /// it is some other type.
+    #[inline]
+    #[must_use]
+    pub fn plugin_state<P: Any>(&self) -> Option<&P> {
+        let state: &dyn Any = self.plugin.as_deref()?;
+        state.downcast_ref()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn plugin_state_mut<P: Any>(&mut self) -> Option<&mut P> {
+        let state: &mut dyn Any = self.plugin.as_deref_mut()?;
+        state.downcast_mut()
+    }
+
+    #[inline]
+    pub fn set_plugin_state(&mut self, value: Box<dyn PluginState>) {
+        self.plugin = Some(value);
+    }
+
+    /// Removes the plugin state so it can be dropped on the caller's schedule, which matters
+    /// when the plugin library is about to be unloaded.
+    #[inline]
+    pub fn take_plugin_state(&mut self) -> Option<Box<dyn PluginState>> {
+        self.plugin.take()
     }
 }
 

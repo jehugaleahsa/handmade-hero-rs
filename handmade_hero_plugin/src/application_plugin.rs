@@ -1,11 +1,10 @@
-use crate::plugin_audio_state::PluginAudioState;
 use crate::tile_map::TileMap;
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::application::Application;
-use handmade_hero_interface::application_error::Result;
+use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button_state::ButtonState;
@@ -15,6 +14,7 @@ use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
+use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
@@ -22,7 +22,6 @@ use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::{Length, pixel};
 use handmade_hero_interface::units::si::time::Time;
-use std::any::Any;
 use std::cmp::Ordering;
 use std::f32;
 use uom::ConstZero;
@@ -194,16 +193,15 @@ impl ApplicationPlugin {
         }
     }
 
-    fn process_input_direct(
-        input: &InputState,
-        state: &mut GameState,
-        plugin_state: &mut PluginGameState,
-    ) {
+    fn process_input_direct(input: &InputState, state: &mut GameState) {
         let (delta_x, delta_y) = Self::calculate_delta_x_y(input, state);
         if delta_x == 0f32 && delta_y == 0f32 {
             return;
         }
 
+        let Some(plugin_state) = state.plugin_state_mut::<PluginGameState>() else {
+            return;
+        };
         let world = plugin_state.world();
         let old_coordinates = plugin_state.player().coordinate();
         let new_coordinates = old_coordinates.shifted(delta_x, delta_y);
@@ -524,7 +522,6 @@ impl ApplicationPlugin {
 
     fn write_sound_direct(
         state: &mut GameState,
-        plugin_audio_state: &mut PluginAudioState,
         input_state: &InputState,
         sound_buffer: &mut [StereoSample],
     ) {
@@ -532,6 +529,12 @@ impl ApplicationPlugin {
         const TWO_PI: f32 = 2.0 * f32::consts::PI;
 
         let audio_state = state.audio();
+        let frequency = audio_state.frequency();
+        let volume = audio_state.volume();
+        let Some(plugin_state) = state.plugin_state_mut::<PluginGameState>() else {
+            return;
+        };
+
         let multiplier = if let Some(controller) = input_state.controllers().first() {
             let left_joystick = controller.left_joystick();
             let y_ratio = left_joystick.y_ratio();
@@ -545,10 +548,10 @@ impl ApplicationPlugin {
         let period = if tone == Frequency::ZERO {
             0
         } else {
-            (audio_state.frequency() / tone).get::<ratio>()
+            (frequency / tone).get::<ratio>()
         };
 
-        let volume = audio_state.volume();
+        let plugin_audio_state = plugin_state.audio_mut();
         let mut theta = plugin_audio_state.theta();
         for outbound in sound_buffer {
             #[expect(clippy::cast_precision_loss)]
@@ -573,52 +576,39 @@ impl ApplicationPlugin {
 
 impl Application for ApplicationPlugin {
     #[inline]
-    fn create_game_state(&self) -> Box<dyn Any> {
+    fn create_plugin_state(&self) -> Box<dyn PluginState> {
         Box::new(PluginGameState::new())
     }
 
-    #[inline]
-    fn create_audio_state(&self) -> Box<dyn Any> {
-        Box::new(PluginAudioState::new())
+    fn deserialize_plugin_state(
+        &self,
+        deserializer: &mut dyn erased_serde::Deserializer<'_>,
+    ) -> Result<Box<dyn PluginState>> {
+        // This is the only place that knows the bytes describe a `PluginGameState`, which is
+        // why deserialization has to happen on this side of the plugin boundary.
+        let state: PluginGameState = erased_serde::deserialize(deserializer)
+            .map_err(|e| ApplicationError::wrap("Could not deserialize the game state", e))?;
+        Ok(Box::new(state))
     }
 
     fn initialize(&self, context: InitializeContext<'_>) {
         let InitializeContext {
-            back_buffer,
-            plugin_game_state,
-            ..
+            state, back_buffer, ..
         } = context;
-        if let Some(plugin_game_state) =
-            plugin_game_state.and_then(|s| s.downcast_mut::<PluginGameState>())
-        {
-            Self::initialize_direct(plugin_game_state, back_buffer);
+        if let Some(plugin_state) = state.plugin_state_mut::<PluginGameState>() {
+            Self::initialize_direct(plugin_state, back_buffer);
         }
     }
 
     fn process_input(&self, context: InputContext<'_>) {
-        let InputContext {
-            input,
-            state,
-            plugin_game_state,
-            ..
-        } = context;
-        if let Some(plugin_game_state) =
-            plugin_game_state.and_then(|s| s.downcast_mut::<PluginGameState>())
-        {
-            Self::process_input_direct(input, state, plugin_game_state);
-        }
+        let InputContext { input, state } = context;
+        Self::process_input_direct(input, state);
     }
 
     fn render(&self, context: RenderContext<'_>) {
-        let RenderContext {
-            buffer,
-            plugin_game_state,
-            ..
-        } = context;
-        if let Some(plugin_game_state) =
-            plugin_game_state.and_then(|s| s.downcast_mut::<PluginGameState>())
-        {
-            Self::render_direct(plugin_game_state, buffer);
+        let RenderContext { buffer, state, .. } = context;
+        if let Some(plugin_state) = state.plugin_state::<PluginGameState>() {
+            Self::render_direct(plugin_state, buffer);
         }
     }
 
@@ -627,13 +617,7 @@ impl Application for ApplicationPlugin {
             state,
             input_state,
             sound_buffer,
-            plugin_audio_state,
-            ..
         } = context;
-        if let Some(plugin_audio_state) =
-            plugin_audio_state.and_then(|s| s.downcast_mut::<PluginAudioState>())
-        {
-            Self::write_sound_direct(state, plugin_audio_state, input_state, sound_buffer);
-        }
+        Self::write_sound_direct(state, input_state, sound_buffer);
     }
 }

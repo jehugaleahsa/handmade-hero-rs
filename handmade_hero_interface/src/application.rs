@@ -1,14 +1,19 @@
-use std::any::Any;
-
+use crate::application_error::Result;
 use crate::audio_context::AudioContext;
 use crate::initialize_context::InitializeContext;
 use crate::input_context::InputContext;
+use crate::plugin_state::PluginState;
 use crate::render_context::RenderContext;
 
 pub trait Application {
-    fn create_game_state(&self) -> Box<dyn Any>;
+    /// Creates game-specific state.
+    fn create_plugin_state(&self) -> Box<dyn PluginState>;
 
-    fn create_audio_state(&self) -> Box<dyn Any>;
+    /// Rebuilds game-specific state from a stream the platform layer serialized earlier.
+    fn deserialize_plugin_state(
+        &self,
+        deserializer: &mut dyn erased_serde::Deserializer<'_>,
+    ) -> Result<Box<dyn PluginState>>;
 
     fn initialize(&self, context: InitializeContext<'_>);
 

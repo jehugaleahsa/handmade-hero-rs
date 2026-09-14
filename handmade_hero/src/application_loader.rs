@@ -1,30 +1,47 @@
+use crate::game_state_snapshot::GameStateSnapshot;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
+use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
+use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::render_context::RenderContext;
 use libloading::{Library, Symbol, library_filename};
 use std::ffi::OsString;
-use std::os::windows::fs::MetadataExt;
+use std::fmt::{self, Debug, Formatter};
 use std::path::PathBuf;
+use std::rc::Rc;
+use std::time::SystemTime;
 
 pub struct ApplicationStub {
     application: Box<dyn Application>,
-    // NOTE: Ensure _library appears after application, so these fields get dropped
+    // NOTE: Ensure library appears after application, so these fields get dropped
     // in the correct order!
-    _library: Library,
+    library: Library,
+}
+
+impl Debug for ApplicationStub {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ApplicationStub")
+            .field("library", &self.library)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Application for ApplicationStub {
     #[inline]
-    fn create_game_state(&self) -> Box<dyn std::any::Any> {
-        self.application.create_game_state()
+    fn create_plugin_state(&self) -> Box<dyn PluginState> {
+        self.application.create_plugin_state()
     }
 
     #[inline]
-    fn create_audio_state(&self) -> Box<dyn std::any::Any> {
-        self.application.create_audio_state()
+    fn deserialize_plugin_state(
+        &self,
+        deserializer: &mut dyn erased_serde::Deserializer<'_>,
+    ) -> Result<Box<dyn PluginState>> {
+        self.application.deserialize_plugin_state(deserializer)
     }
 
     #[inline]
@@ -48,16 +65,33 @@ impl Application for ApplicationStub {
     }
 }
 
+/// Loads the game plugin, hot reloads it when a newer build lands on disk, and carries the game
+/// state across the reload.
+///
+/// The loader owns the one invariant that makes unloading safe: every object the plugin created
+/// must be dropped before its library is. Their vtables live in the library, so touching one
+/// afterward, even just to drop it, is undefined behavior.
+///
+/// The loaded plugin is handed out as an `Rc` rather than a borrow. That lets the loader live as
+/// a field on the same struct as the game state without every frame turning into a borrow
+/// fight, and a field is what makes the drop order at shutdown enforceable: Rust drops fields
+/// in declaration order, so a loader declared after the state outlives the plugin objects whose
+/// vtables point into its library.
+#[derive(Debug)]
 pub struct ApplicationLoader {
     plugin_directory: PathBuf,
     last_counter: usize,
-    last_modified: Option<u64>,
-    stub: Option<ApplicationStub>,
+    last_modified: Option<SystemTime>,
+    stub: Option<Rc<ApplicationStub>>,
 }
 
-pub enum LoadedApplication<'a> {
-    Cached(&'a mut ApplicationStub),
-    Loaded(&'a mut ApplicationStub),
+#[derive(Debug)]
+pub enum LoadedApplication {
+    /// The plugin is running with its game state intact, either because nothing changed or
+    /// because the state was carried across a reload.
+    Running(Rc<ApplicationStub>),
+    /// The plugin was just loaded and has no game state. The caller must start a fresh game.
+    Fresh(Rc<ApplicationStub>),
 }
 
 impl ApplicationLoader {
@@ -72,10 +106,85 @@ impl ApplicationLoader {
         }
     }
 
-    pub fn load(&mut self) -> Result<LoadedApplication<'_>> {
-        let normal_name = self
-            .plugin_directory
-            .join(library_filename("handmade_hero_plugin"));
+    /// Returns the plugin for this frame, hot reloading it when a newer build is on disk.
+    ///
+    /// A reload carries the game state across in three steps, in an order that matters. While
+    /// the old plugin is still loaded, the state is serialized and its plugin-owned part is
+    /// dropped. Only then is the library unloaded. Once the new library is up, it rebuilds the
+    /// state from the bytes and writes it back through `state`. If the new build changed the
+    /// state's layout so the bytes no longer fit, the result is [`LoadedApplication::Fresh`] and
+    /// the caller starts over as if freshly launched.
+    pub fn load(&mut self, state: &mut GameState) -> Result<LoadedApplication> {
+        let snapshot = if self.is_outdated()? {
+            let snapshot = GameStateSnapshot::capture(state).ok();
+            // Drop the plugin state while its drop glue is still mapped into memory.
+            drop(state.take_plugin_state());
+            self.unload();
+            snapshot
+        } else {
+            None
+        };
+
+        if let Some(ref stub) = self.stub {
+            return Ok(LoadedApplication::Running(Rc::clone(stub)));
+        }
+
+        let application = self.load_library()?;
+        let restored = snapshot.and_then(|s| s.restore(application.as_ref()).ok());
+        match restored {
+            Some(restored) => {
+                // Replacing through the reference drops the old value. Its plugin part was taken
+                // above, so nothing in it still points into the unloaded library.
+                *state = restored;
+                Ok(LoadedApplication::Running(application))
+            }
+            None => Ok(LoadedApplication::Fresh(application)),
+        }
+    }
+
+    /// Whether the plugin on disk is newer than the one that is loaded.
+    fn is_outdated(&self) -> Result<bool> {
+        let Some(last_modified) = self.last_modified else {
+            // Nothing is loaded, so there is nothing to be out of date.
+            return Ok(false);
+        };
+        let current_modified = self.plugin_last_modified()?;
+        let is_outdated = last_modified < current_modified;
+        Ok(is_outdated)
+    }
+
+    /// Unloads the plugin library. See the type-level docs for what must happen first.
+    #[inline]
+    fn unload(&mut self) {
+        self.stub = None;
+    }
+
+    /// Copies the plugin from disk and loads the copy.
+    fn load_library(&mut self) -> Result<Rc<ApplicationStub>> {
+        let current_modified = self.plugin_last_modified()?;
+        let running_name = self.copy_plugin_library()?;
+        self.last_modified = Some(current_modified);
+
+        let library =
+            unsafe { Library::new(&running_name).expect("Could not load the application library") };
+        let creator: Symbol<'_, fn() -> Box<dyn Application>> = unsafe {
+            library
+                .get(b"create_application")
+                .expect("Could not load the application implementation")
+        };
+        let application = creator();
+        let stub = Rc::new(ApplicationStub {
+            application,
+            library,
+        });
+        self.stub = Some(Rc::clone(&stub));
+        Ok(stub)
+    }
+
+    /// The last write time of the plugin on disk. The build script renames the previous build
+    /// while the new one compiles, so either name counts.
+    fn plugin_last_modified(&self) -> Result<SystemTime> {
+        let normal_name = self.normal_name();
         let old_name = self
             .plugin_directory
             .join(library_filename("handmade_hero_plugin_old"));
@@ -84,44 +193,34 @@ impl ApplicationLoader {
             .map_err(|e| {
                 ApplicationError::wrap("Failed to get the application plugin file metadata", e)
             })?;
+        let last_modified = metadata.modified().map_err(|e| {
+            ApplicationError::wrap("Failed to get the application plugin file write time", e)
+        })?;
+        Ok(last_modified)
+    }
 
+    /// Copies the plugin to a private name so the compiler can overwrite the original while the
+    /// copy is loaded.
+    ///
+    /// The first copy must succeed. Later copies retry under a fresh name because Windows can
+    /// hold the previous copy open briefly after it is unloaded.
+    fn copy_plugin_library(&mut self) -> Result<PathBuf> {
+        let normal_name = self.normal_name();
         let mut running_name = self.plugin_directory.join(self.current_running_name());
-        let current_modified = metadata.last_write_time();
-        if let Some(last_modified) = self.last_modified {
-            if last_modified < current_modified {
-                while Self::copy_plugin_library(&normal_name, &running_name).is_err() {
-                    self.last_counter += 1;
-                    running_name = self.plugin_directory.join(self.current_running_name());
-                }
-                self.stub = None;
-                self.last_modified = Some(current_modified);
+        if self.last_modified.is_none() {
+            Self::copy_file(&normal_name, &running_name)?;
+        } else {
+            while Self::copy_file(&normal_name, &running_name).is_err() {
+                self.last_counter += 1;
+                running_name = self.plugin_directory.join(self.current_running_name());
             }
-        } else {
-            Self::copy_plugin_library(&normal_name, &running_name)?;
-            self.last_modified = Some(current_modified);
         }
+        Ok(running_name)
+    }
 
-        if let Some(ref mut stub) = self.stub {
-            Ok(LoadedApplication::Cached(stub))
-        } else {
-            let library = unsafe {
-                Library::new(&running_name).expect("Could not load the application library")
-            };
-            let creator: Symbol<'_, fn() -> Box<dyn Application>> = unsafe {
-                library
-                    .get(b"create_application")
-                    .expect("Could not load the application implementation")
-            };
-            let application = creator();
-            let application = ApplicationStub {
-                application,
-                _library: library,
-            };
-            self.stub.replace(application);
-            Ok(LoadedApplication::Loaded(
-                self.stub.as_mut().expect("Application just set"),
-            ))
-        }
+    fn normal_name(&self) -> PathBuf {
+        self.plugin_directory
+            .join(library_filename("handmade_hero_plugin"))
     }
 
     fn current_running_name(&self) -> OsString {
@@ -133,7 +232,7 @@ impl ApplicationLoader {
         library_filename(running_name)
     }
 
-    fn copy_plugin_library(normal_file: &PathBuf, running_file: &PathBuf) -> Result<()> {
+    fn copy_file(normal_file: &PathBuf, running_file: &PathBuf) -> Result<()> {
         std::fs::copy(normal_file, running_file)
             .map_err(|e| ApplicationError::wrap("Failed to copy the application plugin", e))
             .map(|_| ())

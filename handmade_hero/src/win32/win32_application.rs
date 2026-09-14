@@ -25,11 +25,11 @@ use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::information::Information;
 use handmade_hero_interface::units::si::length::pixel;
-use std::any::Any;
 use std::cmp::Ordering;
 use std::ffi::c_void;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::ExitCode;
+use std::rc::Rc;
 use std::time::Duration;
 use uom::num::Zero;
 use uom::si::f32::{Ratio, Time};
@@ -75,12 +75,15 @@ pub struct Win32Application {
     sound_index: Option<u32>,
     sound_safety_margin: Information,
     recording_state: RecordingState,
-    plugin_game_state: Option<Box<dyn Any>>,
-    plugin_audio_state: Option<Box<dyn Any>>,
+    recorder: PlaybackRecorder,
+    // NOTE: The loader must be declared after `state`. Fields drop in declaration order, and the
+    // plugin state inside `state` has vtables that point into the loader's library. Dropping the
+    // library first would leave `state` to call drop glue through a dangling pointer.
+    loader: ApplicationLoader,
 }
 
 impl Win32Application {
-    pub fn new() -> Win32Application {
+    pub fn new(exe_directory: &Path) -> Win32Application {
         Win32Application {
             state: GameState::new(),
             input: InputState::new(),
@@ -92,8 +95,8 @@ impl Win32Application {
             sound_index: None,
             sound_safety_margin: Information::zero(),
             recording_state: RecordingState::None,
-            plugin_game_state: None,
-            plugin_audio_state: None,
+            recorder: PlaybackRecorder::new(exe_directory),
+            loader: ApplicationLoader::new(exe_directory),
         }
     }
 
@@ -249,9 +252,6 @@ impl Win32Application {
             self.sound_safety_margin = self.calculate_sound_safety_margin(monitor_refresh_rate);
         }
 
-        let exe_directory = Self::exe_directory()?;
-        let mut loader = ApplicationLoader::new(&exe_directory);
-        let mut recorder = PlaybackRecorder::new(&exe_directory);
         let mut counter = PerformanceCounter::start();
         loop {
             // A new frame starts with every half-transition count at zero, while each button
@@ -262,27 +262,20 @@ impl Win32Application {
                 if let Some(ref mut sound_buffer) = sound_buffer {
                     sound_buffer.stop().unwrap_or(()); // Ignore errors
                 }
-                // The application is shutting down, we don't care about cleaning these up
-                if let Some(plugin_game_state) = self.plugin_game_state.take() {
-                    Box::leak(plugin_game_state);
-                }
-                if let Some(plugin_audio_state) = self.plugin_audio_state.take() {
-                    Box::leak(plugin_audio_state);
-                }
                 return Ok(code);
             }
             self.process_recording_hotkey();
 
-            let application = self.load_application(&mut loader)?;
+            let application = self.load_application()?;
 
-            self.process_recording(&mut recorder);
-            self.process_input(application);
-            self.render_to_buffer(application);
+            self.process_recording(application.as_ref());
+            self.process_input(application.as_ref());
+            self.render_to_buffer(application.as_ref());
             if let Some(sound_index) = self.sound_index
                 && let Some(ref mut sound_buffer) = sound_buffer
             {
                 self.fill_sound_buffer(
-                    application,
+                    application.as_ref(),
                     sound_buffer,
                     sound_index,
                     monitor_refresh_rate,
@@ -360,16 +353,6 @@ impl Win32Application {
         (sample_rate * u32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate).into()
     }
 
-    fn exe_directory() -> Result<PathBuf> {
-        let current_exe_path = std::env::current_exe().map_err(|e| {
-            ApplicationError::wrap("Failed to retrieve the current executable path", e)
-        })?;
-        let current_directory = current_exe_path.parent().ok_or_else(|| {
-            ApplicationError::new("Failed to retrieve the current executable parent directory")
-        })?;
-        Ok(current_directory.to_path_buf())
-    }
-
     fn process_message() -> Result<Option<ExitCode>> {
         loop {
             let mut message = MSG::default();
@@ -397,40 +380,41 @@ impl Win32Application {
         }
     }
 
-    fn load_application<'a>(
-        &mut self,
-        loader: &'a mut ApplicationLoader,
-    ) -> Result<&'a mut ApplicationStub> {
-        let result = loader.load()?;
-        match result {
-            LoadedApplication::Cached(application) => Ok(application),
-            LoadedApplication::Loaded(application) => {
-                self.plugin_game_state = Some(application.create_game_state());
-                self.plugin_audio_state = Some(application.create_audio_state());
-                let initialize_context = InitializeContext {
-                    state: &mut self.state,
-                    back_buffer: &mut self.back_buffer,
-                    sound_buffer: self.sound_buffer.as_deref_mut(),
-                    plugin_game_state: self.plugin_game_state.as_deref_mut(),
-                    plugin_audio_state: self.plugin_audio_state.as_deref_mut(),
-                };
-                application.initialize(initialize_context);
+    /// Returns the plugin for this frame. The loader handles hot reloading and carrying the game
+    /// state across it..
+    fn load_application(&mut self) -> Result<Rc<ApplicationStub>> {
+        match self.loader.load(&mut self.state)? {
+            LoadedApplication::Running(application) => Ok(application),
+            LoadedApplication::Fresh(application) => {
+                self.initialize_application(application.as_ref());
                 Ok(application)
             }
         }
     }
 
-    fn process_recording(&mut self, recorder: &mut PlaybackRecorder) {
+    /// Starts a brand new game with the given plugin.
+    fn initialize_application(&mut self, application: &ApplicationStub) {
+        self.state
+            .set_plugin_state(application.create_plugin_state());
+        let initialize_context = InitializeContext {
+            state: &mut self.state,
+            back_buffer: &mut self.back_buffer,
+            sound_buffer: self.sound_buffer.as_deref_mut(),
+        };
+        application.initialize(initialize_context);
+    }
+
+    fn process_recording(&mut self, application: &ApplicationStub) {
         // It seems our audio can't really use playback. The computation of how many bytes
         // to write depends on how fast the previous frame took to generate. Since this will
         // be different each frame, trying to restore the sound theta causes skipping and
         // other sound artifacts. So we just capture theta upfront and restore it after.
         // Hopefully this gets addressed in a later episode.
         if let RecordingState::Playing = self.recording_state {
-            if let Some(state) = recorder.playback().unwrap_or_default() {
+            if let Some(state) = self.recorder.playback(application).unwrap_or_default() {
                 (self.input, self.state) = (state.input, state.state);
             } else {
-                recorder.reset_playback().unwrap_or_default(); // We miss a frame here
+                self.recorder.reset_playback().unwrap_or_default(); // We miss a frame here
             }
         } else {
             // The keyboard has been accumulating key events all frame. Publish a copy as the
@@ -444,7 +428,7 @@ impl Win32Application {
             }
 
             if let RecordingState::Recording = self.recording_state {
-                recorder
+                self.recorder
                     .record(&self.input, &self.state)
                     .unwrap_or_default(); // Ignore errors
             }
@@ -455,7 +439,6 @@ impl Win32Application {
         let context = InputContext {
             input: &self.input,
             state: &mut self.state,
-            plugin_game_state: self.plugin_game_state.as_deref_mut(),
         };
         application.process_input(context);
     }
@@ -535,14 +518,13 @@ impl Win32Application {
             state: &mut self.state,
             input: &self.input,
             buffer: &mut self.back_buffer,
-            plugin_game_state: self.plugin_game_state.as_deref_mut(),
         };
         application.render(context);
     }
 
     fn fill_sound_buffer(
         &mut self,
-        application: &mut dyn Application,
+        application: &ApplicationStub,
         direct_sound_buffer: &mut DirectSoundBuffer<'_>,
         sound_index: u32,
         monitor_refresh_rate: Frequency,
@@ -611,10 +593,8 @@ impl Win32Application {
         let sound_buffer = &mut sound_buffer[..sample_count];
         let context = AudioContext {
             state: &mut self.state,
-            input_state: &mut self.input,
+            input_state: &self.input,
             sound_buffer,
-            plugin_game_state: self.plugin_game_state.as_deref_mut(),
-            plugin_audio_state: self.plugin_audio_state.as_deref_mut(),
         };
         application.write_sound(context);
 

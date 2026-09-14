@@ -35,10 +35,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "erased-serde"
+version = "0.4.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2add8a07dd6a8d93ff627029c51de145e12686fbc36ecb298ac22e74cf02dec"
+dependencies = [
+ "serde",
+ "serde_core",
+ "typeid",
+]
+
+[[package]]
 name = "handmade-hero"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "erased-serde",
  "handmade_hero_interface",
  "libloading",
  "serde",
@@ -51,6 +63,7 @@ name = "handmade_hero_interface"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "erased-serde",
  "serde",
  "smallvec",
  "thiserror",
@@ -62,6 +75,7 @@ name = "handmade_hero_plugin"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "erased-serde",
  "handmade_hero_interface",
  "serde",
  "uom",
@@ -225,6 +239,12 @@ dependencies = [
  "quote",
  "syn 3.0.4",
 ]
+
+[[package]]
+name = "typeid"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typenum"
