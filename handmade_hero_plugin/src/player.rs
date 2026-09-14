@@ -1,10 +1,8 @@
-use crate::color::Color;
-use crate::rectangle::Rectangle;
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
-use crate::units::si::length::pixel;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
+use handmade_hero_interface::{color::Color, rectangle::Rectangle, units::si::length::pixel};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]

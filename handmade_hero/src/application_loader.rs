@@ -18,6 +18,16 @@ pub struct ApplicationStub {
 
 impl Application for ApplicationStub {
     #[inline]
+    fn create_game_state(&self) -> Box<dyn std::any::Any> {
+        self.application.create_game_state()
+    }
+
+    #[inline]
+    fn create_audio_state(&self) -> Box<dyn std::any::Any> {
+        self.application.create_audio_state()
+    }
+
+    #[inline]
     fn initialize(&self, context: InitializeContext<'_>) {
         self.application.initialize(context);
     }
@@ -45,6 +55,11 @@ pub struct ApplicationLoader {
     stub: Option<ApplicationStub>,
 }
 
+pub enum ApplicationLoad<'a> {
+    Cached(&'a mut ApplicationStub),
+    Loaded(&'a mut ApplicationStub),
+}
+
 impl ApplicationLoader {
     #[inline]
     #[must_use]
@@ -57,7 +72,7 @@ impl ApplicationLoader {
         }
     }
 
-    pub fn load(&mut self, context: InitializeContext<'_>) -> Result<&mut ApplicationStub> {
+    pub fn load(&mut self) -> Result<ApplicationLoad<'_>> {
         let normal_name = self
             .plugin_directory
             .join(library_filename("handmade_hero_plugin"));
@@ -86,7 +101,9 @@ impl ApplicationLoader {
             self.last_modified = Some(current_modified);
         }
 
-        let application = self.stub.get_or_insert_with(|| {
+        if let Some(ref mut stub) = self.stub {
+            Ok(ApplicationLoad::Cached(stub))
+        } else {
             let library = unsafe {
                 Library::new(&running_name).expect("Could not load the application library")
             };
@@ -96,13 +113,15 @@ impl ApplicationLoader {
                     .expect("Could not load the application implementation")
             };
             let application = creator();
-            application.initialize(context);
-            ApplicationStub {
+            let application = ApplicationStub {
                 application,
                 _library: library,
-            }
-        });
-        Ok(application)
+            };
+            self.stub.replace(application);
+            Ok(ApplicationLoad::Loaded(
+                self.stub.as_mut().expect("Application just set"),
+            ))
+        }
     }
 
     fn current_running_name(&self) -> OsString {

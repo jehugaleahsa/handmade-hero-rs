@@ -1,7 +1,12 @@
+use crate::plugin_audio_state::PluginAudioState;
+use crate::tile_map::TileMap;
+use crate::tile_map_coordinate::TileMapCoordinate;
+use crate::tile_map_key::TileMapKey;
+use crate::world::World;
+use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::Result;
 use handmade_hero_interface::audio_context::AudioContext;
-use handmade_hero_interface::audio_state::AudioState;
 use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::color::Color;
@@ -14,14 +19,10 @@ use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
-use handmade_hero_interface::tile_map::TileMap;
-use handmade_hero_interface::tile_map_coordinate::TileMapCoordinate;
-use handmade_hero_interface::tile_map_key::TileMapKey;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::{Length, pixel};
 use handmade_hero_interface::units::si::time::Time;
-use handmade_hero_interface::world::World;
-use handmade_hero_interface::world_coordinate::WorldCoordinate;
+use std::any::Any;
 use std::cmp::Ordering;
 use std::f32;
 use uom::ConstZero;
@@ -29,6 +30,8 @@ use uom::si::frequency::hertz;
 use uom::si::length::meter;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
+
+use crate::plugin_game_state::PluginGameState;
 
 /// `World::TILE_ROWS` / `TILE_COLUMNS` as array dimensions. Array lengths must be `usize`
 /// and `usize::from` cannot be called in const position, so the widening happens here once
@@ -46,7 +49,7 @@ impl ApplicationPlugin {
         Box::new(Self {})
     }
 
-    fn initialize_direct(state: &mut GameState, back_buffer: &mut BackBuffer) {
+    fn initialize_direct(state: &mut PluginGameState, back_buffer: &mut BackBuffer) {
         // Put the player somewhere in the middle
         let width = back_buffer.width().get::<pixel>();
         let height = back_buffer.height().get::<pixel>();
@@ -191,20 +194,24 @@ impl ApplicationPlugin {
         }
     }
 
-    fn process_input_direct(input: &InputState, state: &mut GameState) {
+    fn process_input_direct(
+        input: &InputState,
+        state: &mut GameState,
+        plugin_state: &mut PluginGameState,
+    ) {
         let (delta_x, delta_y) = Self::calculate_delta_x_y(input, state);
         if delta_x == 0f32 && delta_y == 0f32 {
             return;
         }
 
-        let world = state.world();
-        let old_coordinates = state.player().coordinate();
+        let world = plugin_state.world();
+        let old_coordinates = plugin_state.player().coordinate();
         let new_coordinates = old_coordinates.shifted(delta_x, delta_y);
-        if !world.is_traversable(&new_coordinates, state.player().collision_bounds()) {
+        if !world.is_traversable(&new_coordinates, plugin_state.player().collision_bounds()) {
             return;
         }
 
-        state.player_mut().set_coordinates(new_coordinates);
+        plugin_state.player_mut().set_coordinates(new_coordinates);
     }
 
     fn calculate_delta_x_y(input: &InputState, state: &GameState) -> (f32, f32) {
@@ -278,7 +285,7 @@ impl ApplicationPlugin {
         }
     }
 
-    fn render_direct(state: &GameState, buffer: &mut BackBuffer) {
+    fn render_direct(state: &PluginGameState, buffer: &mut BackBuffer) {
         let width = buffer.width();
         let height = buffer.height();
         let window_bounds = Rectangle::new(0f32, 0f32, height.get::<pixel>(), width.get::<pixel>());
@@ -293,7 +300,7 @@ impl ApplicationPlugin {
     }
 
     fn render_tilemap(
-        state: &GameState,
+        state: &PluginGameState,
         window_bounds: &Rectangle<f32>,
         start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
@@ -401,7 +408,7 @@ impl ApplicationPlugin {
     }
 
     fn render_player(
-        state: &GameState,
+        state: &PluginGameState,
         window_bounds: &Rectangle<f32>,
         start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
@@ -516,13 +523,15 @@ impl ApplicationPlugin {
     }
 
     fn write_sound_direct(
+        state: &mut GameState,
+        plugin_audio_state: &mut PluginAudioState,
         input_state: &InputState,
-        audio_state: &mut AudioState,
         sound_buffer: &mut [StereoSample],
     ) {
         const C_HERTZ: f32 = 261.63;
         const TWO_PI: f32 = 2.0 * f32::consts::PI;
 
+        let audio_state = state.audio();
         let multiplier = if let Some(controller) = input_state.controllers().first() {
             let left_joystick = controller.left_joystick();
             let y_ratio = left_joystick.y_ratio();
@@ -540,7 +549,7 @@ impl ApplicationPlugin {
         };
 
         let volume = audio_state.volume();
-        let mut theta = audio_state.theta();
+        let mut theta = plugin_audio_state.theta();
         for outbound in sound_buffer {
             #[expect(clippy::cast_precision_loss)]
             let step = if period == 0 {
@@ -558,39 +567,73 @@ impl ApplicationPlugin {
             let sample = StereoSample::from_left_right(value, value);
             *outbound = sample;
         }
-        audio_state.set_theta(theta);
+        plugin_audio_state.set_theta(theta);
     }
 }
 
 impl Application for ApplicationPlugin {
     #[inline]
+    fn create_game_state(&self) -> Box<dyn Any> {
+        Box::new(PluginGameState::new())
+    }
+
+    #[inline]
+    fn create_audio_state(&self) -> Box<dyn Any> {
+        Box::new(PluginAudioState::new())
+    }
+
     fn initialize(&self, context: InitializeContext<'_>) {
         let InitializeContext {
-            state, back_buffer, ..
-        } = context;
-        Self::initialize_direct(state, back_buffer);
-    }
-
-    #[inline]
-    fn process_input(&self, context: InputContext<'_>) {
-        let InputContext { input, state, .. } = context;
-        Self::process_input_direct(input, state);
-    }
-
-    #[inline]
-    fn render(&self, context: RenderContext<'_>) {
-        let RenderContext { state, buffer, .. } = context;
-        Self::render_direct(state, buffer);
-    }
-
-    #[inline]
-    fn write_sound(&self, context: AudioContext<'_>) {
-        let AudioContext {
-            input_state,
-            sound_buffer,
-            audio_state,
+            back_buffer,
+            plugin_game_state,
             ..
         } = context;
-        Self::write_sound_direct(input_state, audio_state, sound_buffer);
+        if let Some(plugin_game_state) =
+            plugin_game_state.and_then(|s| s.downcast_mut::<PluginGameState>())
+        {
+            Self::initialize_direct(plugin_game_state, back_buffer);
+        }
+    }
+
+    fn process_input(&self, context: InputContext<'_>) {
+        let InputContext {
+            input,
+            state,
+            plugin_game_state,
+            ..
+        } = context;
+        if let Some(plugin_game_state) =
+            plugin_game_state.and_then(|s| s.downcast_mut::<PluginGameState>())
+        {
+            Self::process_input_direct(input, state, plugin_game_state);
+        }
+    }
+
+    fn render(&self, context: RenderContext<'_>) {
+        let RenderContext {
+            buffer,
+            plugin_game_state,
+            ..
+        } = context;
+        if let Some(plugin_game_state) =
+            plugin_game_state.and_then(|s| s.downcast_mut::<PluginGameState>())
+        {
+            Self::render_direct(plugin_game_state, buffer);
+        }
+    }
+
+    fn write_sound(&self, context: AudioContext<'_>) {
+        let AudioContext {
+            state,
+            input_state,
+            sound_buffer,
+            plugin_audio_state,
+            ..
+        } = context;
+        if let Some(plugin_audio_state) =
+            plugin_audio_state.and_then(|s| s.downcast_mut::<PluginAudioState>())
+        {
+            Self::write_sound_direct(state, plugin_audio_state, input_state, sound_buffer);
+        }
     }
 }

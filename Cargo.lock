@@ -41,6 +41,7 @@ dependencies = [
  "bincode",
  "handmade_hero_interface",
  "libloading",
+ "serde",
  "uom",
  "windows",
 ]
@@ -60,7 +61,9 @@ dependencies = [
 name = "handmade_hero_plugin"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "handmade_hero_interface",
+ "serde",
  "uom",
 ]
 

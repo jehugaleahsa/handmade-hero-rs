@@ -1,4 +1,4 @@
-use crate::point_2d::Point2d;
+use handmade_hero_interface::point_2d::Point2d;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
