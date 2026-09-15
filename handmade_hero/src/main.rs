@@ -12,22 +12,28 @@ use std::process::ExitCode;
 
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 
+use crate::application_loader::ApplicationLoader;
+
 fn main() -> ExitCode {
     let Ok(exe_directory) = exe_directory() else {
         return ExitCode::FAILURE;
     };
 
+    let mut loader = ApplicationLoader::new(&exe_directory);
+
     #[cfg(target_os = "windows")]
-    run_windows(&exe_directory).unwrap_or(ExitCode::FAILURE)
+    run_windows(&exe_directory, &mut loader).unwrap_or(ExitCode::FAILURE)
 }
 
 #[cfg(target_os = "windows")]
-fn run_windows(exe_directory: &Path) -> Result<ExitCode> {
+fn run_windows(
+    exe_directory: &Path,
+    application_loader: &mut ApplicationLoader,
+) -> Result<ExitCode> {
     use win32::win32_application::Win32Application;
 
     let mut windows_application = Win32Application::new(exe_directory);
-    windows_application.create_window(960, 540)?;
-    windows_application.run()
+    windows_application.run(application_loader, 960, 540)
 }
 
 /// The directory the executable lives in. The plugin is loaded from here and recordings are

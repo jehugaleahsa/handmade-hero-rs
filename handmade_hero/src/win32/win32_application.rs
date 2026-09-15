@@ -78,8 +78,6 @@ pub struct Win32Application {
     sound_safety_margin: Information,
     recording_state: RecordingState,
     recorder: PlaybackRecorder,
-    // NOTE: Keep the loader last so it is dropped last
-    loader: ApplicationLoader,
 }
 
 impl Win32Application {
@@ -97,11 +95,10 @@ impl Win32Application {
             sound_safety_margin: Information::zero(),
             recording_state: RecordingState::None,
             recorder: PlaybackRecorder::new(exe_directory),
-            loader: ApplicationLoader::new(exe_directory),
         }
     }
 
-    pub fn create_window(&mut self, width: u16, height: u16) -> Result<()> {
+    fn create_window(&mut self, width: u16, height: u16) -> Result<()> {
         let instance = Self::get_instance()
             .map_err(|e| ApplicationError::wrap("Could not retrieve the Windows handle", e))?;
         let application_pointer = std::ptr::from_mut::<Win32Application>(self).cast::<c_void>();
@@ -240,7 +237,14 @@ impl Win32Application {
         };
     }
 
-    pub fn run(&mut self) -> Result<ExitCode> {
+    pub fn run(
+        &mut self,
+        application_loader: &mut ApplicationLoader,
+        width: u16,
+        height: u16,
+    ) -> Result<ExitCode> {
+        self.create_window(width, height)?;
+
         let monitor_refresh_rate = Self::find_monitor_refresh_rate();
         let frame_duration = Self::frame_duration(monitor_refresh_rate);
         self.state.set_frame_duration(frame_duration);
@@ -267,7 +271,7 @@ impl Win32Application {
             }
             self.process_recording_hotkey();
 
-            let application = self.load_application()?;
+            let application = self.load_application(application_loader)?;
 
             self.process_recording(application.as_ref());
             self.process_input(application.as_ref());
@@ -383,8 +387,9 @@ impl Win32Application {
 
     /// Returns the plugin for this frame. The loader handles hot reloading and carrying the game
     /// state across it..
-    fn load_application(&mut self) -> Result<Rc<ApplicationStub>> {
-        match self.loader.load(&mut self.plugin_state)? {
+    fn load_application(&mut self, loader: &mut ApplicationLoader) -> Result<Rc<ApplicationStub>> {
+        let loaded_application = loader.load(&mut self.plugin_state)?;
+        match loaded_application {
             LoadedApplication::Running(application) => Ok(application),
             LoadedApplication::Fresh(application) => {
                 self.initialize_application(application.as_ref());

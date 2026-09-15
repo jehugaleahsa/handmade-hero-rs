@@ -9,7 +9,7 @@ use handmade_hero_interface::render_context::RenderContext;
 use libloading::{Library, Symbol, library_filename};
 use std::ffi::OsString;
 use std::fmt::{self, Debug, Formatter};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::SystemTime;
 
@@ -161,24 +161,29 @@ impl ApplicationLoader {
 
     /// Copies the plugin from disk and loads the copy.
     fn load_library(&mut self) -> Result<Rc<ApplicationStub>> {
-        let current_modified = self.plugin_last_modified()?;
+        let last_modified = self.plugin_last_modified()?;
         let running_name = self.copy_plugin_library()?;
-        self.last_modified = Some(current_modified);
+        self.last_modified = Some(last_modified);
 
+        let stub = Self::load_stub(&running_name);
+        let stub = Rc::new(stub);
+        self.stub = Some(Rc::clone(&stub));
+        Ok(stub)
+    }
+
+    fn load_stub(running_name: &Path) -> ApplicationStub {
         let library =
-            unsafe { Library::new(&running_name).expect("Could not load the application library") };
+            unsafe { Library::new(running_name).expect("Could not load the application library") };
         let creator: Symbol<'_, fn() -> Box<dyn Application>> = unsafe {
             library
                 .get(b"create_application")
                 .expect("Could not load the application implementation")
         };
         let application = creator();
-        let stub = Rc::new(ApplicationStub {
+        ApplicationStub {
             application,
             library,
-        });
-        self.stub = Some(Rc::clone(&stub));
-        Ok(stub)
+        }
     }
 
     /// The last write time of the plugin on disk. The build script renames the previous build
