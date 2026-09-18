@@ -233,7 +233,7 @@ impl ApplicationPlugin {
         let max_distance = frame_duration * max_speed;
         let max_distance_px = max_distance.get::<pixel>();
         delta_x *= max_distance_px;
-        delta_y *= -max_distance_px;
+        delta_y *= max_distance_px;
         (delta_x, delta_y)
     }
 
@@ -246,7 +246,7 @@ impl ApplicationPlugin {
     #[inline]
     #[must_use]
     fn calculate_keyboard_delta_y(keyboard: &ControllerState) -> f32 {
-        Self::calculate_input_delta(*keyboard.down(), *keyboard.up())
+        Self::calculate_input_delta(*keyboard.up(), *keyboard.down())
     }
 
     #[must_use]
@@ -268,7 +268,10 @@ impl ApplicationPlugin {
         } else if controller.right().ended_down() {
             1.0
         } else {
-            controller.left_joystick().x_ratio()
+            controller
+                .left_joystick()
+                .x_ratio()
+                .midpoint(controller.right_joystick().x_ratio())
         }
     }
 
@@ -276,11 +279,14 @@ impl ApplicationPlugin {
     #[must_use]
     fn calculate_controller_delta_y(controller: &ControllerState) -> f32 {
         if controller.up().ended_down() {
-            -1.0
-        } else if controller.down().ended_down() {
             1.0
+        } else if controller.down().ended_down() {
+            -1.0
         } else {
-            controller.left_joystick().y_ratio()
+            controller
+                .left_joystick()
+                .y_ratio()
+                .midpoint(controller.right_joystick().y_ratio())
         }
     }
 
@@ -538,8 +544,9 @@ impl ApplicationPlugin {
 
         let multiplier = if let Some(controller) = input_state.controllers().first() {
             let left_joystick = controller.left_joystick();
-            let y_ratio = left_joystick.y_ratio();
-            1.0 + -y_ratio
+            let right_joystick = controller.right_joystick();
+            let y_ratio = left_joystick.y_ratio().midpoint(right_joystick.y_ratio());
+            1.0 + y_ratio
         } else {
             1.0
         };

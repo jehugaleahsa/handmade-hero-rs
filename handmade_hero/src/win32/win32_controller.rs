@@ -133,7 +133,7 @@ impl Win32Controller {
     #[inline]
     #[must_use]
     pub fn left_joystick_y(&self) -> f32 {
-        -Self::thumb_stick_ratio(self.gamepad.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0)
+        Self::thumb_stick_ratio(self.gamepad.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE.0)
     }
 
     #[inline]
@@ -145,7 +145,7 @@ impl Win32Controller {
     #[inline]
     #[must_use]
     pub fn right_joystick_y(&self) -> f32 {
-        -Self::thumb_stick_ratio(self.gamepad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0)
+        Self::thumb_stick_ratio(self.gamepad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE.0)
     }
 
     #[inline]
