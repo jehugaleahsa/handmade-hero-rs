@@ -6,6 +6,7 @@ use super::win32_mouse::Win32Mouse;
 use super::win32_window::Win32Window;
 use crate::application_loader::{ApplicationLoader, ApplicationStub, LoadedApplication};
 use crate::playback_recorder::PlaybackRecorder;
+use crate::win32::win32_monitor::find_monitor_refresh_rate;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -18,7 +19,6 @@ use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::key::Key;
 use handmade_hero_interface::key_mapping::KeyMapping;
 use handmade_hero_interface::keyboard_state::KeyboardState;
-use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::render_context::RenderContext;
@@ -40,7 +40,6 @@ use uom::si::length::Length;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
-use windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GetWindowLongPtrW, MSG,
@@ -49,8 +48,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::{Error, Result as Win32Result};
-
-const DEFAULT_REFRESH_RATE: u32 = 60;
 
 /// The game updates once every this many monitor refreshes. Keeping the update rate as an
 /// exact ratio of the refresh rate, rather than collapsing it to a hertz value up front, lets
@@ -245,7 +242,7 @@ impl Win32Application {
     ) -> Result<ExitCode> {
         self.create_window(width, height)?;
 
-        let monitor_refresh_rate = Self::find_monitor_refresh_rate();
+        let monitor_refresh_rate = find_monitor_refresh_rate();
         let frame_duration = Self::frame_duration(monitor_refresh_rate);
         self.state.set_frame_duration(frame_duration);
 
@@ -297,33 +294,16 @@ impl Win32Application {
         }
     }
 
-    fn find_monitor_refresh_rate() -> Frequency {
-        let size = narrow_unsigned!(size_of::<DEVMODEW>() => u16);
-        let mut mode = DEVMODEW {
-            dmSize: size,
-            ..DEVMODEW::default()
-        };
-        let success = unsafe { EnumDisplaySettingsW(None, ENUM_CURRENT_SETTINGS, &raw mut mode) };
-        if !success.as_bool() {
-            return Frequency::new::<hertz>(DEFAULT_REFRESH_RATE);
-        }
-        let frequency = mode.dmDisplayFrequency;
-        if frequency == 0 || frequency == 1 {
-            return Frequency::new::<hertz>(DEFAULT_REFRESH_RATE);
-        }
-        Frequency::new::<hertz>(frequency)
-    }
-
     /// How long a single game frame lasts.
     ///
     /// The refresh rate counts refreshes per second, so a count of refreshes divided by it is a
     /// duration.
     fn frame_duration(monitor_refresh_rate: Frequency) -> Time {
         // Refresh rates are small whole numbers, so `f32` represents them exactly.
+        let refresh_rate = monitor_refresh_rate.get::<hertz>();
         #[expect(clippy::cast_precision_loss)]
-        let monitor_refresh_rate =
-            uom::si::f32::Frequency::new::<hertz>(monitor_refresh_rate.get::<hertz>() as f32);
-        f32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate
+        let refresh_rate = uom::si::f32::Frequency::new::<hertz>(refresh_rate as f32);
+        f32::from(REFRESHES_PER_UPDATE) / refresh_rate
     }
 
     fn create_sound_buffer<'a>(
