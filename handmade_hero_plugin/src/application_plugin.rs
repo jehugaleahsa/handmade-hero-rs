@@ -48,7 +48,15 @@ impl ApplicationPlugin {
         Box::new(Self {})
     }
 
-    fn initialize_direct(plugin_state: &mut PluginGameState, back_buffer: &mut BackBuffer) {
+    fn initialize_direct(
+        game_state: &GameState,
+        plugin_state: &mut PluginGameState,
+        back_buffer: &mut BackBuffer,
+    ) {
+        // Track how many audio cursors to render at one time
+        let audio = plugin_state.audio_mut();
+        audio.set_max_cursor_count(game_state.game_update_frequency().get::<hertz>() as usize / 2);
+
         // Put the player somewhere in the middle
         let width = back_buffer.width().get::<pixel>();
         let height = back_buffer.height().get::<pixel>();
@@ -653,12 +661,13 @@ impl Application for ApplicationPlugin {
 
     fn initialize(&self, context: InitializeContext<'_>) {
         let InitializeContext {
+            game_state,
             plugin_state,
             back_buffer,
             ..
         } = context;
         if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
-            Self::initialize_direct(plugin_state, back_buffer);
+            Self::initialize_direct(game_state, plugin_state, back_buffer);
         }
     }
 

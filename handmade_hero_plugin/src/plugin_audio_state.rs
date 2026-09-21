@@ -6,20 +6,20 @@ use serde::{Deserialize, Serialize};
 pub struct PluginAudioState {
     play_cursors: VecDeque<usize>,
     write_cursors: VecDeque<usize>,
+    max_cursor_count: usize,
     theta: f32,
 }
 
 impl PluginAudioState {
-    const MAX_CURSOR_COUNT: usize = 30;
-
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        let play_cursors = VecDeque::with_capacity(Self::MAX_CURSOR_COUNT);
-        let write_cursors = VecDeque::with_capacity(Self::MAX_CURSOR_COUNT);
+        let play_cursors = VecDeque::new();
+        let write_cursors = VecDeque::new();
         Self {
             play_cursors,
             write_cursors,
+            max_cursor_count: 0,
             theta: 0f32,
         }
     }
@@ -35,13 +35,18 @@ impl PluginAudioState {
     }
 
     pub fn add_cursors(&mut self, play_cursor: usize, write_cursor: usize) {
-        if self.play_cursors.len() == Self::MAX_CURSOR_COUNT {
+        while self.play_cursors.len() >= self.max_cursor_count {
             // Both cursor collections are the same length!
             self.play_cursors.pop_front();
             self.write_cursors.pop_front();
         }
         self.play_cursors.push_back(play_cursor);
         self.write_cursors.push_back(write_cursor);
+    }
+
+    #[inline]
+    pub fn set_max_cursor_count(&mut self, value: usize) {
+        self.max_cursor_count = value;
     }
 
     #[inline]

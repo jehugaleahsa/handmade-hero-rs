@@ -243,6 +243,10 @@ impl Win32Application {
         self.create_window(width, height)?;
 
         let monitor_refresh_rate = find_monitor_refresh_rate();
+        let game_update_frequency = Frequency::new::<hertz>(
+            monitor_refresh_rate.get::<hertz>() / u32::from(REFRESHES_PER_UPDATE),
+        );
+        self.state.set_game_update_frequency(game_update_frequency);
         let frame_duration = Self::frame_duration(monitor_refresh_rate);
         self.state.set_frame_duration(frame_duration);
 
