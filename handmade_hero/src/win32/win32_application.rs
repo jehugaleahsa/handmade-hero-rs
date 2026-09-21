@@ -589,7 +589,7 @@ impl Win32Application {
             let buffer_samples = usize::try_from(buffer_samples).unwrap_or(0); // 16-bit OS?
             vec![StereoSample::default(); buffer_samples]
         });
-        let sound_buffer = &mut sound_buffer[..sample_count];
+        let sound_buffer_out = &mut sound_buffer[..sample_count];
         let Some(plugin) = self.plugin_state.as_deref_mut() else {
             return;
         };
@@ -597,7 +597,7 @@ impl Win32Application {
             game_state: &mut self.state,
             plugin_state: plugin,
             input_state: &self.input,
-            sound_buffer,
+            sound_buffer: sound_buffer_out,
         };
         application.write_sound(context);
 
@@ -605,7 +605,7 @@ impl Win32Application {
         let Ok(mut buffer_lock_guard) = buffer_lock_guard else {
             return;
         };
-        buffer_lock_guard.copy_from(sound_buffer);
+        buffer_lock_guard.copy_from(sound_buffer_out);
 
         let sample_count = u32::try_from(sample_count).unwrap_or(0); // Impossible?
         // A single write never covers the whole buffer, so the advanced index wraps at most once.
@@ -615,6 +615,14 @@ impl Win32Application {
             next_index -= buffer_samples;
         }
         self.sound_index = Some(next_index);
+        let audio_state = self.state.audio_mut();
+        audio_state.set_buffer_size(sound_buffer.len());
+        let scaled_play_cursor =
+            usize::try_from(play_cursor).unwrap_or_default() / size_of::<StereoSample>();
+        audio_state.set_play_cursor(scaled_play_cursor);
+        let scaled_write_cursor =
+            usize::try_from(write_cursor).unwrap_or_default() / size_of::<StereoSample>();
+        audio_state.set_write_cursor(scaled_write_cursor);
     }
 
     fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {

@@ -1,6 +1,7 @@
 use crate::tile_map::TileMap;
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
+use crate::vertical_line::VerticalLine;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::application::Application;
@@ -290,7 +291,11 @@ impl ApplicationPlugin {
         }
     }
 
-    fn render_direct(plugin_state: &PluginGameState, buffer: &mut BackBuffer) {
+    fn render_direct(
+        game_state: &GameState,
+        plugin_state: &PluginGameState,
+        buffer: &mut BackBuffer,
+    ) {
         let width = buffer.width();
         let height = buffer.height();
         let window_bounds = Rectangle::new(0f32, 0f32, height.get::<pixel>(), width.get::<pixel>());
@@ -304,6 +309,8 @@ impl ApplicationPlugin {
 
         Self::render_player(plugin_state, &window_bounds, &start_coordinate, buffer)
             .unwrap_or_default(); // Ignore errors
+
+        Self::render_audio(game_state, plugin_state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
     }
 
     fn render_tilemap(
@@ -362,14 +369,8 @@ impl ApplicationPlugin {
                     tile_x,
                     tile_y,
                 );
-                let tile_rectangle = tile_rectangle.moved_to(
-                    tile_rectangle.left(),
-                    buffer_height.get::<pixel>() - tile_rectangle.top(),
-                );
-                let tile_rectangle = tile_rectangle.shifted(
-                    world.x_offset.get::<pixel>(),
-                    -world.y_offset.get::<pixel>(),
-                );
+                let tile_rectangle =
+                    Self::to_world_coordinate_rectangle(&tile_rectangle, world, buffer_height);
                 Self::render_rectangle(window_bounds, &tile_rectangle, color, pixels)?;
 
                 tile_x += 1;
@@ -420,7 +421,7 @@ impl ApplicationPlugin {
         start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
-        let height = buffer.height();
+        let buffer_height = buffer.height();
         let pixels = buffer.pixels_mut();
 
         let world = plugin_state.world();
@@ -446,14 +447,8 @@ impl ApplicationPlugin {
 
         let player_bounds = player.render_bounds();
         let player_bounds = player_bounds.shifted(x_offset, y_offset);
-        let player_bounds = player_bounds.moved_to(
-            player_bounds.left(),
-            height.get::<pixel>() - player_bounds.top(),
-        );
-        let player_bounds = player_bounds.shifted(
-            world.x_offset.get::<pixel>(),
-            -world.y_offset.get::<pixel>(),
-        );
+        let player_bounds =
+            Self::to_world_coordinate_rectangle(&player_bounds, world, buffer_height);
         Self::render_rectangle(window_bounds, &player_bounds, player.color(), pixels)
     }
 
@@ -470,6 +465,18 @@ impl ApplicationPlugin {
         let tile_diff = f32::from(tile) - f32::from(start_tile);
         let tile_diff = tile_diff * tile_size;
         tile_map_diff + tile_diff
+    }
+
+    fn to_world_coordinate_rectangle(
+        rectangle: &Rectangle<f32>,
+        world: &World,
+        height: Length,
+    ) -> Rectangle<f32> {
+        let moved = rectangle.moved_to(rectangle.left(), height.get::<pixel>() - rectangle.top());
+        moved.shifted(
+            world.x_offset.get::<pixel>(),
+            -world.y_offset.get::<pixel>(),
+        )
     }
 
     fn determine_start_coordinate(
@@ -516,7 +523,7 @@ impl ApplicationPlugin {
         #[expect(clippy::cast_sign_loss)]
         #[expect(clippy::cast_possible_truncation)]
         let pitch = window_bounds.width() as usize;
-        let color = Color::from(color);
+        let color = Color::<u8>::from(color);
         let mut index = rectangle.bottom() * pitch + rectangle.left();
         for _y in rectangle.bottom()..rectangle.top() {
             let row = index;
@@ -525,6 +532,84 @@ impl ApplicationPlugin {
                 index += 1;
             }
             index = row + pitch;
+        }
+        Ok(())
+    }
+
+    fn render_audio(
+        game_state: &GameState,
+        plugin_state: &PluginGameState,
+        window_bounds: &Rectangle<f32>,
+        buffer: &mut BackBuffer,
+    ) -> Result<()> {
+        let Some(buffer_size) = game_state.audio().buffer_size() else {
+            return Ok(());
+        };
+        let world = plugin_state.world();
+        let padding_x = 16f32;
+        let padding_y = 16f32;
+        let height = 100f32;
+        let line_bottom = window_bounds.top() - padding_y - height;
+        let play_color = Color::from_rgb(0xFF, 0x00, 0x00);
+        let write_color = Color::from_rgb(0x00, 0xFF, 0x00);
+        let buffer_height = buffer.height();
+        let pixels = buffer.pixels_mut();
+
+        let window_width = window_bounds.width();
+        #[expect(clippy::cast_precision_loss)]
+        let chunk = (window_width - 2f32 * padding_x) / buffer_size as f32;
+        for (&play_cursor, &write_cursor) in plugin_state
+            .audio()
+            .play_cursors()
+            .iter()
+            .zip(plugin_state.audio().write_cursors())
+        {
+            #[expect(clippy::cast_precision_loss)]
+            let x = padding_x + chunk * play_cursor as f32;
+            let line = VerticalLine::new(line_bottom, x, height);
+            let line = Self::to_world_coordinate_vertical_line(&line, world, buffer_height);
+            Self::render_verticle_line(window_bounds, &line, play_color, pixels)?;
+
+            #[expect(clippy::cast_precision_loss)]
+            let x = padding_x + chunk * write_cursor as f32;
+            let line = VerticalLine::new(line_bottom, x, height);
+            let line = Self::to_world_coordinate_vertical_line(&line, world, buffer_height);
+            Self::render_verticle_line(window_bounds, &line, write_color, pixels)?;
+        }
+        Ok(())
+    }
+
+    fn to_world_coordinate_vertical_line(
+        line: &VerticalLine<f32>,
+        world: &World,
+        height: Length,
+    ) -> VerticalLine<f32> {
+        let line = line.moved_to(line.x(), height.get::<pixel>() - line.top());
+        line.shifted(
+            world.x_offset.get::<pixel>(),
+            -world.y_offset.get::<pixel>(),
+        )
+    }
+
+    fn render_verticle_line(
+        window_bounds: &Rectangle<f32>,
+        line: &VerticalLine<f32>,
+        color: Color<u8>,
+        pixels: &mut [Color<u8>],
+    ) -> Result<()> {
+        let line = line.bound_to(window_bounds);
+        let line = line.round_to_usize()?;
+        if line.height() == 0 {
+            return Ok(());
+        }
+
+        #[expect(clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation)]
+        let pitch = window_bounds.width() as usize;
+        let mut index = line.bottom() * pitch + line.x();
+        for _y in line.bottom()..line.top() {
+            pixels[index] = color;
+            index += pitch;
         }
         Ok(())
     }
@@ -624,12 +709,13 @@ impl Application for ApplicationPlugin {
 
     fn render(&self, context: RenderContext<'_>) {
         let RenderContext {
+            game_state,
             buffer,
             plugin_state,
             ..
         } = context;
         if let Some(plugin_state) = plugin_state.downcast_ref::<PluginGameState>() {
-            Self::render_direct(plugin_state, buffer);
+            Self::render_direct(game_state, plugin_state, buffer);
         }
     }
 
@@ -643,6 +729,13 @@ impl Application for ApplicationPlugin {
         } = context;
         if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
             Self::write_sound_direct(game_state, plugin_state, input_state, sound_buffer);
+            if let Some(play_cursor) = game_state.audio().play_cursor()
+                && let Some(write_cursor) = game_state.audio().write_cursor()
+            {
+                plugin_state
+                    .audio_mut()
+                    .add_cursors(play_cursor, write_cursor);
+            }
         }
     }
 }

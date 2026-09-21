@@ -63,6 +63,12 @@ impl PluginGameState {
 
     #[inline]
     #[must_use]
+    pub fn audio(&self) -> &PluginAudioState {
+        &self.audio
+    }
+
+    #[inline]
+    #[must_use]
     pub fn audio_mut(&mut self) -> &mut PluginAudioState {
         &mut self.audio
     }

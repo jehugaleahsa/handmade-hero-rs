@@ -13,19 +13,8 @@ pub struct Rectangle<T> {
 
 impl<T> Rectangle<T>
 where
-    T: Add<Output = T> + Sub<Output = T> + PartialOrd + Copy,
+    T: Copy,
 {
-    #[inline]
-    #[must_use]
-    pub fn new(bottom: T, left: T, height: T, width: T) -> Self {
-        Self {
-            top: bottom + height,
-            left,
-            bottom,
-            right: left + width,
-        }
-    }
-
     #[inline]
     #[must_use]
     pub fn top(&self) -> T {
@@ -48,72 +37,6 @@ where
     #[must_use]
     pub fn right(&self) -> T {
         self.right
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn width(&self) -> T {
-        self.right - self.left
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn height(&self) -> T {
-        self.top - self.bottom
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn moved_to(&self, x: T, y: T) -> Self {
-        let right = x + self.width();
-        let top = y + self.height();
-        Self {
-            top,
-            left: x,
-            right,
-            bottom: y,
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn moved_to_point(&self, point: Point2d<T>) -> Self {
-        self.moved_to(point.x(), point.y())
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn shifted(&self, delta_x: T, delta_y: T) -> Self {
-        self.moved_to(self.left + delta_x, self.bottom + delta_y)
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn resized(&self, height: T, width: T) -> Self {
-        Self {
-            top: self.bottom + height,
-            left: self.left,
-            bottom: self.bottom,
-            right: self.left + width,
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn contains_point(&self, point: Point2d<T>) -> bool {
-        point.x() >= self.left
-            && point.x() < self.right
-            && point.y() < self.top
-            && point.y() >= self.bottom
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn overlaps(&self, other: &Self) -> bool {
-        other.left < self.right
-            && other.right > self.left
-            && other.bottom < self.top
-            && other.top > self.bottom
     }
 
     #[inline]
@@ -147,6 +70,24 @@ where
 {
     #[inline]
     #[must_use]
+    pub fn contains_point(&self, point: Point2d<T>) -> bool {
+        point.x() >= self.left
+            && point.x() < self.right
+            && point.y() < self.top
+            && point.y() >= self.bottom
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn overlaps(&self, other: &Self) -> bool {
+        other.left < self.right
+            && other.right > self.left
+            && other.bottom < self.top
+            && other.top > self.bottom
+    }
+
+    #[inline]
+    #[must_use]
     pub fn bound_to(&self, other: &Self) -> Self {
         Self {
             top: Self::clamp(self.top, other.bottom, other.top),
@@ -166,6 +107,80 @@ where
             result = max;
         }
         result
+    }
+}
+
+impl<T> Rectangle<T>
+where
+    T: Sub<Output = T> + Copy,
+{
+    #[inline]
+    #[must_use]
+    pub fn width(&self) -> T {
+        self.right - self.left
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn height(&self) -> T {
+        self.top - self.bottom
+    }
+}
+
+impl<T> Rectangle<T>
+where
+    T: Add<Output = T> + Copy,
+{
+    #[inline]
+    #[must_use]
+    pub fn new(bottom: T, left: T, height: T, width: T) -> Self {
+        Self {
+            top: bottom + height,
+            left,
+            bottom,
+            right: left + width,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn resized(&self, height: T, width: T) -> Self {
+        Self {
+            top: self.bottom + height,
+            left: self.left,
+            bottom: self.bottom,
+            right: self.left + width,
+        }
+    }
+}
+
+impl<T> Rectangle<T>
+where
+    T: Add<Output = T> + Sub<Output = T> + Copy,
+{
+    #[inline]
+    #[must_use]
+    pub fn moved_to(&self, x: T, y: T) -> Self {
+        let right = x + self.width();
+        let top = y + self.height();
+        Self {
+            top,
+            left: x,
+            right,
+            bottom: y,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn moved_to_point(&self, point: Point2d<T>) -> Self {
+        self.moved_to(point.x(), point.y())
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn shifted(&self, delta_x: T, delta_y: T) -> Self {
+        self.moved_to(self.left + delta_x, self.bottom + delta_y)
     }
 }
 

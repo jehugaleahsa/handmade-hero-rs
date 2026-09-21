@@ -13,6 +13,9 @@ pub struct AudioState {
     channel_count: u16,
     channel_size: Information,
     volume: i16,
+    buffer_size: Option<usize>,
+    play_cursor: Option<usize>,
+    write_cursor: Option<usize>,
 }
 
 impl AudioState {
@@ -23,6 +26,9 @@ impl AudioState {
             channel_count,
             channel_size,
             volume: DEFAULT_VOLUME,
+            buffer_size: None,
+            play_cursor: None,
+            write_cursor: None,
         }
     }
 
@@ -62,5 +68,53 @@ impl AudioState {
     #[must_use]
     pub fn sample_rate(&self) -> InformationRate {
         (self.sample_size() * self.frequency()).into()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn buffer_size(&self) -> Option<usize> {
+        self.buffer_size
+    }
+
+    #[inline]
+    pub fn set_buffer_size(&mut self, value: usize) {
+        self.buffer_size = Some(value);
+    }
+
+    #[inline]
+    pub fn clear_buffer_size(&mut self) {
+        self.buffer_size = None;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn play_cursor(&self) -> Option<usize> {
+        self.play_cursor
+    }
+
+    #[inline]
+    pub fn set_play_cursor(&mut self, value: usize) {
+        self.play_cursor = Some(value);
+    }
+
+    #[inline]
+    pub fn clear_play_cursor(&mut self) {
+        self.play_cursor = None;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn write_cursor(&self) -> Option<usize> {
+        self.write_cursor
+    }
+
+    #[inline]
+    pub fn set_write_cursor(&mut self, value: usize) {
+        self.write_cursor = Some(value);
+    }
+
+    #[inline]
+    pub fn clear_write_cursor(&mut self) {
+        self.write_cursor = None;
     }
 }
