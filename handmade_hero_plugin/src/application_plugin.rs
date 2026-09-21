@@ -1,7 +1,6 @@
 use crate::tile_map::TileMap;
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
-use crate::vertical_line::VerticalLine;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::application::Application;
@@ -371,7 +370,7 @@ impl ApplicationPlugin {
                 );
                 let tile_rectangle =
                     Self::to_world_coordinate_rectangle(&tile_rectangle, world, buffer_height);
-                Self::render_rectangle(window_bounds, &tile_rectangle, color, pixels)?;
+                Self::render_rectangle(window_bounds, &tile_rectangle, Color::from(color), pixels)?;
 
                 tile_x += 1;
                 if tile_x >= world.columns {
@@ -449,7 +448,12 @@ impl ApplicationPlugin {
         let player_bounds = player_bounds.shifted(x_offset, y_offset);
         let player_bounds =
             Self::to_world_coordinate_rectangle(&player_bounds, world, buffer_height);
-        Self::render_rectangle(window_bounds, &player_bounds, player.color(), pixels)
+        Self::render_rectangle(
+            window_bounds,
+            &player_bounds,
+            Color::from(player.color()),
+            pixels,
+        )
     }
 
     fn determine_player_offset(
@@ -510,7 +514,7 @@ impl ApplicationPlugin {
     fn render_rectangle(
         window_bounds: &Rectangle<f32>,
         rectangle: &Rectangle<f32>,
-        color: Color<f32>,
+        color: Color<u8>,
         pixels: &mut [Color<u8>],
     ) -> Result<()> {
         let rectangle = rectangle.bound_to(window_bounds);
@@ -523,7 +527,6 @@ impl ApplicationPlugin {
         #[expect(clippy::cast_sign_loss)]
         #[expect(clippy::cast_possible_truncation)]
         let pitch = window_bounds.width() as usize;
-        let color = Color::<u8>::from(color);
         let mut index = rectangle.bottom() * pitch + rectangle.left();
         for _y in rectangle.bottom()..rectangle.top() {
             let row = index;
@@ -558,58 +561,22 @@ impl ApplicationPlugin {
         let window_width = window_bounds.width();
         #[expect(clippy::cast_precision_loss)]
         let chunk = (window_width - 2f32 * padding_x) / buffer_size as f32;
-        for (&play_cursor, &write_cursor) in plugin_state
+        for (play_cursor, write_cursor) in plugin_state
             .audio()
             .play_cursors()
-            .iter()
             .zip(plugin_state.audio().write_cursors())
         {
             #[expect(clippy::cast_precision_loss)]
             let x = padding_x + chunk * play_cursor as f32;
-            let line = VerticalLine::new(line_bottom, x, height);
-            let line = Self::to_world_coordinate_vertical_line(&line, world, buffer_height);
-            Self::render_verticle_line(window_bounds, &line, play_color, pixels)?;
+            let line = Rectangle::new(line_bottom, x, height, 1f32);
+            let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
+            Self::render_rectangle(window_bounds, &line, play_color, pixels)?;
 
             #[expect(clippy::cast_precision_loss)]
             let x = padding_x + chunk * write_cursor as f32;
-            let line = VerticalLine::new(line_bottom, x, height);
-            let line = Self::to_world_coordinate_vertical_line(&line, world, buffer_height);
-            Self::render_verticle_line(window_bounds, &line, write_color, pixels)?;
-        }
-        Ok(())
-    }
-
-    fn to_world_coordinate_vertical_line(
-        line: &VerticalLine<f32>,
-        world: &World,
-        height: Length,
-    ) -> VerticalLine<f32> {
-        let line = line.moved_to(line.x(), height.get::<pixel>() - line.top());
-        line.shifted(
-            world.x_offset.get::<pixel>(),
-            -world.y_offset.get::<pixel>(),
-        )
-    }
-
-    fn render_verticle_line(
-        window_bounds: &Rectangle<f32>,
-        line: &VerticalLine<f32>,
-        color: Color<u8>,
-        pixels: &mut [Color<u8>],
-    ) -> Result<()> {
-        let line = line.bound_to(window_bounds);
-        let line = line.round_to_usize()?;
-        if line.height() == 0 {
-            return Ok(());
-        }
-
-        #[expect(clippy::cast_sign_loss)]
-        #[expect(clippy::cast_possible_truncation)]
-        let pitch = window_bounds.width() as usize;
-        let mut index = line.bottom() * pitch + line.x();
-        for _y in line.bottom()..line.top() {
-            pixels[index] = color;
-            index += pitch;
+            let line = Rectangle::new(line_bottom, x, height, 1f32);
+            let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
+            Self::render_rectangle(window_bounds, &line, write_color, pixels)?;
         }
         Ok(())
     }

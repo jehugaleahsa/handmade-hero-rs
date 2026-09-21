@@ -25,19 +25,13 @@ impl PluginAudioState {
     }
 
     #[inline]
-    #[must_use]
-    pub fn play_cursors(&self) -> &[usize] {
-        // The call to make_contiguous ensures the first slice contains all cursors
-        let (first, _) = self.play_cursors.as_slices();
-        first
+    pub fn play_cursors(&self) -> impl Iterator<Item = usize> {
+        self.play_cursors.iter().copied()
     }
 
     #[inline]
-    #[must_use]
-    pub fn write_cursors(&self) -> &[usize] {
-        // The call to make_contiguous ensures the first slice contains all cursors
-        let (first, _) = self.write_cursors.as_slices();
-        first
+    pub fn write_cursors(&self) -> impl Iterator<Item = usize> {
+        self.write_cursors.iter().copied()
     }
 
     pub fn add_cursors(&mut self, play_cursor: usize, write_cursor: usize) {
@@ -48,8 +42,6 @@ impl PluginAudioState {
         }
         self.play_cursors.push_back(play_cursor);
         self.write_cursors.push_back(write_cursor);
-        self.play_cursors.make_contiguous();
-        self.write_cursors.make_contiguous();
     }
 
     #[inline]
