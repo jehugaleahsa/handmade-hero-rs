@@ -1,10 +1,11 @@
+use std::collections::VecDeque;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PluginAudioState {
-    play_cursors: [usize; 30],
-    write_cursors: [usize; 30],
-    cursor_index: usize,
+    play_cursors: VecDeque<usize>,
+    write_cursors: VecDeque<usize>,
     theta: f32,
 }
 
@@ -14,10 +15,11 @@ impl PluginAudioState {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
+        let play_cursors = VecDeque::with_capacity(Self::MAX_CURSOR_COUNT);
+        let write_cursors = VecDeque::with_capacity(Self::MAX_CURSOR_COUNT);
         Self {
-            play_cursors: [0; Self::MAX_CURSOR_COUNT],
-            write_cursors: [0; Self::MAX_CURSOR_COUNT],
-            cursor_index: 0,
+            play_cursors,
+            write_cursors,
             theta: 0f32,
         }
     }
@@ -25,23 +27,29 @@ impl PluginAudioState {
     #[inline]
     #[must_use]
     pub fn play_cursors(&self) -> &[usize] {
-        &self.play_cursors[0..self.cursor_index]
+        // The call to make_contiguous ensures the first slice contains all cursors
+        let (first, _) = self.play_cursors.as_slices();
+        first
     }
 
     #[inline]
     #[must_use]
     pub fn write_cursors(&self) -> &[usize] {
-        &self.write_cursors
+        // The call to make_contiguous ensures the first slice contains all cursors
+        let (first, _) = self.write_cursors.as_slices();
+        first
     }
 
-    #[inline]
     pub fn add_cursors(&mut self, play_cursor: usize, write_cursor: usize) {
-        self.play_cursors[self.cursor_index] = play_cursor;
-        self.write_cursors[self.cursor_index] = write_cursor;
-        self.cursor_index += 1;
-        if self.cursor_index == Self::MAX_CURSOR_COUNT {
-            self.cursor_index = 0;
+        if self.play_cursors.len() == Self::MAX_CURSOR_COUNT {
+            // Both cursor collections are the same length!
+            self.play_cursors.pop_front();
+            self.write_cursors.pop_front();
         }
+        self.play_cursors.push_back(play_cursor);
+        self.write_cursors.push_back(write_cursor);
+        self.play_cursors.make_contiguous();
+        self.write_cursors.make_contiguous();
     }
 
     #[inline]

@@ -546,8 +546,8 @@ impl ApplicationPlugin {
             return Ok(());
         };
         let world = plugin_state.world();
-        let padding_x = 16f32;
-        let padding_y = 16f32;
+        let padding_x = 50f32;
+        let padding_y = 50f32;
         let height = 100f32;
         let line_bottom = window_bounds.top() - padding_y - height;
         let play_color = Color::from_rgb(0xFF, 0x00, 0x00);
