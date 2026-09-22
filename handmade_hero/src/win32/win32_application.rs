@@ -533,22 +533,126 @@ impl Win32Application {
         let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
             return;
         };
-        let buffer_length = direct_sound_buffer.length();
-        let sample_size = self.state.audio().sample_size();
+        let target_cursor = self.find_target_cursor(
+            direct_sound_buffer,
+            performance_counter,
+            play_cursor,
+            write_cursor,
+        );
+        let (write_offset, write_size) =
+            self.find_write_offset_and_size(direct_sound_buffer, sound_index, target_cursor);
+        if write_size == Information::zero() {
+            return;
+        }
+
+        let buffer_sample_count = self.find_buffer_sample_count(direct_sound_buffer);
+        let Ok(buffer_sample_count_usize) = usize::try_from(buffer_sample_count) else {
+            return;
+        };
+
+        let sample_count = self.find_sample_count(write_size);
+        let sound_buffer_out =
+            self.write_sound(application, sample_count, buffer_sample_count_usize);
+        if sound_buffer_out.is_empty() {
+            return;
+        }
+
+        Self::copy_sound_buffer(
+            direct_sound_buffer,
+            write_offset,
+            write_size,
+            sound_buffer_out,
+        );
+
+        let next_sound_index =
+            Self::find_next_sound_index(sound_index, sample_count, buffer_sample_count);
+        self.sound_index = Some(next_sound_index);
+        let audio_state = self.state.audio_mut();
+        audio_state.set_buffer_sample_count(buffer_sample_count_usize);
+        let scaled_play_cursor = play_cursor / audio_state.sample_size().get::<byte>();
+        let scaled_play_cursor = usize::try_from(scaled_play_cursor).unwrap_or_default();
+        audio_state.set_play_cursor(scaled_play_cursor);
+        let scaled_write_cursor = write_cursor / audio_state.sample_size().get::<byte>();
+        let scaled_write_cursor = usize::try_from(scaled_write_cursor).unwrap_or_default();
+        audio_state.set_write_cursor(scaled_write_cursor);
+    }
+
+    fn find_write_offset_and_size(
+        &self,
+        direct_sound_buffer: &DirectSoundBuffer<'_>,
+        sound_index: u32,
+        target_cursor: u32,
+    ) -> (u32, Information) {
         // The sample index is kept inside the buffer, so converting it to bytes gives the write
         // offset directly.
-        let buffer_samples = (buffer_length / sample_size).get::<ratio>();
+        let sample_size = self.state.audio().sample_size();
         let write_offset = sample_size.get::<byte>() * sound_index;
 
+        let buffer_length = direct_sound_buffer.length().get::<byte>();
+        let bytes_to_write = match write_offset.cmp(&target_cursor) {
+            Ordering::Greater => buffer_length
+                .saturating_sub(write_offset)
+                .saturating_add(target_cursor),
+            Ordering::Less => target_cursor.saturating_sub(write_offset),
+            Ordering::Equal => 0,
+        };
+        let write_size = Information::new::<byte>(bytes_to_write);
+        (write_offset, write_size)
+    }
+
+    fn find_buffer_sample_count(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> u32 {
+        let buffer_length = direct_sound_buffer.length();
+        let sample_size = self.state.audio().sample_size();
+        (buffer_length / sample_size).get::<ratio>()
+    }
+
+    fn find_sample_count(&self, write_size: Information) -> u32 {
+        let sample_size = self.state.audio().sample_size();
+        let sample_count = write_size / sample_size;
+        sample_count.get::<ratio>()
+    }
+
+    /// Where we start writing and how much we write depends on the audio latency.
+    /// We start the audio playing against an empty sound buffer during the first game loop.
+    /// From that, we can inspect the audio latency (distance between the play and write cursor).
+    /// If the latency is high, approximately the same length as our frame rate or greater, we
+    /// write out a full frame's worth of audio, plus a safety margin. For low latency audio,
+    /// we write out a full frame's worth of audio, plus however much audio is left from the
+    /// play cursor to the end of the current frame.
+    fn find_target_cursor(
+        &self,
+        direct_sound_buffer: &DirectSoundBuffer<'_>,
+        performance_counter: &PerformanceCounter,
+        play_cursor: u32,
+        write_cursor: u32,
+    ) -> u32 {
         let safety_margin = self.sound_safety_margin();
         let frame_size = self.sound_frame_size;
-        let safe_write_cursor = write_cursor
-            .saturating_add(safety_margin.get::<byte>())
-            .saturating_add(if write_cursor < play_cursor {
-                buffer_length.get::<byte>()
-            } else {
-                0
-            });
+        let safe_write_cursor = write_cursor.saturating_add(safety_margin.get::<byte>());
+        let buffer_length = direct_sound_buffer.length();
+        let buffer_length_bytes = buffer_length.get::<byte>();
+        let mut relative_safe_write_cursor = safe_write_cursor;
+        if write_cursor < play_cursor {
+            relative_safe_write_cursor += buffer_length_bytes;
+        }
+        let expected_frame_boundary =
+            self.find_expected_frame_boundary(performance_counter, frame_size, play_cursor);
+        let audio_is_latent = relative_safe_write_cursor >= expected_frame_boundary;
+
+        let target_cursor = if audio_is_latent {
+            safe_write_cursor.saturating_add(frame_size.get::<byte>())
+        } else {
+            expected_frame_boundary.saturating_add(frame_size.get::<byte>())
+        };
+        target_cursor % buffer_length_bytes
+    }
+
+    fn find_expected_frame_boundary(
+        &self,
+        performance_counter: &PerformanceCounter,
+        frame_size: Information,
+        play_cursor: u32,
+    ) -> u32 {
         let frame_time_elapsed =
             Time::new::<second>(performance_counter.metrics().elapsed_time().as_secs_f32());
         let target_frame_duration = self.state.frame_duration();
@@ -562,39 +666,28 @@ impl Win32Application {
         #[expect(clippy::cast_sign_loss)]
         #[expect(clippy::cast_possible_truncation)]
         let remaining_bytes = remaining_bytes as u32;
-        let expected_frame_boundary = play_cursor.saturating_add(remaining_bytes);
-        let audio_is_latent = safe_write_cursor >= expected_frame_boundary;
-        let target_cursor = if audio_is_latent {
-            write_cursor
-                .saturating_add(safety_margin.get::<byte>())
-                .saturating_add(frame_size.get::<byte>())
-        } else {
-            expected_frame_boundary.saturating_add(frame_size.get::<byte>())
-        };
-        let target_cursor = target_cursor % buffer_length.get::<byte>();
-        let bytes_to_write = match write_offset.cmp(&target_cursor) {
-            Ordering::Greater => buffer_length
-                .get::<byte>()
-                .saturating_sub(write_offset)
-                .saturating_add(target_cursor),
-            Ordering::Less => target_cursor.saturating_sub(write_offset),
-            Ordering::Equal => 0,
-        };
-        let write_size = Information::new::<byte>(bytes_to_write);
-        if write_size == Information::zero() {
-            return;
-        }
+        play_cursor.saturating_add(remaining_bytes)
+    }
 
-        let sample_count = (write_size / sample_size).get::<ratio>();
-        let sample_count = usize::try_from(sample_count).unwrap_or(0); // 16-bit OS?
-        let sound_buffer = self.sound_buffer.get_or_insert_with(|| {
-            let buffer_samples = usize::try_from(buffer_samples).unwrap_or(0); // 16-bit OS?
-            vec![StereoSample::default(); buffer_samples]
-        });
-        let sound_buffer_out = &mut sound_buffer[..sample_count];
+    fn write_sound(
+        &mut self,
+        application: &ApplicationStub,
+        sample_count: u32,
+        buffer_sample_count: usize,
+    ) -> &[StereoSample] {
         let Some(plugin) = self.plugin_state.as_deref_mut() else {
-            return;
+            return &[];
         };
+
+        let Ok(sample_count_usize) = usize::try_from(sample_count) else {
+            return &[]; // 16-bit OS?
+        };
+
+        let sound_buffer = self
+            .sound_buffer
+            .get_or_insert_with(|| vec![StereoSample::default(); buffer_sample_count]);
+        let sound_buffer_out = &mut sound_buffer[..sample_count_usize];
+
         let context = AudioContext {
             game_state: &mut self.state,
             plugin_state: plugin,
@@ -603,28 +696,30 @@ impl Win32Application {
         };
         application.write_sound(context);
 
+        sound_buffer_out
+    }
+
+    fn copy_sound_buffer(
+        direct_sound_buffer: &mut DirectSoundBuffer<'_>,
+        write_offset: u32,
+        write_size: Information,
+        sound_buffer: &[StereoSample],
+    ) {
         let buffer_lock_guard = direct_sound_buffer.lock::<StereoSample>(write_offset, write_size);
         let Ok(mut buffer_lock_guard) = buffer_lock_guard else {
             return;
         };
-        buffer_lock_guard.copy_from(sound_buffer_out);
+        buffer_lock_guard.copy_from(sound_buffer);
+    }
 
-        let sample_count = u32::try_from(sample_count).unwrap_or(0); // Impossible?
-        // A single write never covers the whole buffer, so the advanced index wraps at most once.
+    fn find_next_sound_index(sound_index: u32, sample_count: u32, buffer_sample_count: u32) -> u32 {
         // Safety: The maximum DirectSound buffer is less than u32::MAX, so overflow isn't possible.
+        // A single write never covers the whole buffer, so the advanced index wraps at most once.
         let mut next_index = sound_index.strict_add(sample_count);
-        if next_index >= buffer_samples {
-            next_index -= buffer_samples;
+        if next_index >= buffer_sample_count {
+            next_index -= buffer_sample_count;
         }
-        self.sound_index = Some(next_index);
-        let audio_state = self.state.audio_mut();
-        audio_state.set_buffer_size(sound_buffer.len());
-        let scaled_play_cursor =
-            usize::try_from(play_cursor).unwrap_or_default() / size_of::<StereoSample>();
-        audio_state.set_play_cursor(scaled_play_cursor);
-        let scaled_write_cursor =
-            usize::try_from(write_cursor).unwrap_or_default() / size_of::<StereoSample>();
-        audio_state.set_write_cursor(scaled_write_cursor);
+        next_index
     }
 
     fn wait_for_framerate(&self, counter: &mut PerformanceCounter) {

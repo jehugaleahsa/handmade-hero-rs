@@ -72,12 +72,12 @@ impl AudioState {
 
     #[inline]
     #[must_use]
-    pub fn buffer_size(&self) -> Option<usize> {
+    pub fn buffer_sample_count(&self) -> Option<usize> {
         self.buffer_size
     }
 
     #[inline]
-    pub fn set_buffer_size(&mut self, value: usize) {
+    pub fn set_buffer_sample_count(&mut self, value: usize) {
         self.buffer_size = Some(value);
     }
 

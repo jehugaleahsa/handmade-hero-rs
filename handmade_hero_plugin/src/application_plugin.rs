@@ -557,7 +557,7 @@ impl ApplicationPlugin {
         window_bounds: &Rectangle<f32>,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
-        let Some(buffer_size) = game_state.audio().buffer_size() else {
+        let Some(buffer_sample_count) = game_state.audio().buffer_sample_count() else {
             return Ok(());
         };
         let world = plugin_state.world();
@@ -572,7 +572,7 @@ impl ApplicationPlugin {
 
         let window_width = window_bounds.width();
         #[expect(clippy::cast_precision_loss)]
-        let chunk = (window_width - 2f32 * padding_x) / buffer_size as f32;
+        let chunk = (window_width - 2f32 * padding_x) / buffer_sample_count as f32;
         for (play_cursor, write_cursor) in plugin_state
             .audio()
             .play_cursors()

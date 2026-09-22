@@ -1,7 +1,6 @@
 use super::direct_sound::DirectSound;
 use super::direct_sound_buffer_lock_guard::DirectSoundBufferLockGuard;
 use core::slice;
-use handmade_hero_interface::sample::Sample;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use uom::si::information::byte;
@@ -70,7 +69,7 @@ impl DirectSoundBuffer<'_> {
     }
 
     #[inline]
-    pub fn lock<T: Sample>(
+    pub fn lock<T>(
         &mut self,
         write_offset: u32,
         write_size: Information,
