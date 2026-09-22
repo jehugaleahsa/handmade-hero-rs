@@ -54,6 +54,13 @@ use windows::core::{Error, Result as Win32Result};
 /// the audio buffer math stay in integers.
 const REFRESHES_PER_UPDATE: u16 = 2;
 
+/// The sound safety margin is this fraction of a frame of audio.
+///
+/// The margin guesses how far the write cursor moves between reading it and landing our bytes,
+/// so it covers the loop's jitter. Nothing derives the value; it's a heuristic to tune by
+/// watching the cursor overlay.
+const SOUND_SAFETY_MARGIN_DIVISOR: u32 = 3;
+
 #[derive(Debug)]
 pub enum RecordingState {
     None,
@@ -72,7 +79,8 @@ pub struct Win32Application {
     back_buffer: BackBuffer,
     sound_buffer: Option<Vec<StereoSample>>,
     sound_index: Option<u32>,
-    sound_safety_margin: Information,
+    /// Bytes of audio one game frame consumes, fixed once the sound buffer exists.
+    sound_frame_size: Information,
     recording_state: RecordingState,
     recorder: PlaybackRecorder,
 }
@@ -89,7 +97,7 @@ impl Win32Application {
             back_buffer: BackBuffer::default(),
             sound_buffer: None,
             sound_index: None,
-            sound_safety_margin: Information::zero(),
+            sound_frame_size: Information::zero(),
             recording_state: RecordingState::None,
             recorder: PlaybackRecorder::new(exe_directory),
         }
@@ -251,7 +259,7 @@ impl Win32Application {
 
         if let Some(ref mut sound_buffer) = sound_buffer {
             sound_buffer.play_looping().unwrap_or(()); // Ignore errors
-            self.sound_safety_margin = self.calculate_sound_safety_margin(monitor_refresh_rate);
+            self.sound_frame_size = self.sample_size_per_frame(monitor_refresh_rate);
         }
 
         let mut counter = PerformanceCounter::start();
@@ -276,13 +284,7 @@ impl Win32Application {
             if let Some(sound_index) = self.sound_index
                 && let Some(ref mut sound_buffer) = sound_buffer
             {
-                self.fill_sound_buffer(
-                    application.as_ref(),
-                    sound_buffer,
-                    sound_index,
-                    monitor_refresh_rate,
-                    &counter,
-                );
+                self.fill_sound_buffer(application.as_ref(), sound_buffer, sound_index, &counter);
             }
 
             self.wait_for_framerate(&mut counter);
@@ -323,8 +325,8 @@ impl Win32Application {
     }
 
     /// A portion of a frame of audio, used as the margin the write cursor must stay ahead of playback.
-    fn calculate_sound_safety_margin(&self, monitor_refresh_rate: Frequency) -> Information {
-        self.sample_size_per_frame(monitor_refresh_rate) / 2
+    fn sound_safety_margin(&self) -> Information {
+        self.sound_frame_size / SOUND_SAFETY_MARGIN_DIVISOR
     }
 
     /// Bytes of audio consumed by a single game frame.
@@ -526,7 +528,6 @@ impl Win32Application {
         application: &ApplicationStub,
         direct_sound_buffer: &mut DirectSoundBuffer<'_>,
         sound_index: u32,
-        monitor_refresh_rate: Frequency,
         performance_counter: &PerformanceCounter,
     ) {
         let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
@@ -539,8 +540,10 @@ impl Win32Application {
         let buffer_samples = (buffer_length / sample_size).get::<ratio>();
         let write_offset = sample_size.get::<byte>() * sound_index;
 
+        let safety_margin = self.sound_safety_margin();
+        let frame_size = self.sound_frame_size;
         let safe_write_cursor = write_cursor
-            .saturating_add(self.sound_safety_margin.get::<byte>())
+            .saturating_add(safety_margin.get::<byte>())
             .saturating_add(if write_cursor < play_cursor {
                 buffer_length.get::<byte>()
             } else {
@@ -551,7 +554,6 @@ impl Win32Application {
         let target_frame_duration = self.state.frame_duration();
         let remaining_frame_time = (target_frame_duration - frame_time_elapsed).max(Time::zero());
         let remaining_time_ratio: Ratio = remaining_frame_time / target_frame_duration;
-        let frame_size = self.sample_size_per_frame(monitor_refresh_rate);
         // The fraction of the frame still to elapse is genuinely fractional, so this one step
         // stays in floating point. `f64::from` is lossless from both `f32` and `u32`, and the
         // ratio is in [0, 1], so the only thing `as` discards here is the fraction of a byte.
@@ -564,7 +566,7 @@ impl Win32Application {
         let audio_is_latent = safe_write_cursor >= expected_frame_boundary;
         let target_cursor = if audio_is_latent {
             write_cursor
-                .saturating_add(self.sound_safety_margin.get::<byte>())
+                .saturating_add(safety_margin.get::<byte>())
                 .saturating_add(frame_size.get::<byte>())
         } else {
             expected_frame_boundary.saturating_add(frame_size.get::<byte>())
