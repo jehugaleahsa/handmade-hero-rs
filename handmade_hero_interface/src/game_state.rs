@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use uom::{num::Zero, si::u32::Frequency};
+use uom::{num::Zero, si::f32::Frequency};
 
 use crate::{
     audio_state::AudioState, sample::Sample, stereo_sample::StereoSample, units::si::time::Time,
@@ -7,7 +7,6 @@ use crate::{
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GameState {
-    game_update_frequency: Frequency,
     frame_duration: Time,
     audio: AudioState,
 }
@@ -20,21 +19,24 @@ impl GameState {
         let channel_count = sample.channel_count();
         let channel_size = sample.channel_size();
         Self {
-            game_update_frequency: Frequency::zero(),
             frame_duration: Time::zero(),
             audio: AudioState::new(channel_count, channel_size),
         }
     }
 
+    /// How many times the game updates per second.
+    ///
+    /// Derived from the frame duration rather than stored alongside it, so the two can never
+    /// disagree. Keeping it floating point preserves rates like 37.5 Hz that an integer would
+    /// truncate. Before a frame duration is set, the rate is zero rather than infinite.
     #[inline]
     #[must_use]
     pub fn game_update_frequency(&self) -> Frequency {
-        self.game_update_frequency
-    }
-
-    #[inline]
-    pub fn set_game_update_frequency(&mut self, value: Frequency) {
-        self.game_update_frequency = value;
+        if self.frame_duration == Time::zero() {
+            Frequency::zero()
+        } else {
+            1.0 / self.frame_duration
+        }
     }
 
     #[inline]

@@ -55,7 +55,11 @@ impl ApplicationPlugin {
     ) {
         // Track how many audio cursors to render at one time
         let audio = plugin_state.audio_mut();
-        audio.set_max_cursor_count(game_state.game_update_frequency().get::<hertz>() as usize / 2);
+        let update_frequency = game_state.game_update_frequency().get::<hertz>();
+        #[expect(clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation)]
+        let max_cursor_count = (update_frequency / 2.0).round() as usize;
+        audio.set_max_cursor_count(max_cursor_count);
 
         // Put the player somewhere in the middle
         let width = back_buffer.width().get::<pixel>();
