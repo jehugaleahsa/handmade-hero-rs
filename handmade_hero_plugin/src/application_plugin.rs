@@ -24,7 +24,7 @@ use handmade_hero_interface::units::si::length::{Length, pixel};
 use handmade_hero_interface::units::si::time::Time;
 use std::cmp::Ordering;
 use std::f32;
-use uom::ConstZero;
+use uom::num::Zero;
 use uom::si::frequency::hertz;
 use uom::si::length::meter;
 use uom::si::ratio::ratio;
@@ -613,7 +613,7 @@ impl ApplicationPlugin {
         #[expect(clippy::cast_sign_loss)]
         #[expect(clippy::cast_possible_truncation)]
         let tone = Frequency::new::<hertz>((C_HERTZ * multiplier) as u32);
-        let period = if tone == Frequency::ZERO {
+        let period = if tone == Frequency::zero() {
             0
         } else {
             (frequency / tone).get::<ratio>()

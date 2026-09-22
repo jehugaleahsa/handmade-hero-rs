@@ -629,16 +629,6 @@ impl Win32Application {
         audio_state.set_write_cursor(scaled_write_cursor);
     }
 
-    fn get_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
-        let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
-        let sample_size = self.state.audio().sample_size().get::<byte>();
-        if sample_size == 0 {
-            return None;
-        }
-        let index = write_cursor / sample_size;
-        Some(index)
-    }
-
     fn wait_for_framerate(&self, counter: &mut PerformanceCounter) {
         let mut metrics = counter.metrics();
         let mut time_elapsed = metrics.elapsed_time();
@@ -661,8 +651,18 @@ impl Win32Application {
         // as a flag for sound to start being written now that the metrics are
         // recorded.
         if self.sound_index.is_none() {
-            self.sound_index = self.get_sample_index(sound_buffer);
+            self.sound_index = self.find_sample_index(sound_buffer);
         }
+    }
+
+    fn find_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
+        let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
+        let sample_size = self.state.audio().sample_size().get::<byte>();
+        if sample_size == 0 {
+            return None;
+        }
+        let index = write_cursor / sample_size;
+        Some(index)
     }
 }
 
