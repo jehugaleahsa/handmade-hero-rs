@@ -78,7 +78,9 @@ pub struct Win32Application {
     window: Win32Window,
     back_buffer: BackBuffer,
     sound_buffer: Option<Vec<StereoSample>>,
-    sound_index: Option<u32>,
+    /// Byte offset into the `DirectSound` buffer where the next write starts. `None` until the
+    /// first frame has run and the cursors are known.
+    sound_write_offset: Option<u32>,
     /// Bytes of audio one game frame consumes, fixed once the sound buffer exists.
     sound_frame_size: Information,
     recording_state: RecordingState,
@@ -96,7 +98,7 @@ impl Win32Application {
             window: Win32Window::new(),
             back_buffer: BackBuffer::default(),
             sound_buffer: None,
-            sound_index: None,
+            sound_write_offset: None,
             sound_frame_size: Information::zero(),
             recording_state: RecordingState::None,
             recorder: PlaybackRecorder::new(exe_directory),
@@ -281,17 +283,17 @@ impl Win32Application {
             self.process_recording(application.as_ref());
             self.process_input(application.as_ref());
             self.render_to_buffer(application.as_ref());
-            if let Some(sound_index) = self.sound_index
+            if let Some(write_offset) = self.sound_write_offset
                 && let Some(ref mut sound_buffer) = sound_buffer
             {
-                self.fill_sound_buffer(application.as_ref(), sound_buffer, sound_index, &counter);
+                self.fill_sound_buffer(application.as_ref(), sound_buffer, write_offset, &counter);
             }
 
             self.wait_for_framerate(&mut counter);
 
             self.window.draw(&self.back_buffer);
             if let Some(ref sound_buffer) = sound_buffer {
-                self.update_sound_index(sound_buffer);
+                self.update_sound_write_offset(sound_buffer);
             }
         }
     }
@@ -527,7 +529,7 @@ impl Win32Application {
         &mut self,
         application: &ApplicationStub,
         direct_sound_buffer: &mut DirectSoundBuffer<'_>,
-        sound_index: u32,
+        write_offset: u32,
         performance_counter: &PerformanceCounter,
     ) {
         let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
@@ -539,8 +541,7 @@ impl Win32Application {
             play_cursor,
             write_cursor,
         );
-        let (write_offset, write_size) =
-            self.find_write_offset_and_size(direct_sound_buffer, sound_index, target_cursor);
+        let write_size = self.find_write_size(direct_sound_buffer, write_offset, target_cursor);
         if write_size == Information::zero() {
             return;
         }
@@ -561,12 +562,13 @@ impl Win32Application {
             direct_sound_buffer,
             write_offset,
             write_size,
-            sound_buffer_out,
+            StereoSample::as_bytes(sound_buffer_out),
         );
 
-        let next_sound_index =
-            Self::find_next_sound_index(sound_index, sample_count, buffer_sample_count);
-        self.sound_index = Some(next_sound_index);
+        let buffer_length = direct_sound_buffer.length();
+        let next_write_offset =
+            Self::find_next_write_offset(write_offset, write_size, buffer_length);
+        self.sound_write_offset = Some(next_write_offset);
         let audio_state = self.state.audio_mut();
         audio_state.set_buffer_sample_count(buffer_sample_count_usize);
         let scaled_play_cursor = play_cursor / audio_state.sample_size().get::<byte>();
@@ -577,17 +579,13 @@ impl Win32Application {
         audio_state.set_write_cursor(scaled_write_cursor);
     }
 
-    fn find_write_offset_and_size(
+    /// Bytes to write to carry the buffer from `write_offset` around to `target_cursor`.
+    fn find_write_size(
         &self,
         direct_sound_buffer: &DirectSoundBuffer<'_>,
-        sound_index: u32,
+        write_offset: u32,
         target_cursor: u32,
-    ) -> (u32, Information) {
-        // The sample index is kept inside the buffer, so converting it to bytes gives the write
-        // offset directly.
-        let sample_size = self.state.audio().sample_size();
-        let write_offset = sample_size.get::<byte>() * sound_index;
-
+    ) -> Information {
         let buffer_length = direct_sound_buffer.length().get::<byte>();
         let bytes_to_write = match write_offset.cmp(&target_cursor) {
             Ordering::Greater => buffer_length
@@ -596,8 +594,14 @@ impl Win32Application {
             Ordering::Less => target_cursor.saturating_sub(write_offset),
             Ordering::Equal => 0,
         };
-        let write_size = Information::new::<byte>(bytes_to_write);
-        (write_offset, write_size)
+        // The target cursor is estimated from elapsed time, so it can land partway through a
+        // sample. Rounding down keeps every write offset on a sample boundary, which the ring
+        // buffer math cannot guarantee on its own since offsets are bytes. The stray bytes are
+        // covered by the next frame's write.
+        let sample_size = self.state.audio().sample_size().get::<byte>();
+        let misaligned_bytes = bytes_to_write.checked_rem(sample_size).unwrap_or(0);
+        let aligned_bytes_to_write = bytes_to_write.saturating_sub(misaligned_bytes);
+        Information::new::<byte>(aligned_bytes_to_write)
     }
 
     fn find_buffer_sample_count(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> u32 {
@@ -703,23 +707,28 @@ impl Win32Application {
         direct_sound_buffer: &mut DirectSoundBuffer<'_>,
         write_offset: u32,
         write_size: Information,
-        sound_buffer: &[StereoSample],
+        sound_bytes: &[u8],
     ) {
-        let buffer_lock_guard = direct_sound_buffer.lock::<StereoSample>(write_offset, write_size);
+        let buffer_lock_guard = direct_sound_buffer.lock(write_offset, write_size);
         let Ok(mut buffer_lock_guard) = buffer_lock_guard else {
             return;
         };
-        buffer_lock_guard.copy_from(sound_buffer);
+        buffer_lock_guard.copy_from(sound_bytes);
     }
 
-    fn find_next_sound_index(sound_index: u32, sample_count: u32, buffer_sample_count: u32) -> u32 {
+    fn find_next_write_offset(
+        write_offset: u32,
+        write_size: Information,
+        buffer_length: Information,
+    ) -> u32 {
         // Safety: The maximum DirectSound buffer is less than u32::MAX, so overflow isn't possible.
-        // A single write never covers the whole buffer, so the advanced index wraps at most once.
-        let mut next_index = sound_index.strict_add(sample_count);
-        if next_index >= buffer_sample_count {
-            next_index -= buffer_sample_count;
+        // A single write never covers the whole buffer, so the advanced offset wraps at most once.
+        let buffer_length = buffer_length.get::<byte>();
+        let mut next_offset = write_offset.strict_add(write_size.get::<byte>());
+        if next_offset >= buffer_length {
+            next_offset -= buffer_length;
         }
-        next_index
+        next_offset
     }
 
     fn wait_for_framerate(&self, counter: &mut PerformanceCounter) {
@@ -738,24 +747,21 @@ impl Win32Application {
         counter.restart();
     }
 
-    fn update_sound_index(&mut self, sound_buffer: &DirectSoundBuffer<'_>) {
+    fn update_sound_write_offset(&mut self, sound_buffer: &DirectSoundBuffer<'_>) {
         // After a single frame, we have a better idea how far away the sound
-        // play cursor is from the write cursor. We initialize the sound index
+        // play cursor is from the write cursor. We initialize the write offset
         // as a flag for sound to start being written now that the metrics are
         // recorded.
-        if self.sound_index.is_none() {
-            self.sound_index = self.find_sample_index(sound_buffer);
+        if self.sound_write_offset.is_none() {
+            self.sound_write_offset = Self::find_initial_write_offset(sound_buffer);
         }
     }
 
-    fn find_sample_index(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
+    /// The first write starts at the device's write cursor. `DirectSound` reports cursors on
+    /// sample boundaries, so no alignment is needed here.
+    fn find_initial_write_offset(direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
         let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
-        let sample_size = self.state.audio().sample_size().get::<byte>();
-        if sample_size == 0 {
-            return None;
-        }
-        let index = write_cursor / sample_size;
-        Some(index)
+        Some(write_cursor)
     }
 }
 

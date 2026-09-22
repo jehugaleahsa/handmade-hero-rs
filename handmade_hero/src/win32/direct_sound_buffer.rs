@@ -60,20 +60,18 @@ impl DirectSoundBuffer<'_> {
 
     pub(super) fn clear(&mut self) -> Result<()> {
         let mut regions = self.lock_regions(0, self.length)?;
-        let first_region = regions.region1.as_slice_mut::<u8>();
-        first_region.fill(0);
-        let second_region = regions.region2.as_slice_mut::<u8>();
-        second_region.fill(0);
+        regions.region1.as_bytes_mut().fill(0);
+        regions.region2.as_bytes_mut().fill(0);
         self.unlock_regions(&regions)?;
         Ok(())
     }
 
     #[inline]
-    pub fn lock<T>(
+    pub fn lock(
         &mut self,
         write_offset: u32,
         write_size: Information,
-    ) -> Result<DirectSoundBufferLockGuard<'_, T>> {
+    ) -> Result<DirectSoundBufferLockGuard<'_>> {
         DirectSoundBufferLockGuard::create(self, write_offset, write_size)
     }
 
@@ -118,16 +116,22 @@ pub(super) struct LockRegion {
 }
 
 impl LockRegion {
-    pub fn as_slice_mut<'a, T>(&mut self) -> &'a mut [T] {
+    /// Views the locked region as writable bytes.
+    ///
+    /// The pointer comes from `DirectSound`, so this is the one place the platform layer trusts
+    /// memory it didn't allocate.
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         if self.offset.is_null() || self.size == 0 {
             return &mut [];
         }
         let Ok(size) = usize::try_from(self.size) else {
             return &mut [];
         };
-        let sample_count = size / size_of::<T>();
-        let sample_pointer = self.offset.cast::<T>();
-        unsafe { slice::from_raw_parts_mut(sample_pointer, sample_count) }
+        // SAFETY: DirectSound's `Lock` handed back `offset` and `size` as a pair describing one
+        // contiguous region of the sound buffer, and that region stays valid and exclusively
+        // ours until `Unlock`, which the owning guard calls in `Drop`. The slice borrows `self`
+        // mutably, so the region can't be viewed twice at once.
+        unsafe { slice::from_raw_parts_mut(self.offset.cast::<u8>(), size) }
     }
 }
 
