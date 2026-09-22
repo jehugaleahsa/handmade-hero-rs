@@ -105,13 +105,14 @@ impl Win32Application {
         }
     }
 
-    fn create_window(&mut self, width: u16, height: u16) -> Result<()> {
+    fn create_window(&mut self, title: &str, width: u16, height: u16) -> Result<()> {
         let instance = Self::get_instance()
             .map_err(|e| ApplicationError::wrap("Could not retrieve the Windows handle", e))?;
         let application_pointer = std::ptr::from_mut::<Win32Application>(self).cast::<c_void>();
         self.window
             .create_window(
                 instance,
+                title,
                 width,
                 height,
                 application_pointer,
@@ -250,11 +251,8 @@ impl Win32Application {
         width: u16,
         height: u16,
     ) -> Result<ExitCode> {
-        self.create_window(width, height)?;
-
         let monitor_refresh_rate = find_monitor_refresh_rate();
-        let frame_duration = Self::frame_duration(monitor_refresh_rate);
-        self.state.set_frame_duration(frame_duration);
+        self.start_application(application_loader, monitor_refresh_rate, width, height)?;
 
         let direct_sound = DirectSound::initialize(self.window.handle()).ok();
         let mut sound_buffer = self.create_sound_buffer(direct_sound.as_ref());
@@ -369,8 +367,40 @@ impl Win32Application {
         }
     }
 
+    /// Loads the plugin, creates the window, and starts a fresh game, in that order.
+    /// The plugin is unloaded at the end and then reloaded inside the game loop - we
+    /// eat the cost, which won't be noticeable at start up.
+    ///
+    /// The plugin comes first because the window title is the game's name. The window
+    /// is created and the frame duration is set before initializing the plugin because
+    /// it might need to inspect the render or audio buffers.
+    ///
+    /// NOTE: The window size and client size are not the same. The client size will be
+    /// smaller than the request window size.
+    fn start_application(
+        &mut self,
+        loader: &mut ApplicationLoader,
+        monitor_refresh_rate: Frequency,
+        width: u16,
+        height: u16,
+    ) -> Result<()> {
+        let LoadedApplication::Fresh(application) = loader.load(&mut self.plugin_state)? else {
+            return Err(ApplicationError::new(
+                "The plugin was already running before the game started",
+            ));
+        };
+
+        self.create_window(&application.name(), width, height)?;
+
+        let frame_duration = Self::frame_duration(monitor_refresh_rate);
+        self.state.set_frame_duration(frame_duration);
+
+        self.initialize_application(application.as_ref());
+        Ok(())
+    }
+
     /// Returns the plugin for this frame. The loader handles hot reloading and carrying the game
-    /// state across it..
+    /// state across it.
     fn load_application(&mut self, loader: &mut ApplicationLoader) -> Result<Rc<ApplicationStub>> {
         let loaded_application = loader.load(&mut self.plugin_state)?;
         match loaded_application {
@@ -389,7 +419,6 @@ impl Win32Application {
             game_state: &mut self.state,
             plugin_state: plugin.as_mut(),
             back_buffer: &mut self.back_buffer,
-            sound_buffer: self.sound_buffer.as_deref_mut(),
         };
         application.initialize(initialize_context);
     }
@@ -775,7 +804,8 @@ extern "system" fn window_procedure(
         let create_struct = unsafe { &*(l_param.0 as *const CREATESTRUCTW) };
         let application = create_struct.lpCreateParams.cast::<Win32Application>();
         unsafe { SetWindowLongPtrW(window_handle, GWL_USERDATA, application as isize) };
-        return LRESULT(1); // Indicate we should proceed with creating the window.
+        // The default handler is what records the window title, so it still has to run.
+        return unsafe { DefWindowProcW(window_handle, message, w_param, l_param) };
     }
 
     let application_pointer = unsafe { GetWindowLongPtrW(window_handle, GWL_USERDATA) };

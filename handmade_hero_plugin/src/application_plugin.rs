@@ -648,6 +648,11 @@ impl ApplicationPlugin {
 
 impl Application for ApplicationPlugin {
     #[inline]
+    fn name(&self) -> String {
+        String::from("Handmade Hero")
+    }
+
+    #[inline]
     fn create_plugin_state(&self) -> Box<dyn PluginState> {
         Box::new(PluginGameState::new())
     }
@@ -668,7 +673,6 @@ impl Application for ApplicationPlugin {
             game_state,
             plugin_state,
             back_buffer,
-            ..
         } = context;
         if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
             Self::initialize_direct(game_state, plugin_state, back_buffer);

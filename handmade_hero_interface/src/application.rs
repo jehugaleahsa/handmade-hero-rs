@@ -6,6 +6,12 @@ use crate::plugin_state::PluginState;
 use crate::render_context::RenderContext;
 
 pub trait Application {
+    /// The game's display name, used for the window title.
+    ///
+    /// The platform asks for this before any state exists, so it can't depend on the plugin
+    /// state or the back buffer.
+    fn name(&self) -> String;
+
     /// Creates game-specific state.
     fn create_plugin_state(&self) -> Box<dyn PluginState>;
 

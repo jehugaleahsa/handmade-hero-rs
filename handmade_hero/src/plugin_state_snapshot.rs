@@ -58,6 +58,10 @@ mod tests {
     struct FakeApplication;
 
     impl Application for FakeApplication {
+        fn name(&self) -> String {
+            String::from("Fake")
+        }
+
         fn create_plugin_state(&self) -> Box<dyn PluginState> {
             Box::new(FakeGameState::default())
         }
@@ -94,6 +98,10 @@ mod tests {
     }
 
     impl Application for IncompatibleApplication {
+        fn name(&self) -> String {
+            String::from("Incompatible")
+        }
+
         fn create_plugin_state(&self) -> Box<dyn PluginState> {
             unimplemented!()
         }

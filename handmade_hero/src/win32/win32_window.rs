@@ -21,7 +21,7 @@ use windows::{
             WS_EX_LAYERED, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
         },
     },
-    core::{Error, PCWSTR, Result as Win32Result, w},
+    core::{Error, HSTRING, PCWSTR, Result as Win32Result, w},
 };
 
 #[derive(Debug)]
@@ -76,14 +76,21 @@ impl Win32Window {
     pub fn create_window(
         &mut self,
         instance: HINSTANCE,
+        title: &str,
         width: u16,
         height: u16,
         application_pointer: *mut c_void,
         window_procedure: WNDPROC,
     ) -> Win32Result<()> {
         let class_name = Self::create_window_class(instance, window_procedure)?;
-        self.window_handle =
-            Self::create_win32_window(instance, class_name, width, height, application_pointer)?;
+        self.window_handle = Self::create_win32_window(
+            instance,
+            class_name,
+            title,
+            width,
+            height,
+            application_pointer,
+        )?;
         self.set_client_dimensions()?;
         Ok(())
     }
@@ -110,15 +117,20 @@ impl Win32Window {
     fn create_win32_window(
         instance: HINSTANCE,
         class_name: PCWSTR,
+        title: &str,
         width: u16,
         height: u16,
         application_pointer: *mut c_void,
     ) -> Win32Result<HWND> {
+        // Win32 wants a null-terminated UTF-16 string. `HSTRING` owns one, and a reference to it
+        // converts to the `PCWSTR` parameter. `CreateWindowExW` copies the title, so the string
+        // only has to live for the call.
+        let title = HSTRING::from(title);
         let window = unsafe {
             CreateWindowExW(
                 WS_EX_LAYERED,
                 class_name,
-                w!("Handmade Hero"),
+                &title,
                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,

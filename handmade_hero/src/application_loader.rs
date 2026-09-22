@@ -31,6 +31,11 @@ impl Debug for ApplicationStub {
 
 impl Application for ApplicationStub {
     #[inline]
+    fn name(&self) -> String {
+        self.application.name()
+    }
+
+    #[inline]
     fn create_plugin_state(&self) -> Box<dyn PluginState> {
         self.application.create_plugin_state()
     }
