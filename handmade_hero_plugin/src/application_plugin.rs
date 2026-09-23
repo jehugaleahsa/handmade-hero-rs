@@ -708,18 +708,21 @@ impl Application for ApplicationPlugin {
             game_state,
             plugin_state,
             input_state,
-            sound_buffer,
-            ..
+            mut sound_buffer,
         } = context;
-        if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
-            Self::write_sound_direct(game_state, plugin_state, input_state, sound_buffer);
-            if let Some(play_cursor) = game_state.audio().play_cursor()
-                && let Some(write_cursor) = game_state.audio().write_cursor()
-            {
-                plugin_state
-                    .audio_mut()
-                    .add_cursors(play_cursor, write_cursor);
-            }
+        let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() else {
+            return;
+        };
+        let Some(samples) = sound_buffer.as_samples_mut::<StereoSample>() else {
+            return;
+        };
+        Self::write_sound_direct(game_state, plugin_state, input_state, samples);
+        if let Some(play_cursor) = game_state.audio().play_cursor()
+            && let Some(write_cursor) = game_state.audio().write_cursor()
+        {
+            plugin_state
+                .audio_mut()
+                .add_cursors(play_cursor, write_cursor);
         }
     }
 }

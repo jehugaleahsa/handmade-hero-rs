@@ -22,7 +22,7 @@ use handmade_hero_interface::keyboard_state::KeyboardState;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::render_context::RenderContext;
-use handmade_hero_interface::stereo_sample::StereoSample;
+use handmade_hero_interface::sound_buffer::SoundBuffer;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::information::Information;
 use handmade_hero_interface::units::si::length::pixel;
@@ -77,7 +77,8 @@ pub struct Win32Application {
     key_mapping: KeyMapping,
     window: Win32Window,
     back_buffer: BackBuffer,
-    sound_buffer: Option<Vec<StereoSample>>,
+    /// Storage the game fills with a frame of audio.
+    sound_buffer: SoundBuffer,
     /// Byte offset into the `DirectSound` buffer where the next write starts. `None` until the
     /// first frame has run and the cursors are known.
     sound_write_offset: Option<u32>,
@@ -97,7 +98,7 @@ impl Win32Application {
             key_mapping: KeyMapping::default(),
             window: Win32Window::new(),
             back_buffer: BackBuffer::default(),
-            sound_buffer: None,
+            sound_buffer: SoundBuffer::new(),
             sound_write_offset: None,
             sound_frame_size: Information::zero(),
             recording_state: RecordingState::None,
@@ -575,31 +576,22 @@ impl Win32Application {
             return;
         }
 
-        let buffer_sample_count = self.find_buffer_sample_count(direct_sound_buffer);
-        let Ok(buffer_sample_count_usize) = usize::try_from(buffer_sample_count) else {
+        let buffer_length = direct_sound_buffer.length();
+        let Some(sound_bytes) = self.write_sound(application, write_size, buffer_length) else {
             return;
         };
+        Self::copy_sound_buffer(direct_sound_buffer, write_offset, write_size, sound_bytes);
 
-        let sample_count = self.find_sample_count(write_size);
-        let sound_buffer_out =
-            self.write_sound(application, sample_count, buffer_sample_count_usize);
-        if sound_buffer_out.is_empty() {
-            return;
-        }
-
-        Self::copy_sound_buffer(
-            direct_sound_buffer,
-            write_offset,
-            write_size,
-            StereoSample::as_bytes(sound_buffer_out),
-        );
-
-        let buffer_length = direct_sound_buffer.length();
         let next_write_offset =
             Self::find_next_write_offset(write_offset, write_size, buffer_length);
         self.sound_write_offset = Some(next_write_offset);
+
+        let buffer_sample_count = self.find_buffer_sample_count(direct_sound_buffer);
+        let Ok(buffer_sample_count) = usize::try_from(buffer_sample_count) else {
+            return; // 16-bit OS?
+        };
         let audio_state = self.state.audio_mut();
-        audio_state.set_buffer_sample_count(buffer_sample_count_usize);
+        audio_state.set_buffer_sample_count(buffer_sample_count);
         let scaled_play_cursor = play_cursor / audio_state.sample_size().get::<byte>();
         let scaled_play_cursor = usize::try_from(scaled_play_cursor).unwrap_or_default();
         audio_state.set_play_cursor(scaled_play_cursor);
@@ -637,12 +629,6 @@ impl Win32Application {
         let buffer_length = direct_sound_buffer.length();
         let sample_size = self.state.audio().sample_size();
         (buffer_length / sample_size).get::<ratio>()
-    }
-
-    fn find_sample_count(&self, write_size: Information) -> u32 {
-        let sample_size = self.state.audio().sample_size();
-        let sample_count = write_size / sample_size;
-        sample_count.get::<ratio>()
     }
 
     /// Where we start writing and how much we write depends on the audio latency.
@@ -702,34 +688,27 @@ impl Win32Application {
         play_cursor.saturating_add(remaining_bytes)
     }
 
+    /// Has the game fill the next `write_size` bytes of audio and returns them.
     fn write_sound(
         &mut self,
         application: &ApplicationStub,
-        sample_count: u32,
-        buffer_sample_count: usize,
-    ) -> &[StereoSample] {
-        let Some(plugin) = self.plugin_state.as_deref_mut() else {
-            return &[];
-        };
-
-        let Ok(sample_count_usize) = usize::try_from(sample_count) else {
-            return &[]; // 16-bit OS?
-        };
-
-        let sound_buffer = self
-            .sound_buffer
-            .get_or_insert_with(|| vec![StereoSample::default(); buffer_sample_count]);
-        let sound_buffer_out = &mut sound_buffer[..sample_count_usize];
+        write_size: Information,
+        buffer_length: Information,
+    ) -> Option<&[u8]> {
+        let plugin = self.plugin_state.as_deref_mut()?;
+        self.sound_buffer.ensure_capacity(buffer_length);
+        let sample_size = self.state.audio().sample_size();
+        let window = self.sound_buffer.window(write_size, sample_size)?;
 
         let context = AudioContext {
             game_state: &mut self.state,
             plugin_state: plugin,
             input_state: &self.input,
-            sound_buffer: sound_buffer_out,
+            sound_buffer: window,
         };
         application.write_sound(context);
 
-        sound_buffer_out
+        self.sound_buffer.bytes(write_size)
     }
 
     fn copy_sound_buffer(
