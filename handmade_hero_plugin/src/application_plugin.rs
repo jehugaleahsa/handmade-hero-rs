@@ -26,6 +26,7 @@ use std::cmp::Ordering;
 use std::f32;
 use uom::num::Zero;
 use uom::si::frequency::hertz;
+use uom::si::information::byte;
 use uom::si::length::meter;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
@@ -557,7 +558,7 @@ impl ApplicationPlugin {
         window_bounds: &Rectangle<f32>,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
-        let Some(buffer_sample_count) = game_state.audio().buffer_sample_count() else {
+        let Some(buffer_length) = game_state.audio().buffer_length() else {
             return Ok(());
         };
         let world = plugin_state.world();
@@ -571,8 +572,9 @@ impl ApplicationPlugin {
         let pixels = buffer.pixels_mut();
 
         let window_width = window_bounds.width();
+        let buffer_length_bytes = buffer_length.get::<byte>();
         #[expect(clippy::cast_precision_loss)]
-        let chunk = (window_width - 2f32 * padding_x) / buffer_sample_count as f32;
+        let chunk = (window_width - 2f32 * padding_x) / buffer_length_bytes as f32;
         for (play_cursor, write_cursor) in plugin_state
             .audio()
             .play_cursors()

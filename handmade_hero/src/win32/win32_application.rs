@@ -586,18 +586,12 @@ impl Win32Application {
             Self::find_next_write_offset(write_offset, write_size, buffer_length);
         self.sound_write_offset = Some(next_write_offset);
 
-        let buffer_sample_count = self.find_buffer_sample_count(direct_sound_buffer);
-        let Ok(buffer_sample_count) = usize::try_from(buffer_sample_count) else {
-            return; // 16-bit OS?
-        };
         let audio_state = self.state.audio_mut();
-        audio_state.set_buffer_sample_count(buffer_sample_count);
-        let scaled_play_cursor = play_cursor / audio_state.sample_size().get::<byte>();
-        let scaled_play_cursor = usize::try_from(scaled_play_cursor).unwrap_or_default();
-        audio_state.set_play_cursor(scaled_play_cursor);
-        let scaled_write_cursor = write_cursor / audio_state.sample_size().get::<byte>();
-        let scaled_write_cursor = usize::try_from(scaled_write_cursor).unwrap_or_default();
-        audio_state.set_write_cursor(scaled_write_cursor);
+        audio_state.set_buffer_length(buffer_length);
+        let play_cursor = usize::try_from(play_cursor).unwrap_or_default();
+        audio_state.set_play_cursor(play_cursor);
+        let write_cursor = usize::try_from(write_cursor).unwrap_or_default();
+        audio_state.set_write_cursor(write_cursor);
     }
 
     /// Bytes to write to carry the buffer from `write_offset` around to `target_cursor`.
@@ -623,12 +617,6 @@ impl Win32Application {
         let misaligned_bytes = bytes_to_write.checked_rem(sample_size).unwrap_or(0);
         let aligned_bytes_to_write = bytes_to_write.saturating_sub(misaligned_bytes);
         Information::new::<byte>(aligned_bytes_to_write)
-    }
-
-    fn find_buffer_sample_count(&self, direct_sound_buffer: &DirectSoundBuffer<'_>) -> u32 {
-        let buffer_length = direct_sound_buffer.length();
-        let sample_size = self.state.audio().sample_size();
-        (buffer_length / sample_size).get::<ratio>()
     }
 
     /// Where we start writing and how much we write depends on the audio latency.

@@ -13,7 +13,7 @@ pub struct AudioState {
     channel_count: u16,
     channel_size: Information,
     volume: i16,
-    buffer_size: Option<usize>,
+    buffer_length: Option<Information>,
     play_cursor: Option<usize>,
     write_cursor: Option<usize>,
 }
@@ -26,7 +26,7 @@ impl AudioState {
             channel_count,
             channel_size,
             volume: DEFAULT_VOLUME,
-            buffer_size: None,
+            buffer_length: None,
             play_cursor: None,
             write_cursor: None,
         }
@@ -72,18 +72,18 @@ impl AudioState {
 
     #[inline]
     #[must_use]
-    pub fn buffer_sample_count(&self) -> Option<usize> {
-        self.buffer_size
+    pub fn buffer_length(&self) -> Option<Information> {
+        self.buffer_length
     }
 
     #[inline]
-    pub fn set_buffer_sample_count(&mut self, value: usize) {
-        self.buffer_size = Some(value);
+    pub fn set_buffer_length(&mut self, value: Information) {
+        self.buffer_length = Some(value);
     }
 
     #[inline]
-    pub fn clear_buffer_size(&mut self) {
-        self.buffer_size = None;
+    pub fn clear_buffer_length(&mut self) {
+        self.buffer_length = None;
     }
 
     #[inline]
