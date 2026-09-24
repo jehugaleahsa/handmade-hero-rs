@@ -5,13 +5,14 @@ use crate::units::si::{
     frequency::Frequency, information::Information, information_rate::InformationRate,
 };
 
-const SAMPLES_PER_SECOND: u32 = 48_000u32;
+const DEFAULT_SAMPLES_PER_SECOND: u32 = 48_000u32;
 const DEFAULT_VOLUME: i16 = 3_000;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AudioState {
     channel_count: u16,
     channel_size: Information,
+    frequency: Frequency,
     volume: i16,
     buffer_length: Option<Information>,
     play_cursor: Option<usize>,
@@ -22,14 +23,49 @@ impl AudioState {
     #[inline]
     #[must_use]
     pub fn new(channel_count: u16, channel_size: Information) -> Self {
+        let frequency = Frequency::new::<hertz>(DEFAULT_SAMPLES_PER_SECOND);
         Self {
             channel_count,
             channel_size,
+            frequency,
             volume: DEFAULT_VOLUME,
             buffer_length: None,
             play_cursor: None,
             write_cursor: None,
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn channel_count(&self) -> u16 {
+        self.channel_count
+    }
+
+    #[inline]
+    pub fn set_channel_count(&mut self, value: u16) {
+        self.channel_count = value;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn channel_size(&self) -> Information {
+        self.channel_size
+    }
+
+    #[inline]
+    pub fn set_channel_size(&mut self, value: Information) {
+        self.channel_size = value;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn frequency(&self) -> Frequency {
+        self.frequency
+    }
+
+    #[inline]
+    pub fn set_frequency(&mut self, value: Frequency) {
+        self.frequency = value;
     }
 
     #[inline]
@@ -40,26 +76,8 @@ impl AudioState {
 
     #[inline]
     #[must_use]
-    pub fn channel_count(&self) -> u16 {
-        self.channel_count
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn frequency(&self) -> Frequency {
-        Frequency::new::<hertz>(SAMPLES_PER_SECOND)
-    }
-
-    #[inline]
-    #[must_use]
     pub fn sample_size(&self) -> Information {
         u32::from(self.channel_count) * self.channel_size
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn channel_size(&self) -> Information {
-        self.channel_size
     }
 
     /// The rate the audio device drains the sound buffer: one sample's worth of bytes for every
@@ -116,5 +134,12 @@ impl AudioState {
     #[inline]
     pub fn clear_write_cursor(&mut self) {
         self.write_cursor = None;
+    }
+
+    #[must_use]
+    pub fn is_new_sound_buffer_needed(old: &AudioState, new: &AudioState) -> bool {
+        old.channel_size != new.channel_size
+            || old.channel_count != new.channel_count
+            || old.frequency != new.frequency
     }
 }

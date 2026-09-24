@@ -1,4 +1,4 @@
-use std::slice;
+use std::{cmp::Ordering, slice};
 
 use uom::si::information::byte;
 
@@ -35,8 +35,13 @@ impl SoundBuffer {
         };
         let words = bytes.div_ceil(size_of::<u64>());
         if let Some(ref mut existing) = self.data {
-            if existing.len() < words {
-                existing.resize(words, 0u64);
+            match existing.len().cmp(&words) {
+                Ordering::Less => existing.resize(words, 0u64),
+                Ordering::Greater => {
+                    existing.truncate(words);
+                    existing.shrink_to_fit();
+                }
+                Ordering::Equal => {}
             }
         } else {
             self.data = Some(vec![0u64; words]);
