@@ -6,4 +6,5 @@ mod win32_controller;
 mod win32_key_event;
 mod win32_monitor;
 mod win32_mouse;
+mod win32_sound_output;
 mod win32_window;

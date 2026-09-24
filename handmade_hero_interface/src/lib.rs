@@ -4,6 +4,7 @@ extern crate uom;
 pub mod application;
 pub mod application_error;
 pub mod audio_context;
+pub mod audio_format;
 pub mod audio_state;
 pub mod back_buffer;
 pub mod button;

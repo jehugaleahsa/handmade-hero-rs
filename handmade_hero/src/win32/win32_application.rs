@@ -3,6 +3,7 @@ use super::direct_sound_buffer::DirectSoundBuffer;
 use super::win32_controller::{Win32Controller, Win32ControllerState};
 use super::win32_key_event::{self, Win32KeyEvent};
 use super::win32_mouse::Win32Mouse;
+use super::win32_sound_output::Win32SoundOutput;
 use super::win32_window::Win32Window;
 use crate::application_loader::{ApplicationLoader, ApplicationStub, LoadedApplication};
 use crate::playback_recorder::PlaybackRecorder;
@@ -10,7 +11,7 @@ use crate::win32::win32_monitor::find_monitor_refresh_rate;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
-use handmade_hero_interface::audio_state::AudioState;
+use handmade_hero_interface::audio_format::AudioFormat;
 use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::game_state::GameState;
@@ -55,13 +56,6 @@ use windows::core::{Error, Result as Win32Result};
 /// the audio buffer math stay in integers.
 const REFRESHES_PER_UPDATE: u16 = 2;
 
-/// The sound safety margin is this fraction of a frame of audio.
-///
-/// The margin guesses how far the write cursor moves between reading it and landing our bytes,
-/// so it covers the loop's jitter. Nothing derives the value; it's a heuristic to tune by
-/// watching the cursor overlay.
-const SOUND_SAFETY_MARGIN_DIVISOR: u32 = 3;
-
 #[derive(Debug)]
 pub enum RecordingState {
     None,
@@ -80,11 +74,6 @@ pub struct Win32Application {
     back_buffer: BackBuffer,
     /// Storage the game fills with a frame of audio.
     sound_buffer: SoundBuffer,
-    /// Byte offset into the `DirectSound` buffer where the next write starts. `None` until the
-    /// first frame has run and the cursors are known.
-    sound_write_offset: Option<u32>,
-    /// Bytes of audio one game frame consumes, fixed once the sound buffer exists.
-    sound_frame_size: Information,
     recording_state: RecordingState,
     recorder: PlaybackRecorder,
 }
@@ -100,8 +89,6 @@ impl Win32Application {
             window: Win32Window::new(),
             back_buffer: BackBuffer::default(),
             sound_buffer: SoundBuffer::new(),
-            sound_write_offset: None,
-            sound_frame_size: Information::zero(),
             recording_state: RecordingState::None,
             recorder: PlaybackRecorder::new(exe_directory),
         }
@@ -257,25 +244,19 @@ impl Win32Application {
         self.start_application(application_loader, monitor_refresh_rate, width, height)?;
 
         let direct_sound = DirectSound::initialize(self.window.handle()).ok();
-        let mut sound_buffer = direct_sound
-            .as_ref()
-            .and_then(|ds| self.create_sound_buffer(ds).ok());
-
-        if let Some(ref mut sound_buffer) = sound_buffer {
-            sound_buffer.play_looping().unwrap_or_default(); // Ignore errors
-            self.sound_frame_size = self.sample_size_per_frame(monitor_refresh_rate);
-        }
+        // The format the device was last asked to open, whether or not it succeeded.
+        let mut requested_format = self.state.audio().format();
+        let mut sound_output = self.start_sound_output(direct_sound.as_ref(), monitor_refresh_rate);
 
         let mut counter = PerformanceCounter::start();
         loop {
-            let old_audio_state = self.state.audio().clone();
             // A new frame starts with every half-transition count at zero, while each button
             // keeps whether it ended the last frame down.
             self.input.reset_counts();
             self.keyboard.reset_counts();
             if let Some(code) = Self::process_message()? {
-                if let Some(ref mut sound_buffer) = sound_buffer {
-                    sound_buffer.stop().unwrap_or_default(); // Ignore errors
+                if let Some(ref mut sound_output) = sound_output {
+                    sound_output.stop();
                 }
                 return Ok(code);
             }
@@ -287,32 +268,24 @@ impl Win32Application {
             self.process_input(application.as_ref());
             self.render_to_buffer(application.as_ref());
 
-            if AudioState::is_new_sound_buffer_needed(&old_audio_state, self.state.audio()) {
-                if let Some(sound_buffer) = sound_buffer.as_mut() {
-                    sound_buffer.stop().unwrap_or_default(); // Ignore errors
+            let desired_format = self.state.audio().format();
+            if desired_format != requested_format {
+                if let Some(mut old_output) = sound_output.take() {
+                    old_output.stop();
                 }
-                sound_buffer.take(); // Free secondary sound buffer
-                sound_buffer = direct_sound
-                    .as_ref()
-                    .and_then(|ds| self.create_sound_buffer(ds).ok());
-                self.sound_frame_size = self.sample_size_per_frame(monitor_refresh_rate);
-                self.sound_write_offset = None;
-                if let Some(sound_buffer) = sound_buffer.as_mut() {
-                    sound_buffer.play_looping().unwrap_or_default(); // Ignore errors
-                }
+                requested_format = desired_format;
+                sound_output = self.start_sound_output(direct_sound.as_ref(), monitor_refresh_rate);
             }
 
-            if let Some(write_offset) = self.sound_write_offset
-                && let Some(ref mut sound_buffer) = sound_buffer
-            {
-                self.fill_sound_buffer(application.as_ref(), sound_buffer, write_offset, &counter);
+            if let Some(ref mut sound_output) = sound_output {
+                self.fill_sound_buffer(application.as_ref(), sound_output, &counter);
             }
 
             self.wait_for_framerate(&mut counter);
 
             self.window.draw(&self.back_buffer);
-            if let Some(ref sound_buffer) = sound_buffer {
-                self.update_sound_write_offset(sound_buffer);
+            if let Some(ref mut sound_output) = sound_output {
+                sound_output.seed_write_offset();
             }
         }
     }
@@ -329,22 +302,19 @@ impl Win32Application {
         f32::from(REFRESHES_PER_UPDATE) / refresh_rate
     }
 
-    fn create_sound_buffer<'a>(
+    /// Opens the audio device with the format the game currently wants and starts it playing.
+    ///
+    /// `None` when there is no device, or when the device refuses the format. Sound stays off
+    /// until the game asks for a different format.
+    fn start_sound_output<'a>(
         &self,
-        direct_sound: &'a DirectSound,
-    ) -> Win32Result<DirectSoundBuffer<'a>> {
-        let audio_state = &self.state.audio();
-        direct_sound.create_buffer(
-            audio_state.frequency(),
-            audio_state.channel_size(),
-            audio_state.channel_count(),
-            uom::si::u32::Time::new::<second>(1),
-        )
-    }
-
-    /// A portion of a frame of audio, used as the margin the write cursor must stay ahead of playback.
-    fn sound_safety_margin(&self) -> Information {
-        self.sound_frame_size / SOUND_SAFETY_MARGIN_DIVISOR
+        direct_sound: Option<&'a DirectSound>,
+        monitor_refresh_rate: Frequency,
+    ) -> Option<Win32SoundOutput<'a>> {
+        let direct_sound = direct_sound?;
+        let format = self.state.audio().format();
+        let frame_size = Self::sample_size_per_frame(format, monitor_refresh_rate);
+        Win32SoundOutput::start(direct_sound, format, frame_size).ok()
     }
 
     /// Bytes of audio consumed by a single game frame.
@@ -353,9 +323,8 @@ impl Win32Application {
     /// rate by the refresh rate cancels the per-second term and leaves a byte count. Dividing
     /// last keeps every term an integer, so this needs no float round trip and carries no
     /// rounding error.
-    fn sample_size_per_frame(&self, monitor_refresh_rate: Frequency) -> Information {
-        let sample_rate = self.state.audio().sample_rate();
-        (sample_rate * u32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate).into()
+    fn sample_size_per_frame(format: AudioFormat, monitor_refresh_rate: Frequency) -> Information {
+        (format.sample_rate() * u32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate).into()
     }
 
     fn process_message() -> Result<Option<ExitCode>> {
@@ -575,25 +544,23 @@ impl Win32Application {
     fn fill_sound_buffer(
         &mut self,
         application: &ApplicationStub,
-        direct_sound_buffer: &mut DirectSoundBuffer<'_>,
-        write_offset: u32,
+        sound_output: &mut Win32SoundOutput<'_>,
         performance_counter: &PerformanceCounter,
     ) {
-        let Ok((play_cursor, write_cursor)) = direct_sound_buffer.get_cursors() else {
+        let Some(write_offset) = sound_output.write_offset() else {
+            return; // The device hasn't reported a write cursor to start from yet.
+        };
+        let Ok((play_cursor, write_cursor)) = sound_output.buffer().get_cursors() else {
             return;
         };
-        let target_cursor = self.find_target_cursor(
-            direct_sound_buffer,
-            performance_counter,
-            play_cursor,
-            write_cursor,
-        );
-        let write_size = self.find_write_size(direct_sound_buffer, write_offset, target_cursor);
+        let target_cursor =
+            self.find_target_cursor(sound_output, performance_counter, play_cursor, write_cursor);
+        let write_size = self.find_write_size(sound_output.buffer(), write_offset, target_cursor);
         if write_size == Information::zero() {
             return;
         }
 
-        let buffer_length = direct_sound_buffer.length();
+        let buffer_length = sound_output.buffer().length();
         let audio_state = self.state.audio_mut();
         audio_state.set_buffer_length(buffer_length);
         let play_cursor = usize::try_from(play_cursor).unwrap_or_default();
@@ -604,11 +571,16 @@ impl Win32Application {
         let Some(sound_bytes) = self.write_sound(application, write_size, buffer_length) else {
             return;
         };
-        Self::copy_sound_buffer(direct_sound_buffer, write_offset, write_size, sound_bytes);
+        Self::copy_sound_buffer(
+            sound_output.buffer_mut(),
+            write_offset,
+            write_size,
+            sound_bytes,
+        );
 
         let next_write_offset =
             Self::find_next_write_offset(write_offset, write_size, buffer_length);
-        self.sound_write_offset = Some(next_write_offset);
+        sound_output.set_write_offset(next_write_offset);
     }
 
     /// Bytes to write to carry the buffer from `write_offset` around to `target_cursor`.
@@ -630,7 +602,7 @@ impl Win32Application {
         // sample. Rounding down keeps every write offset on a sample boundary, which the ring
         // buffer math cannot guarantee on its own since offsets are bytes. The stray bytes are
         // covered by the next frame's write.
-        let sample_size = self.state.audio().sample_size().get::<byte>();
+        let sample_size = self.state.audio().format().sample_size().get::<byte>();
         let misaligned_bytes = bytes_to_write.checked_rem(sample_size).unwrap_or(0);
         let aligned_bytes_to_write = bytes_to_write.saturating_sub(misaligned_bytes);
         Information::new::<byte>(aligned_bytes_to_write)
@@ -645,15 +617,15 @@ impl Win32Application {
     /// play cursor to the end of the current frame.
     fn find_target_cursor(
         &self,
-        direct_sound_buffer: &DirectSoundBuffer<'_>,
+        sound_output: &Win32SoundOutput<'_>,
         performance_counter: &PerformanceCounter,
         play_cursor: u32,
         write_cursor: u32,
     ) -> u32 {
-        let safety_margin = self.sound_safety_margin();
-        let frame_size = self.sound_frame_size;
+        let safety_margin = sound_output.safety_margin();
+        let frame_size = sound_output.frame_size();
         let safe_write_cursor = write_cursor.saturating_add(safety_margin.get::<byte>());
-        let buffer_length = direct_sound_buffer.length();
+        let buffer_length = sound_output.buffer().length();
         let buffer_length_bytes = buffer_length.get::<byte>();
         let mut normalized_safe_write_cursor = safe_write_cursor;
         if write_cursor < play_cursor {
@@ -703,7 +675,7 @@ impl Win32Application {
     ) -> Option<&[u8]> {
         let plugin = self.plugin_state.as_deref_mut()?;
         self.sound_buffer.ensure_capacity(buffer_length);
-        let sample_size = self.state.audio().sample_size();
+        let sample_size = self.state.audio().format().sample_size();
         let window = self.sound_buffer.window(write_size, sample_size)?;
 
         let context = AudioContext {
@@ -759,23 +731,6 @@ impl Win32Application {
         }
 
         counter.restart();
-    }
-
-    fn update_sound_write_offset(&mut self, sound_buffer: &DirectSoundBuffer<'_>) {
-        // After a single frame, we have a better idea how far away the sound
-        // play cursor is from the write cursor. We initialize the write offset
-        // as a flag for sound to start being written now that the metrics are
-        // recorded.
-        if self.sound_write_offset.is_none() {
-            self.sound_write_offset = Self::find_initial_write_offset(sound_buffer);
-        }
-    }
-
-    /// The first write starts at the device's write cursor. `DirectSound` reports cursors on
-    /// sample boundaries, so no alignment is needed here.
-    fn find_initial_write_offset(direct_sound_buffer: &DirectSoundBuffer<'_>) -> Option<u32> {
-        let (_, write_cursor) = direct_sound_buffer.get_cursors().ok()?;
-        Some(write_cursor)
     }
 }
 

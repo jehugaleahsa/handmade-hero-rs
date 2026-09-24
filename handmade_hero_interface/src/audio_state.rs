@@ -1,14 +1,15 @@
 use serde::{Deserialize, Serialize};
 use uom::si::frequency::hertz;
 
-use crate::units::si::{
-    frequency::Frequency, information::Information, information_rate::InformationRate,
+use crate::{
+    audio_format::AudioFormat,
+    units::si::{frequency::Frequency, information::Information},
 };
 
 const DEFAULT_SAMPLES_PER_SECOND: u32 = 48_000u32;
 const DEFAULT_VOLUME: i16 = 3_000;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AudioState {
     channel_count: u16,
     channel_size: Information,
@@ -76,16 +77,8 @@ impl AudioState {
 
     #[inline]
     #[must_use]
-    pub fn sample_size(&self) -> Information {
-        u32::from(self.channel_count) * self.channel_size
-    }
-
-    /// The rate the audio device drains the sound buffer: one sample's worth of bytes for every
-    /// cycle of the sample rate.
-    #[inline]
-    #[must_use]
-    pub fn sample_rate(&self) -> InformationRate {
-        (self.sample_size() * self.frequency()).into()
+    pub fn format(&self) -> AudioFormat {
+        AudioFormat::new(self.channel_count, self.channel_size, self.frequency)
     }
 
     #[inline]
@@ -134,12 +127,5 @@ impl AudioState {
     #[inline]
     pub fn clear_write_cursor(&mut self) {
         self.write_cursor = None;
-    }
-
-    #[must_use]
-    pub fn is_new_sound_buffer_needed(old: &AudioState, new: &AudioState) -> bool {
-        old.channel_size != new.channel_size
-            || old.channel_count != new.channel_count
-            || old.frequency != new.frequency
     }
 }
