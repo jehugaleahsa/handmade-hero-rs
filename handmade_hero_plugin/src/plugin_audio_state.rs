@@ -1,11 +1,26 @@
 use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
+use uom::si::u32::Information;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct OutputData {
+    play_cursor: usize,
+    write_cursor: usize,
+    write_offset: usize,
+    write_length: Information,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct FlipData {
+    play_cursor: usize,
+    write_cursor: usize,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PluginAudioState {
-    play_cursors: VecDeque<usize>,
-    write_cursors: VecDeque<usize>,
+    output: Option<OutputData>,
+    flips: VecDeque<FlipData>,
     max_cursor_count: usize,
     theta: f32,
 }
@@ -14,34 +29,76 @@ impl PluginAudioState {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        let play_cursors = VecDeque::new();
-        let write_cursors = VecDeque::new();
+        let flips = VecDeque::new();
         Self {
-            play_cursors,
-            write_cursors,
+            output: None,
+            flips,
             max_cursor_count: 0,
             theta: 0f32,
         }
     }
 
     #[inline]
-    pub fn play_cursors(&self) -> impl Iterator<Item = usize> {
-        self.play_cursors.iter().copied()
+    pub fn output_play_cursor(&self) -> Option<usize> {
+        self.output.as_ref().map(|o| o.play_cursor)
     }
 
     #[inline]
-    pub fn write_cursors(&self) -> impl Iterator<Item = usize> {
-        self.write_cursors.iter().copied()
+    pub fn output_write_cursor(&self) -> Option<usize> {
+        self.output.as_ref().map(|o| o.write_cursor)
     }
 
-    pub fn add_cursors(&mut self, play_cursor: usize, write_cursor: usize) {
-        while self.play_cursors.len() >= self.max_cursor_count {
-            // Both cursor collections are the same length!
-            self.play_cursors.pop_front();
-            self.write_cursors.pop_front();
+    #[inline]
+    pub fn output_write_offset(&self) -> Option<usize> {
+        self.output.as_ref().map(|o| o.write_offset)
+    }
+
+    #[inline]
+    pub fn output_write_length(&self) -> Option<Information> {
+        self.output.as_ref().map(|o| o.write_length)
+    }
+
+    pub fn set_output_data(
+        &mut self,
+        play_cursor: usize,
+        write_cursor: usize,
+        write_offset: usize,
+        write_length: Information,
+    ) {
+        let output = OutputData {
+            play_cursor,
+            write_cursor,
+            write_offset,
+            write_length,
+        };
+        self.output = Some(output);
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn flips_len(&self) -> usize {
+        self.flips.len()
+    }
+
+    #[inline]
+    pub fn flip_play_cursors(&self) -> impl Iterator<Item = usize> {
+        self.flips.iter().map(|o| o.play_cursor)
+    }
+
+    #[inline]
+    pub fn flip_write_cursors(&self) -> impl Iterator<Item = usize> {
+        self.flips.iter().map(|o| o.write_cursor)
+    }
+
+    pub fn add_flip_data(&mut self, play_cursor: usize, write_cursor: usize) {
+        while self.flips.len() >= self.max_cursor_count {
+            self.flips.pop_front();
         }
-        self.play_cursors.push_back(play_cursor);
-        self.write_cursors.push_back(write_cursor);
+        let flips = FlipData {
+            play_cursor,
+            write_cursor,
+        };
+        self.flips.push_back(flips);
     }
 
     #[inline]

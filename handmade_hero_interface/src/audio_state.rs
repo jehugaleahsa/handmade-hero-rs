@@ -16,8 +16,12 @@ pub struct AudioState {
     frequency: Frequency,
     volume: i16,
     buffer_length: Option<Information>,
-    play_cursor: Option<usize>,
-    write_cursor: Option<usize>,
+    flip_play_cursor: Option<usize>,
+    flip_write_cursor: Option<usize>,
+    output_play_cursor: Option<usize>,
+    output_write_cursor: Option<usize>,
+    output_offset: Option<usize>,
+    output_length: Option<Information>,
 }
 
 impl AudioState {
@@ -31,8 +35,12 @@ impl AudioState {
             frequency,
             volume: DEFAULT_VOLUME,
             buffer_length: None,
-            play_cursor: None,
-            write_cursor: None,
+            flip_play_cursor: None,
+            flip_write_cursor: None,
+            output_play_cursor: None,
+            output_write_cursor: None,
+            output_offset: None,
+            output_length: None,
         }
     }
 
@@ -99,33 +107,97 @@ impl AudioState {
 
     #[inline]
     #[must_use]
-    pub fn play_cursor(&self) -> Option<usize> {
-        self.play_cursor
+    pub fn flip_play_cursor(&self) -> Option<usize> {
+        self.flip_play_cursor
     }
 
     #[inline]
-    pub fn set_play_cursor(&mut self, value: usize) {
-        self.play_cursor = Some(value);
+    pub fn set_flip_play_cursor(&mut self, value: usize) {
+        self.flip_play_cursor = Some(value);
     }
 
     #[inline]
-    pub fn clear_play_cursor(&mut self) {
-        self.play_cursor = None;
+    pub fn clear_flip_play_cursor(&mut self) {
+        self.flip_play_cursor = None;
     }
 
     #[inline]
     #[must_use]
-    pub fn write_cursor(&self) -> Option<usize> {
-        self.write_cursor
+    pub fn flip_write_cursor(&self) -> Option<usize> {
+        self.flip_write_cursor
     }
 
     #[inline]
-    pub fn set_write_cursor(&mut self, value: usize) {
-        self.write_cursor = Some(value);
+    pub fn set_flip_write_cursor(&mut self, value: usize) {
+        self.flip_write_cursor = Some(value);
     }
 
     #[inline]
-    pub fn clear_write_cursor(&mut self) {
-        self.write_cursor = None;
+    pub fn clear_flip_write_cursor(&mut self) {
+        self.flip_write_cursor = None;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn output_play_cursor(&self) -> Option<usize> {
+        self.output_play_cursor
+    }
+
+    #[inline]
+    pub fn set_output_play_cursor(&mut self, value: usize) {
+        self.output_play_cursor = Some(value);
+    }
+
+    #[inline]
+    pub fn clear_output_play_cursor(&mut self) {
+        self.output_play_cursor = None;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn output_write_cursor(&self) -> Option<usize> {
+        self.output_write_cursor
+    }
+
+    #[inline]
+    pub fn set_output_write_cursor(&mut self, value: usize) {
+        self.output_write_cursor = Some(value);
+    }
+
+    #[inline]
+    pub fn clear_output_write_cursor(&mut self) {
+        self.output_write_cursor = None;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn output_offset(&self) -> Option<usize> {
+        self.output_offset
+    }
+
+    #[inline]
+    pub fn set_output_offset(&mut self, value: usize) {
+        self.output_offset = Some(value);
+    }
+
+    #[inline]
+    pub fn clear_output_offset(&mut self) {
+        self.output_offset = None;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn output_length(&self) -> Option<Information> {
+        self.output_length
+    }
+
+    #[inline]
+    pub fn set_output_length(&mut self, value: Information) {
+        self.output_length = Some(value);
+    }
+
+    #[inline]
+    pub fn clear_output_length(&mut self) {
+        self.output_length = None;
     }
 }

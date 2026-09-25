@@ -575,23 +575,63 @@ impl ApplicationPlugin {
         let buffer_length_bytes = buffer_length.get::<byte>();
         #[expect(clippy::cast_precision_loss)]
         let chunk = (window_width - 2f32 * padding_x) / buffer_length_bytes as f32;
-        for (play_cursor, write_cursor) in plugin_state
-            .audio()
-            .play_cursors()
-            .zip(plugin_state.audio().write_cursors())
+        let audio = plugin_state.audio();
+        for (index, (play_cursor, write_cursor)) in audio
+            .flip_play_cursors()
+            .zip(audio.flip_write_cursors())
+            .enumerate()
         {
+            let bottom = if index + 1 == audio.flips_len() {
+                line_bottom - height * 3.0
+            } else {
+                line_bottom
+            };
             #[expect(clippy::cast_precision_loss)]
             let x = padding_x + chunk * play_cursor as f32;
-            let line = Rectangle::new(line_bottom, x, height, 1f32);
+            let line = Rectangle::new(bottom, x, height, 1f32);
             let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
             Self::render_rectangle(window_bounds, &line, play_color, pixels)?;
 
             #[expect(clippy::cast_precision_loss)]
             let x = padding_x + chunk * write_cursor as f32;
-            let line = Rectangle::new(line_bottom, x, height, 1f32);
+            let line = Rectangle::new(bottom, x, height, 1f32);
             let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
             Self::render_rectangle(window_bounds, &line, write_color, pixels)?;
         }
+
+        if let Some(play_cursor) = audio.output_play_cursor()
+            && let Some(write_cursor) = audio.output_write_cursor()
+            && let Some(write_offset) = audio.output_write_offset()
+            && let Some(write_length) = audio.output_write_length()
+        {
+            let bottom = line_bottom - height;
+            #[expect(clippy::cast_precision_loss)]
+            let x = padding_x + chunk * play_cursor as f32;
+            let line = Rectangle::new(bottom, x, height, 1f32);
+            let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
+            Self::render_rectangle(window_bounds, &line, play_color, pixels)?;
+
+            #[expect(clippy::cast_precision_loss)]
+            let x = padding_x + chunk * write_cursor as f32;
+            let line = Rectangle::new(bottom, x, height, 1f32);
+            let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
+            Self::render_rectangle(window_bounds, &line, write_color, pixels)?;
+
+            let bottom = line_bottom - 2.0 * height;
+            #[expect(clippy::cast_precision_loss)]
+            let x = padding_x + chunk * write_offset as f32;
+            let line = Rectangle::new(bottom, x, height, 1f32);
+            let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
+            Self::render_rectangle(window_bounds, &line, play_color, pixels)?;
+
+            #[expect(clippy::cast_precision_loss)]
+            let write_end = write_offset as f32 + write_length.get::<byte>() as f32;
+            let x = padding_x + chunk * write_end;
+            let line = Rectangle::new(bottom, x, height, 1f32);
+            let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
+            Self::render_rectangle(window_bounds, &line, write_color, pixels)?;
+        }
+
         Ok(())
     }
 
@@ -719,12 +759,25 @@ impl Application for ApplicationPlugin {
             return;
         };
         Self::write_sound_direct(game_state, plugin_state, input_state, samples);
-        if let Some(play_cursor) = game_state.audio().play_cursor()
-            && let Some(write_cursor) = game_state.audio().write_cursor()
+        let audio = game_state.audio();
+        if let Some(play_cursor) = audio.output_play_cursor()
+            && let Some(write_cursor) = audio.output_write_cursor()
+            && let Some(write_offset) = audio.output_offset()
+            && let Some(write_length) = audio.output_length()
+        {
+            plugin_state.audio_mut().set_output_data(
+                play_cursor,
+                write_cursor,
+                write_offset,
+                write_length,
+            );
+        }
+        if let Some(play_cursor) = audio.flip_play_cursor()
+            && let Some(write_cursor) = audio.flip_write_cursor()
         {
             plugin_state
                 .audio_mut()
-                .add_cursors(play_cursor, write_cursor);
+                .add_flip_data(play_cursor, write_cursor);
         }
     }
 }

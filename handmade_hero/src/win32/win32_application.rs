@@ -286,6 +286,13 @@ impl Win32Application {
             self.window.draw(&self.back_buffer);
             if let Some(ref mut sound_output) = sound_output {
                 sound_output.seed_write_offset();
+                if let Ok((play_cursor, write_cursor)) = sound_output.buffer().get_cursors() {
+                    let audio = self.state.audio_mut();
+                    let flip_play_cursor = usize::try_from(play_cursor).unwrap_or_default();
+                    let flip_write_cursor = usize::try_from(write_cursor).unwrap_or_default();
+                    audio.set_flip_play_cursor(flip_play_cursor);
+                    audio.set_flip_write_cursor(flip_write_cursor);
+                }
             }
         }
     }
@@ -564,9 +571,12 @@ impl Win32Application {
         let audio_state = self.state.audio_mut();
         audio_state.set_buffer_length(buffer_length);
         let play_cursor = usize::try_from(play_cursor).unwrap_or_default();
-        audio_state.set_play_cursor(play_cursor);
+        audio_state.set_output_play_cursor(play_cursor);
         let write_cursor = usize::try_from(write_cursor).unwrap_or_default();
-        audio_state.set_write_cursor(write_cursor);
+        audio_state.set_output_write_cursor(write_cursor);
+        let write_offset_usize = usize::try_from(write_offset).unwrap_or_default();
+        audio_state.set_output_offset(write_offset_usize);
+        audio_state.set_output_length(write_size);
 
         let Some(sound_bytes) = self.write_sound(application, write_size, buffer_length) else {
             return;
