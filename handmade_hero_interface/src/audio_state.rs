@@ -20,8 +20,9 @@ pub struct AudioState {
     flip_write_cursor: Option<usize>,
     output_play_cursor: Option<usize>,
     output_write_cursor: Option<usize>,
-    output_offset: Option<usize>,
-    output_length: Option<Information>,
+    output_write_offset: Option<usize>,
+    output_write_length: Option<Information>,
+    expected_frame_boundary: Option<usize>,
 }
 
 impl AudioState {
@@ -39,8 +40,9 @@ impl AudioState {
             flip_write_cursor: None,
             output_play_cursor: None,
             output_write_cursor: None,
-            output_offset: None,
-            output_length: None,
+            output_write_offset: None,
+            output_write_length: None,
+            expected_frame_boundary: None,
         }
     }
 
@@ -171,33 +173,49 @@ impl AudioState {
 
     #[inline]
     #[must_use]
-    pub fn output_offset(&self) -> Option<usize> {
-        self.output_offset
+    pub fn output_write_offset(&self) -> Option<usize> {
+        self.output_write_offset
     }
 
     #[inline]
-    pub fn set_output_offset(&mut self, value: usize) {
-        self.output_offset = Some(value);
+    pub fn set_output_write_offset(&mut self, value: usize) {
+        self.output_write_offset = Some(value);
     }
 
     #[inline]
-    pub fn clear_output_offset(&mut self) {
-        self.output_offset = None;
+    pub fn clear_output_write_offset(&mut self) {
+        self.output_write_offset = None;
     }
 
     #[inline]
     #[must_use]
-    pub fn output_length(&self) -> Option<Information> {
-        self.output_length
+    pub fn output_write_length(&self) -> Option<Information> {
+        self.output_write_length
     }
 
     #[inline]
-    pub fn set_output_length(&mut self, value: Information) {
-        self.output_length = Some(value);
+    pub fn set_output_write_length(&mut self, value: Information) {
+        self.output_write_length = Some(value);
     }
 
     #[inline]
-    pub fn clear_output_length(&mut self) {
-        self.output_length = None;
+    pub fn clear_output_write_length(&mut self) {
+        self.output_write_length = None;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn expected_frame_boundary(&self) -> Option<usize> {
+        self.expected_frame_boundary
+    }
+
+    #[inline]
+    pub fn set_expected_frame_boundary(&mut self, value: usize) {
+        self.expected_frame_boundary = Some(value);
+    }
+
+    #[inline]
+    pub fn clear_expected_frame_boundary(&mut self) {
+        self.expected_frame_boundary = None;
     }
 }

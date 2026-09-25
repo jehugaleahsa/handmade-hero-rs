@@ -560,8 +560,14 @@ impl Win32Application {
         let Ok((play_cursor, write_cursor)) = sound_output.buffer().get_cursors() else {
             return;
         };
-        let target_cursor =
-            self.find_target_cursor(sound_output, performance_counter, play_cursor, write_cursor);
+        let expected_frame_boundary =
+            self.find_expected_frame_boundary(sound_output, performance_counter, play_cursor);
+        let target_cursor = self.find_target_cursor(
+            sound_output,
+            play_cursor,
+            write_cursor,
+            expected_frame_boundary,
+        );
         let write_size = self.find_write_size(sound_output.buffer(), write_offset, target_cursor);
         if write_size == Information::zero() {
             return;
@@ -575,8 +581,11 @@ impl Win32Application {
         let write_cursor = usize::try_from(write_cursor).unwrap_or_default();
         audio_state.set_output_write_cursor(write_cursor);
         let write_offset_usize = usize::try_from(write_offset).unwrap_or_default();
-        audio_state.set_output_offset(write_offset_usize);
-        audio_state.set_output_length(write_size);
+        audio_state.set_output_write_offset(write_offset_usize);
+        audio_state.set_output_write_length(write_size);
+        let expected_frame_boundary_usize =
+            usize::try_from(expected_frame_boundary).unwrap_or_default();
+        audio_state.set_expected_frame_boundary(expected_frame_boundary_usize);
 
         let Some(sound_bytes) = self.write_sound(application, write_size, buffer_length) else {
             return;
@@ -628,12 +637,11 @@ impl Win32Application {
     fn find_target_cursor(
         &self,
         sound_output: &Win32SoundOutput<'_>,
-        performance_counter: &PerformanceCounter,
         play_cursor: u32,
         write_cursor: u32,
+        expected_frame_boundary: u32,
     ) -> u32 {
         let safety_margin = sound_output.safety_margin();
-        let frame_size = sound_output.frame_size();
         let safe_write_cursor = write_cursor.saturating_add(safety_margin.get::<byte>());
         let buffer_length = sound_output.buffer().length();
         let buffer_length_bytes = buffer_length.get::<byte>();
@@ -641,10 +649,9 @@ impl Win32Application {
         if write_cursor < play_cursor {
             normalized_safe_write_cursor += buffer_length_bytes;
         }
-        let expected_frame_boundary =
-            self.find_expected_frame_boundary(performance_counter, frame_size, play_cursor);
         let audio_is_latent = normalized_safe_write_cursor >= expected_frame_boundary;
 
+        let frame_size = sound_output.frame_size();
         let frame_size_bytes = frame_size.get::<byte>();
         let target_cursor = if audio_is_latent {
             safe_write_cursor.saturating_add(frame_size_bytes)
@@ -656,8 +663,8 @@ impl Win32Application {
 
     fn find_expected_frame_boundary(
         &self,
+        sound_output: &Win32SoundOutput<'_>,
         performance_counter: &PerformanceCounter,
-        frame_size: Information,
         play_cursor: u32,
     ) -> u32 {
         let frame_time_elapsed =
@@ -665,6 +672,7 @@ impl Win32Application {
         let target_frame_duration = self.state.frame_duration();
         let remaining_frame_time = (target_frame_duration - frame_time_elapsed).max(Time::zero());
         let remaining_time_ratio: Ratio = remaining_frame_time / target_frame_duration;
+        let frame_size = sound_output.frame_size();
         // The fraction of the frame still to elapse is genuinely fractional, so this one step
         // stays in floating point. `f64::from` is lossless from both `f32` and `u32`, and the
         // ratio is in [0, 1], so the only thing `as` discards here is the fraction of a byte.

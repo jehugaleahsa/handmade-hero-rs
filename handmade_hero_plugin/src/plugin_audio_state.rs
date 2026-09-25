@@ -1,15 +1,6 @@
 use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
-use uom::si::u32::Information;
-
-#[derive(Debug, Serialize, Deserialize)]
-struct OutputData {
-    play_cursor: usize,
-    write_cursor: usize,
-    write_offset: usize,
-    write_length: Information,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct FlipData {
@@ -19,7 +10,6 @@ struct FlipData {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PluginAudioState {
-    output: Option<OutputData>,
     flips: VecDeque<FlipData>,
     max_cursor_count: usize,
     theta: f32,
@@ -31,47 +21,10 @@ impl PluginAudioState {
     pub fn new() -> Self {
         let flips = VecDeque::new();
         Self {
-            output: None,
             flips,
             max_cursor_count: 0,
             theta: 0f32,
         }
-    }
-
-    #[inline]
-    pub fn output_play_cursor(&self) -> Option<usize> {
-        self.output.as_ref().map(|o| o.play_cursor)
-    }
-
-    #[inline]
-    pub fn output_write_cursor(&self) -> Option<usize> {
-        self.output.as_ref().map(|o| o.write_cursor)
-    }
-
-    #[inline]
-    pub fn output_write_offset(&self) -> Option<usize> {
-        self.output.as_ref().map(|o| o.write_offset)
-    }
-
-    #[inline]
-    pub fn output_write_length(&self) -> Option<Information> {
-        self.output.as_ref().map(|o| o.write_length)
-    }
-
-    pub fn set_output_data(
-        &mut self,
-        play_cursor: usize,
-        write_cursor: usize,
-        write_offset: usize,
-        write_length: Information,
-    ) {
-        let output = OutputData {
-            play_cursor,
-            write_cursor,
-            write_offset,
-            write_length,
-        };
-        self.output = Some(output);
     }
 
     #[inline]
