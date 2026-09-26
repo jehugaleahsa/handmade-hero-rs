@@ -26,7 +26,6 @@ use std::cmp::Ordering;
 use std::f32;
 use uom::num::Zero;
 use uom::si::frequency::hertz;
-use uom::si::information::byte;
 use uom::si::length::meter;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
@@ -50,17 +49,12 @@ impl ApplicationPlugin {
     }
 
     fn initialize_direct(
-        game_state: &GameState,
+        #[allow(unused_variables)] game_state: &GameState,
         plugin_state: &mut PluginGameState,
         back_buffer: &mut BackBuffer,
     ) {
-        // Track how many audio cursors to render at one time
-        let audio = plugin_state.audio_mut();
-        let update_frequency = game_state.game_update_frequency().get::<hertz>();
-        #[expect(clippy::cast_sign_loss)]
-        #[expect(clippy::cast_possible_truncation)]
-        let max_cursor_count = (update_frequency / 2.0).round() as usize;
-        audio.set_max_cursor_count(max_cursor_count);
+        #[cfg(feature = "audio_debug")]
+        Self::initialize_audio_debugging(game_state, plugin_state);
 
         // Put the player somewhere in the middle
         let width = back_buffer.width().get::<pixel>();
@@ -89,6 +83,17 @@ impl ApplicationPlugin {
         Self::load_east_tile_map(east);
         let north = world.add_tile_map(TileMapKey::from_x_y(0, 1));
         Self::load_north_tile_map(north);
+    }
+
+    #[cfg(feature = "audio_debug")]
+    fn initialize_audio_debugging(game_state: &GameState, plugin_state: &mut PluginGameState) {
+        // Track how many audio cursors to render at one time
+        let audio = plugin_state.audio_mut();
+        let update_frequency = game_state.game_update_frequency().get::<hertz>();
+        #[expect(clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation)]
+        let max_cursor_count = (update_frequency / 2.0).round() as usize;
+        audio.set_max_cursor_count(max_cursor_count);
     }
 
     fn load_south_tile_map(south: &mut TileMap) {
@@ -304,7 +309,7 @@ impl ApplicationPlugin {
     }
 
     fn render_direct(
-        game_state: &GameState,
+        #[allow(unused_variables)] game_state: &GameState,
         plugin_state: &PluginGameState,
         buffer: &mut BackBuffer,
     ) {
@@ -322,6 +327,7 @@ impl ApplicationPlugin {
         Self::render_player(plugin_state, &window_bounds, &start_coordinate, buffer)
             .unwrap_or_default(); // Ignore errors
 
+        #[cfg(feature = "audio_debug")]
         Self::render_audio(game_state, plugin_state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
     }
 
@@ -552,12 +558,15 @@ impl ApplicationPlugin {
         Ok(())
     }
 
+    #[cfg(feature = "audio_debug")]
     fn render_audio(
         game_state: &GameState,
         plugin_state: &PluginGameState,
         window_bounds: &Rectangle<f32>,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
+        use uom::si::information::byte;
+
         let Some(buffer_length) = game_state.audio().buffer_length() else {
             return Ok(());
         };
@@ -699,6 +708,18 @@ impl ApplicationPlugin {
         }
         plugin_audio_state.set_theta(theta);
     }
+
+    #[cfg(feature = "audio_debug")]
+    fn capture_audio_flip(game_state: &GameState, plugin_state: &mut PluginGameState) {
+        let audio = game_state.audio();
+        if let Some(play_cursor) = audio.flip_play_cursor()
+            && let Some(write_cursor) = audio.flip_write_cursor()
+        {
+            plugin_state
+                .audio_mut()
+                .add_flip_data(play_cursor, write_cursor);
+        }
+    }
 }
 
 impl Application for ApplicationPlugin {
@@ -772,13 +793,8 @@ impl Application for ApplicationPlugin {
             return;
         };
         Self::write_sound_direct(game_state, plugin_state, input_state, samples);
-        let audio = game_state.audio();
-        if let Some(play_cursor) = audio.flip_play_cursor()
-            && let Some(write_cursor) = audio.flip_write_cursor()
-        {
-            plugin_state
-                .audio_mut()
-                .add_flip_data(play_cursor, write_cursor);
-        }
+
+        #[cfg(feature = "audio_debug")]
+        Self::capture_audio_flip(game_state, plugin_state);
     }
 }

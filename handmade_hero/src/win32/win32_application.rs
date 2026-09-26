@@ -562,7 +562,7 @@ impl Win32Application {
         };
         let expected_frame_boundary =
             self.find_expected_frame_boundary(sound_output, performance_counter, play_cursor);
-        let target_cursor = self.find_target_cursor(
+        let target_cursor = Self::find_target_cursor(
             sound_output,
             play_cursor,
             write_cursor,
@@ -635,7 +635,6 @@ impl Win32Application {
     /// we write out a full frame's worth of audio, plus however much audio is left from the
     /// play cursor to the end of the current frame.
     fn find_target_cursor(
-        &self,
         sound_output: &Win32SoundOutput<'_>,
         play_cursor: u32,
         write_cursor: u32,
