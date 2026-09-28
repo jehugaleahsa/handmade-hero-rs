@@ -1,7 +1,16 @@
-$pluginPath = "target/debug/handmade_hero_plugin.dll"
-$backupPath = "target/debug/handmade_hero_plugin_old.dll"
-if (Test-Path $pluginPath)
+$targetPath = Join-Path "target" "debug"
+$lockPath = Join-Path $targetPath "plugin.lock"
+
+# The game skips hot reloading while the lock exists, so it never picks up a plugin whose PDB
+# has not landed yet.
+New-Item -ItemType Directory -Force $targetPath | Out-Null
+New-Item -ItemType File -Force $lockPath | Out-Null
+try
 {
-    Copy-Item $pluginPath $backupPath
+    &cargo build --all-features --package handmade_hero_plugin
 }
-&cargo build --all-features --package handmade_hero_plugin
+finally
+{
+    Remove-Item $lockPath -ErrorAction SilentlyContinue
+}
+exit $LASTEXITCODE

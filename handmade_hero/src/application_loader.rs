@@ -84,7 +84,7 @@ impl Application for ApplicationStub {
 #[derive(Debug)]
 pub struct ApplicationLoader {
     plugin_directory: PathBuf,
-    last_counter: usize,
+    next_counter: usize,
     last_modified: Option<SystemTime>,
     stub: Option<Rc<ApplicationStub>>,
 }
@@ -104,7 +104,7 @@ impl ApplicationLoader {
     pub fn new(plugin_directory: impl Into<PathBuf>) -> Self {
         Self {
             plugin_directory: plugin_directory.into(),
-            last_counter: 0,
+            next_counter: 0,
             last_modified: None,
             stub: None,
         }
@@ -153,6 +153,10 @@ impl ApplicationLoader {
             // Nothing is loaded, so there is nothing to be out of date.
             return Ok(false);
         };
+        if self.lock_name().exists() {
+            // A build is in progress, so the plugin and its PDB on disk may not match yet.
+            return Ok(false);
+        }
         let current_modified = self.plugin_last_modified()?;
         let is_outdated = last_modified < current_modified;
         Ok(is_outdated)
@@ -191,38 +195,39 @@ impl ApplicationLoader {
         }
     }
 
-    /// The last write time of the plugin on disk. The build script renames the previous build
-    /// while the new one compiles, so either name counts.
+    /// The last write time of the plugin on disk.
     fn plugin_last_modified(&self) -> Result<SystemTime> {
         let normal_name = self.normal_name();
-        let old_name = self
-            .plugin_directory
-            .join(library_filename("handmade_hero_plugin_old"));
-        let metadata = std::fs::metadata(&normal_name)
-            .or_else(|_| std::fs::metadata(&old_name))
-            .map_err(|e| {
-                ApplicationError::wrap("Failed to get the application plugin file metadata", e)
-            })?;
+        let metadata = std::fs::metadata(normal_name).map_err(|e| {
+            ApplicationError::wrap("Failed to get the application plugin file metadata", e)
+        })?;
         let last_modified = metadata.modified().map_err(|e| {
             ApplicationError::wrap("Failed to get the application plugin file write time", e)
         })?;
         Ok(last_modified)
     }
 
+    /// Copies the plugin into a directory of its own so the compiler can overwrite the original
+    /// while the copy is loaded.
+    ///
+    /// Every copy gets its own directory, because Windows or a debugger can keep
+    /// an unloaded copy's files open for a while. The attempts are capped so a plugin that cannot
+    /// be copied at all becomes an error instead of a hang.
     fn copy_plugin_library(&mut self) -> Result<PathBuf> {
+        const MAX_COPY_ATTEMPTS: usize = 16;
+
         let normal_name = self.normal_name();
-        let mut running_directory = self.plugin_directory.join(self.current_running_directory());
         let running_name = Self::plugin_file_name();
-        if self.last_modified.is_none() {
-            Self::copy_files(&normal_name, &running_directory, &running_name)?;
-        } else {
-            while Self::copy_files(&normal_name, &running_directory, &running_name).is_err() {
-                self.last_counter += 1;
-                running_directory = self.plugin_directory.join(self.current_running_directory());
+        let mut attempt = 1;
+        loop {
+            let running_directory = self.running_root().join(self.next_counter.to_string());
+            self.next_counter += 1;
+            match Self::copy_files(&normal_name, &running_directory, &running_name) {
+                Ok(running_file) => return Ok(running_file),
+                Err(error) if attempt == MAX_COPY_ATTEMPTS => return Err(error),
+                Err(_) => attempt += 1,
             }
         }
-        let library_path = running_directory.join(&running_name);
-        Ok(library_path)
     }
 
     fn normal_name(&self) -> PathBuf {
@@ -230,19 +235,25 @@ impl ApplicationLoader {
         self.plugin_directory.join(file_name)
     }
 
-    fn current_running_directory(&self) -> PathBuf {
-        Self::running_directory(self.last_counter)
+    /// The file the build script holds while a build is in progress.
+    fn lock_name(&self) -> PathBuf {
+        self.plugin_directory.join("plugin.lock")
     }
 
-    fn running_directory(counter: usize) -> PathBuf {
-        ["running", &format!("{counter}")].iter().collect()
+    /// The directory holding every running copy. The loader owns everything under it.
+    fn running_root(&self) -> PathBuf {
+        self.plugin_directory.join("running")
     }
 
     fn plugin_file_name() -> OsString {
         library_filename("handmade_hero_plugin")
     }
 
-    fn copy_files(normal_file: &Path, running_directory: &Path, file_name: &OsStr) -> Result<()> {
+    fn copy_files(
+        normal_file: &Path,
+        running_directory: &Path,
+        file_name: &OsStr,
+    ) -> Result<PathBuf> {
         std::fs::create_dir_all(running_directory).map_err(|e| {
             ApplicationError::wrap(
                 "Failed to create the application plugin running directory",
@@ -253,6 +264,9 @@ impl ApplicationLoader {
         std::fs::copy(normal_file, &running_file)
             .map_err(|e| ApplicationError::wrap("Failed to copy the application plugin", e))?;
 
+        // The plugin records only its PDB's file name, not a path, so a debugger looks for the
+        // PDB next to the loaded copy. Copying it here keeps the debugger from locking the PDB
+        // the linker writes. It is also why the copy keeps the plugin's original file name.
         let pdb_file_name = normal_file.with_extension("pdb");
         if pdb_file_name.exists() {
             let running_pdb_file_name = running_file.with_extension("pdb");
@@ -261,16 +275,13 @@ impl ApplicationLoader {
             })?;
         }
 
-        Ok(())
+        Ok(running_file)
     }
 }
 
 impl Drop for ApplicationLoader {
     fn drop(&mut self) {
         self.stub = None;
-        for counter in 0..=self.last_counter {
-            let running_directory = self.plugin_directory.join(Self::running_directory(counter));
-            std::fs::remove_dir_all(running_directory).unwrap_or_default(); // Okay to fail
-        }
+        std::fs::remove_dir_all(self.running_root()).unwrap_or_default(); // Okay to fail
     }
 }
