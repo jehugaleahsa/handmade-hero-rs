@@ -4,4 +4,4 @@ if (Test-Path $pluginPath)
 {
     Copy-Item $pluginPath $backupPath
 }
-&cargo build --package handmade_hero_plugin
+&cargo build --all-features --package handmade_hero_plugin

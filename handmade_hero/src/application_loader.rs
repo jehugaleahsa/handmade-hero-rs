@@ -7,7 +7,7 @@ use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::render_context::RenderContext;
 use libloading::{Library, Symbol, library_filename};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Debug, Formatter};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -209,43 +209,59 @@ impl ApplicationLoader {
         Ok(last_modified)
     }
 
-    /// Copies the plugin to a private name so the compiler can overwrite the original while the
-    /// copy is loaded.
-    ///
-    /// The first copy must succeed. Later copies retry under a fresh name because Windows can
-    /// hold the previous copy open briefly after it is unloaded.
     fn copy_plugin_library(&mut self) -> Result<PathBuf> {
         let normal_name = self.normal_name();
-        let mut running_name = self.plugin_directory.join(self.current_running_name());
+        let mut running_directory = self.plugin_directory.join(self.current_running_directory());
+        let running_name = Self::plugin_file_name();
         if self.last_modified.is_none() {
-            Self::copy_file(&normal_name, &running_name)?;
+            Self::copy_files(&normal_name, &running_directory, &running_name)?;
         } else {
-            while Self::copy_file(&normal_name, &running_name).is_err() {
+            while Self::copy_files(&normal_name, &running_directory, &running_name).is_err() {
                 self.last_counter += 1;
-                running_name = self.plugin_directory.join(self.current_running_name());
+                running_directory = self.plugin_directory.join(self.current_running_directory());
             }
         }
-        Ok(running_name)
+        let library_path = running_directory.join(&running_name);
+        Ok(library_path)
     }
 
     fn normal_name(&self) -> PathBuf {
-        self.plugin_directory
-            .join(library_filename("handmade_hero_plugin"))
+        let file_name = Self::plugin_file_name();
+        self.plugin_directory.join(file_name)
     }
 
-    fn current_running_name(&self) -> OsString {
-        Self::running_name(self.last_counter)
+    fn current_running_directory(&self) -> PathBuf {
+        Self::running_directory(self.last_counter)
     }
 
-    fn running_name(counter: usize) -> OsString {
-        let running_name = format!("handmade_hero_plugin-running{counter}");
-        library_filename(running_name)
+    fn running_directory(counter: usize) -> PathBuf {
+        ["running", &format!("{counter}")].iter().collect()
     }
 
-    fn copy_file(normal_file: &PathBuf, running_file: &PathBuf) -> Result<()> {
-        std::fs::copy(normal_file, running_file)
-            .map_err(|e| ApplicationError::wrap("Failed to copy the application plugin", e))
-            .map(|_| ())
+    fn plugin_file_name() -> OsString {
+        library_filename("handmade_hero_plugin")
+    }
+
+    fn copy_files(normal_file: &Path, running_directory: &Path, file_name: &OsStr) -> Result<()> {
+        std::fs::create_dir_all(running_directory).map_err(|e| {
+            ApplicationError::wrap(
+                "Failed to create the application plugin running directory",
+                e,
+            )
+        })?;
+        let running_file = running_directory.join(file_name);
+        std::fs::copy(normal_file, &running_file)
+            .map_err(|e| ApplicationError::wrap("Failed to copy the application plugin", e))?;
+
+        let pdb_file_name = normal_file.with_extension("pdb");
+        if pdb_file_name.exists() {
+            let running_pdb_file_name = running_file.with_extension("pdb");
+            std::fs::copy(pdb_file_name, running_pdb_file_name).map_err(|e| {
+                ApplicationError::wrap("Failed to copy the application plugin PDB file", e)
+            })?;
+        }
+
+        Ok(())
     }
 }
 
@@ -253,8 +269,8 @@ impl Drop for ApplicationLoader {
     fn drop(&mut self) {
         self.stub = None;
         for counter in 0..=self.last_counter {
-            let running_name = self.plugin_directory.join(Self::running_name(counter));
-            std::fs::remove_file(running_name).unwrap_or_default(); // Okay to fail
+            let running_directory = self.plugin_directory.join(Self::running_directory(counter));
+            std::fs::remove_dir_all(running_directory).unwrap_or_default(); // Okay to fail
         }
     }
 }
