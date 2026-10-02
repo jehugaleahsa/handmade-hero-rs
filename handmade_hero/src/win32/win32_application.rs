@@ -46,8 +46,8 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GetWindowLongPtrW, MSG,
     PM_REMOVE, PeekMessageW, PostQuitMessage, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP,
-    WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_NCCREATE, WM_PAINT, WM_QUIT,
-    WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
+    WM_NCCREATE, WM_PAINT, WM_QUIT, WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::{Error, Result as Win32Result};
 
@@ -70,6 +70,7 @@ pub struct Win32Application {
     plugin_state: Option<Box<dyn PluginState>>,
     keyboard: KeyboardState,
     key_mapping: KeyMapping,
+    mouse: Win32Mouse,
     window: Win32Window,
     back_buffer: BackBuffer,
     /// Storage the game fills with a frame of audio.
@@ -86,6 +87,7 @@ impl Win32Application {
             plugin_state: None,
             keyboard: KeyboardState::new(),
             key_mapping: KeyMapping::default(),
+            mouse: Win32Mouse::new(),
             window: Win32Window::new(),
             back_buffer: BackBuffer::default(),
             sound_buffer: SoundBuffer::new(),
@@ -170,6 +172,18 @@ impl Win32Application {
             }
             WM_SETFOCUS => {
                 self.synchronize_keyboard();
+                LRESULT(0)
+            }
+            WM_MOUSEWHEEL => {
+                if !matches!(self.recording_state, RecordingState::Playing) {
+                    self.mouse.process_vertical_scroll(w_param);
+                }
+                LRESULT(0)
+            }
+            WM_MOUSEHWHEEL => {
+                if !matches!(self.recording_state, RecordingState::Playing) {
+                    self.mouse.process_horizontal_scroll(w_param);
+                }
                 LRESULT(0)
             }
             _ => unsafe { DefWindowProcW(self.window.handle(), message, w_param, l_param) },
@@ -520,13 +534,15 @@ impl Win32Application {
     }
 
     fn capture_mouse_state(&mut self, client_coordinate: POINT) -> Win32Result<()> {
-        let win32_mouse = Win32Mouse::new();
+        let win32_mouse = &mut self.mouse;
         let mouse_coordinate = win32_mouse.coordinates()?;
         let mouse = self.input.mouse_mut();
         let x = mouse_coordinate.x().abs_diff(client_coordinate.x);
         let y = mouse_coordinate.y().abs_diff(client_coordinate.y);
         mouse.set_x(x);
         mouse.set_y(y);
+        mouse.set_vertical_wheel_delta(win32_mouse.take_vertical_wheel_notches());
+        mouse.set_horizontal_wheel_delta(win32_mouse.take_horizontal_wheel_notches());
 
         InputState::track_down(mouse.left_mut(), win32_mouse.is_left());
         InputState::track_down(mouse.middle_mut(), win32_mouse.is_middle());

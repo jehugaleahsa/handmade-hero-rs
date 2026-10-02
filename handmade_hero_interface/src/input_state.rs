@@ -66,6 +66,7 @@ impl InputState {
     }
 
     pub fn reset_counts(&mut self) {
+        self.mouse.clear();
         self.keyboard.reset_counts();
         for controller in &mut self.controllers {
             controller.reset_counts();
