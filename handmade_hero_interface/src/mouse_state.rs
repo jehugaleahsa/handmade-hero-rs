@@ -103,6 +103,11 @@ impl MouseState {
     }
 
     #[inline]
+    pub fn buttons(&self) -> impl Iterator<Item = &ButtonState> {
+        self.buttons.iter()
+    }
+
+    #[inline]
     #[must_use]
     pub fn is_any_down(&self) -> bool {
         self.buttons.iter().any(|button| button.ended_down())

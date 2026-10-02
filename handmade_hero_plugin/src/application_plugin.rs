@@ -311,6 +311,7 @@ impl ApplicationPlugin {
     fn render_direct(
         #[allow(unused_variables)] game_state: &GameState,
         plugin_state: &PluginGameState,
+        #[allow(unused_variables)] input_state: &InputState,
         buffer: &mut BackBuffer,
     ) {
         let width = buffer.width();
@@ -329,6 +330,9 @@ impl ApplicationPlugin {
 
         #[cfg(feature = "audio_debug")]
         Self::render_audio(game_state, plugin_state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
+
+        #[cfg(feature = "mouse_debug")]
+        Self::render_mouse(plugin_state, input_state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
     }
 
     fn render_tilemap(
@@ -657,6 +661,37 @@ impl ApplicationPlugin {
         Ok(())
     }
 
+    #[cfg(feature = "mouse_debug")]
+    fn render_mouse(
+        plugin_state: &PluginGameState,
+        input_state: &InputState,
+        window_bounds: &Rectangle<f32>,
+        buffer: &mut BackBuffer,
+    ) -> Result<()> {
+        let world = plugin_state.world();
+        let mouse = input_state.mouse();
+        let height = buffer.height();
+        let pixels = buffer.pixels_mut();
+
+        // The position does not need translated into world-relative coordinates
+        #[expect(clippy::cast_precision_loss)]
+        let position = Rectangle::new(mouse.y() as f32, mouse.x() as f32, 10.0, 10.0);
+        let color = Color::from_rgb(0xFF, 0xFF, 0xFF);
+        Self::render_rectangle(window_bounds, &position, color, pixels)?;
+
+        for (index, button) in mouse.buttons().enumerate() {
+            if button.ended_down() {
+                #[expect(clippy::cast_precision_loss)]
+                let offset = index as f32 * 25.0 + 100.0;
+                let indicator = Rectangle::new(100.0, offset, 10.0, 10.0);
+                let indicator = Self::to_world_coordinate_rectangle(&indicator, world, height);
+                Self::render_rectangle(window_bounds, &indicator, color, pixels)?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn write_sound_direct(
         game_state: &GameState,
         plugin_state: &mut PluginGameState,
@@ -770,12 +805,13 @@ impl Application for ApplicationPlugin {
     fn render(&self, context: RenderContext<'_>) {
         let RenderContext {
             game_state,
-            buffer,
             plugin_state,
+            input_state,
+            buffer,
             ..
         } = context;
         if let Some(plugin_state) = plugin_state.downcast_ref::<PluginGameState>() {
-            Self::render_direct(game_state, plugin_state, buffer);
+            Self::render_direct(game_state, plugin_state, input_state, buffer);
         }
     }
 
