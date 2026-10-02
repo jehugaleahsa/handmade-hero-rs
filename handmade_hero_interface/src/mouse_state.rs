@@ -1,7 +1,7 @@
 use crate::button_state::ButtonState;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct MouseState {
     x: u32,
     y: u32,
@@ -15,6 +15,8 @@ impl MouseState {
     const LEFT_BUTTON_INDEX: usize = 0;
     const MIDDLE_BUTTON_INDEX: usize = 1;
     const RIGHT_BUTTON_INDEX: usize = 2;
+    const X1_BUTTON_INDEX: usize = 3;
+    const X2_BUTTON_INDEX: usize = 4;
 
     #[inline]
     #[must_use]
@@ -74,6 +76,44 @@ impl MouseState {
         &mut self.buttons[Self::RIGHT_BUTTON_INDEX]
     }
 
+    /// The first side button, which is usually "back".
+    #[inline]
+    #[must_use]
+    pub fn x1(&self) -> &ButtonState {
+        &self.buttons[Self::X1_BUTTON_INDEX]
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn x1_mut(&mut self) -> &mut ButtonState {
+        &mut self.buttons[Self::X1_BUTTON_INDEX]
+    }
+
+    /// The second side button, which is usually "forward".
+    #[inline]
+    #[must_use]
+    pub fn x2(&self) -> &ButtonState {
+        &self.buttons[Self::X2_BUTTON_INDEX]
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn x2_mut(&mut self) -> &mut ButtonState {
+        &mut self.buttons[Self::X2_BUTTON_INDEX]
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_any_down(&self) -> bool {
+        self.buttons.iter().any(|button| button.ended_down())
+    }
+
+    pub fn release_all(&mut self) {
+        for button in &mut self.buttons {
+            button.track_down(false);
+        }
+    }
+
     #[inline]
     #[must_use]
     pub fn vertical_wheel_delta(&self) -> i32 {
@@ -104,5 +144,36 @@ impl MouseState {
         self.y = 0;
         self.vertical_wheel_delta = 0;
         self.horizontal_wheel_delta = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::mouse_state::MouseState;
+
+    #[test]
+    fn test_no_button_down_by_default() {
+        let mouse = MouseState::default();
+        assert!(!mouse.is_any_down());
+    }
+
+    #[test]
+    fn test_side_button_counts_as_down() {
+        let mut mouse = MouseState::default();
+        mouse.x2_mut().track_down(true);
+        assert!(mouse.is_any_down());
+    }
+
+    #[test]
+    fn test_release_all_releases_held_buttons() {
+        let mut mouse = MouseState::default();
+        mouse.left_mut().track_down(true);
+        mouse.x1_mut().track_down(true);
+        mouse.clear();
+        mouse.release_all();
+        assert!(!mouse.is_any_down());
+        assert!(mouse.left().was_released());
+        assert!(mouse.x1().was_released());
+        assert!(!mouse.right().was_released());
     }
 }

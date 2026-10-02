@@ -1,6 +1,6 @@
+use crate::controller_state::ControllerState;
 use crate::keyboard_state::KeyboardState;
 use crate::mouse_state::MouseState;
-use crate::{button_state::ButtonState, controller_state::ControllerState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -58,11 +58,6 @@ impl InputState {
     #[must_use]
     pub fn controllers(&self) -> &[ControllerState] {
         &self.controllers
-    }
-
-    #[inline]
-    pub fn track_down(button_state: &mut ButtonState, is_pressed: bool) {
-        button_state.track_down(is_pressed);
     }
 
     pub fn reset_counts(&mut self) {

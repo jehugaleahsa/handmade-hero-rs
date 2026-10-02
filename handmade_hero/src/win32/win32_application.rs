@@ -13,6 +13,7 @@ use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::audio_format::AudioFormat;
 use handmade_hero_interface::back_buffer::BackBuffer;
+use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
@@ -21,6 +22,7 @@ use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::key::Key;
 use handmade_hero_interface::key_mapping::KeyMapping;
 use handmade_hero_interface::keyboard_state::KeyboardState;
+use handmade_hero_interface::mouse_state::MouseState;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::render_context::RenderContext;
@@ -41,13 +43,16 @@ use uom::si::information::byte;
 use uom::si::length::Length;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GetWindowLongPtrW, MSG,
     PM_REMOVE, PeekMessageW, PostQuitMessage, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP,
-    WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
-    WM_NCCREATE, WM_PAINT, WM_QUIT, WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NCCREATE,
+    WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 use windows::core::{Error, Result as Win32Result};
 
@@ -165,9 +170,21 @@ impl Win32Application {
                 self.handle_key_press(w_param, l_param)
             }
             WM_KILLFOCUS => {
-                // Any key still held will be released into some other window, so we would never
-                // hear about it. Let go of everything now rather than leave keys stuck down.
+                // Any key or button still held will be released into some other window, so we
+                // would never hear about it. Let go of everything now rather than leave them
+                // stuck down, and stop holding the mouse so other windows get their clicks.
                 self.keyboard.release_all();
+                self.mouse.release_all();
+                unsafe {
+                    let _ = ReleaseCapture();
+                }
+                LRESULT(0)
+            }
+            WM_CAPTURECHANGED => {
+                // Another window took the mouse, so button releases will no longer reach us.
+                if l_param.0 != self.window.handle().0 as isize {
+                    self.mouse.release_all();
+                }
                 LRESULT(0)
             }
             WM_SETFOCUS => {
@@ -186,7 +203,47 @@ impl Win32Application {
                 }
                 LRESULT(0)
             }
+            WM_LBUTTONDOWN => self.handle_normal_mouse_button(|s| s.left_mut(), true),
+            WM_LBUTTONUP => self.handle_normal_mouse_button(|s| s.left_mut(), false),
+            WM_MBUTTONDOWN => self.handle_normal_mouse_button(|s| s.middle_mut(), true),
+            WM_MBUTTONUP => self.handle_normal_mouse_button(|s| s.middle_mut(), false),
+            WM_RBUTTONDOWN => self.handle_normal_mouse_button(|s| s.right_mut(), true),
+            WM_RBUTTONUP => self.handle_normal_mouse_button(|s| s.right_mut(), false),
+            WM_XBUTTONDOWN => self.handle_mouse_x_button(w_param, true),
+            WM_XBUTTONUP => self.handle_mouse_x_button(w_param, false),
             _ => unsafe { DefWindowProcW(self.window.handle(), message, w_param, l_param) },
+        }
+    }
+
+    fn handle_normal_mouse_button(
+        &mut self,
+        button_getter: impl FnOnce(&mut MouseState) -> &mut ButtonState,
+        is_down: bool,
+    ) -> LRESULT {
+        let button = button_getter(self.mouse.state_mut());
+        button.track_down(is_down);
+        self.handle_capture();
+        LRESULT(0)
+    }
+
+    fn handle_mouse_x_button(&mut self, w_param: WPARAM, is_down: bool) -> LRESULT {
+        if let Some(button) = self.mouse.x_button_mut(w_param) {
+            button.track_down(is_down);
+            self.handle_capture();
+        }
+        LRESULT(1) // Unlike the other buttons, Windows expects TRUE for side buttons.
+    }
+
+    fn handle_capture(&self) {
+        let window_handle = self.window.handle();
+        if self.mouse.is_any_down() {
+            if unsafe { GetCapture() } != window_handle {
+                unsafe { SetCapture(window_handle) };
+            }
+        } else {
+            unsafe {
+                let _ = ReleaseCapture();
+            }
         }
     }
 
@@ -268,6 +325,7 @@ impl Win32Application {
             // keeps whether it ended the last frame down.
             self.input.reset_counts();
             self.keyboard.reset_counts();
+            self.mouse.reset_counts();
             if let Some(code) = Self::process_message()? {
                 if let Some(ref mut sound_output) = sound_output {
                     sound_output.stop();
@@ -447,15 +505,12 @@ impl Win32Application {
                 self.recorder.reset_playback().unwrap_or_default(); // We miss a frame here
             }
         } else {
-            // The keyboard has been accumulating key events all frame. Publish a copy as the
-            // input the game sees. Because this happens every live frame, stopping playback needs
-            // no special reset: the next frame simply shows the real keys again.
+            // The keyboard and mouse have been accumulating events all frame. Publish a copy as
+            // the input the game sees. Because this happens every live frame, stopping playback
+            // needs no special reset: the next frame simply shows the real keys again.
             *self.input.keyboard_mut() = self.keyboard.clone();
             self.poll_all_controller_state();
-            if let Ok(client_coordinates) = self.window.client_coordinate() {
-                self.capture_mouse_state(client_coordinates)
-                    .unwrap_or_default(); // Ignore errors
-            }
+            self.capture_mouse_state();
 
             if let RecordingState::Recording = self.recording_state
                 && let Some(plugin) = self.plugin_state.as_deref()
@@ -533,22 +588,14 @@ impl Win32Application {
         controller.set_enabled(true);
     }
 
-    fn capture_mouse_state(&mut self, client_coordinate: POINT) -> Win32Result<()> {
-        let win32_mouse = &mut self.mouse;
-        let mouse_coordinate = win32_mouse.coordinates()?;
-        let mouse = self.input.mouse_mut();
-        let x = mouse_coordinate.x().abs_diff(client_coordinate.x);
-        let y = mouse_coordinate.y().abs_diff(client_coordinate.y);
-        mouse.set_x(x);
-        mouse.set_y(y);
-        mouse.set_vertical_wheel_delta(win32_mouse.take_vertical_wheel_notches());
-        mouse.set_horizontal_wheel_delta(win32_mouse.take_horizontal_wheel_notches());
-
-        InputState::track_down(mouse.left_mut(), win32_mouse.is_left());
-        InputState::track_down(mouse.middle_mut(), win32_mouse.is_middle());
-        InputState::track_down(mouse.right_mut(), win32_mouse.is_right());
-
-        Ok(())
+    fn capture_mouse_state(&mut self) {
+        if let Ok(client_coordinate) = self.window.client_coordinate() {
+            self.mouse
+                .capture_position(client_coordinate)
+                .unwrap_or_default(); // Ignore errors
+        }
+        self.mouse.capture_wheel();
+        *self.input.mouse_mut() = self.mouse.state().clone();
     }
 
     fn render_to_buffer(&mut self, application: &ApplicationStub) {
