@@ -7,7 +7,7 @@ use super::win32_sound_output::Win32SoundOutput;
 use super::win32_window::Win32Window;
 use crate::application_loader::{ApplicationLoader, ApplicationStub, LoadedApplication};
 use crate::playback_recorder::PlaybackRecorder;
-use crate::win32::win32_monitor::find_monitor_refresh_rate;
+use crate::win32::win32_monitor::{find_monitor_refresh_rate, set_dpi_awareness};
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -43,16 +43,16 @@ use uom::si::information::byte;
 use uom::si::length::Length;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GetWindowLongPtrW, MSG,
     PM_REMOVE, PeekMessageW, PostQuitMessage, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP,
-    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NCCREATE,
-    WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    WM_XBUTTONDOWN, WM_XBUTTONUP,
+    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETDPISCALEDSIZE, WM_KEYDOWN,
+    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NCCREATE, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+    WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 use windows::core::{Error, Result as Win32Result};
 
@@ -211,8 +211,34 @@ impl Win32Application {
             WM_RBUTTONUP => self.handle_normal_mouse_button(|s| s.right_mut(), false),
             WM_XBUTTONDOWN => self.handle_mouse_x_button(w_param, true),
             WM_XBUTTONUP => self.handle_mouse_x_button(w_param, false),
+            WM_GETDPISCALEDSIZE => self.handle_dpi_scaled_size(w_param, l_param),
+            WM_DPICHANGED => self.handle_dpi_changed(l_param),
             _ => unsafe { DefWindowProcW(self.window.handle(), message, w_param, l_param) },
         }
+    }
+
+    fn handle_dpi_scaled_size(&self, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+        // Windows asks for our window size at the new DPI before moving the window there. We
+        // keep the game the same number of physical pixels on every monitor, so we ask for the
+        // current client area plus a frame drawn at the new DPI.
+        #[expect(clippy::cast_possible_truncation)]
+        let dpi = (w_param.0 & 0xFFFF) as u32;
+        let Ok(size) = self.window.window_size_for_dpi(dpi) else {
+            // Returning FALSE lets Windows scale the window by the DPI ratio instead.
+            return LRESULT(0);
+        };
+        let proposed_size = unsafe { &mut *(l_param.0 as *mut SIZE) };
+        *proposed_size = size;
+        LRESULT(1)
+    }
+
+    fn handle_dpi_changed(&self, l_param: LPARAM) -> LRESULT {
+        // The suggested rectangle already has the size we asked for in WM_GETDPISCALEDSIZE, and
+        // Windows positions it so the resize can't push the window back onto a monitor with the
+        // old DPI. Computing our own position risks bouncing between the two monitors.
+        let suggested = unsafe { &*(l_param.0 as *const RECT) };
+        let _ = self.window.move_to(suggested);
+        LRESULT(0)
     }
 
     fn handle_normal_mouse_button(
@@ -311,6 +337,7 @@ impl Win32Application {
         width: u16,
         height: u16,
     ) -> Result<ExitCode> {
+        let _ = set_dpi_awareness();
         let monitor_refresh_rate = find_monitor_refresh_rate();
         self.start_application(application_loader, monitor_refresh_rate, width, height)?;
 

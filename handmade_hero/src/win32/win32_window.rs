@@ -7,22 +7,24 @@ use uom::si::{
     information::{bit, byte},
     u32::Information,
 };
-use windows::{
-    Win32::{
-        Foundation::{COLORREF, FALSE, HINSTANCE, HWND, POINT, RECT},
-        Graphics::Gdi::{
-            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, BeginPaint, ClientToScreen,
-            DIB_RGB_COLORS, EndPaint, GetDC, HDC, PAINTSTRUCT, PatBlt, ReleaseDC, SRCCOPY,
-            StretchDIBits,
-        },
-        UI::WindowsAndMessaging::{
-            CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, GetClientRect, IDC_ARROW,
-            LWA_ALPHA, LoadCursorW, RegisterClassW, SetLayeredWindowAttributes, WNDCLASSW, WNDPROC,
-            WS_EX_LAYERED, WS_OVERLAPPEDWINDOW, WS_VISIBLE,
-        },
-    },
-    core::{Error, HSTRING, PCWSTR, Result as Win32Result, w},
+use windows::Win32::Foundation::{COLORREF, FALSE, HINSTANCE, HWND, POINT, RECT, SIZE};
+use windows::Win32::Graphics::Gdi::{
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, BeginPaint, ClientToScreen, DIB_RGB_COLORS,
+    EndPaint, GetDC, HDC, PAINTSTRUCT, PatBlt, ReleaseDC, SRCCOPY, StretchDIBits,
 };
+use windows::Win32::UI::HiDpi::AdjustWindowRectExForDpi;
+use windows::Win32::UI::WindowsAndMessaging::{
+    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, GetClientRect, IDC_ARROW, LWA_ALPHA,
+    LoadCursorW, RegisterClassW, SWP_NOACTIVATE, SWP_NOZORDER, SetLayeredWindowAttributes,
+    SetWindowPos, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW, WNDPROC, WS_EX_LAYERED,
+    WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+};
+use windows::core::{Error, HSTRING, PCWSTR, Result as Win32Result, w};
+
+// The frame size depends on these styles, so creating the window and measuring its frame at a
+// new DPI must use the same values.
+const FRAME_STYLE: WINDOW_STYLE = WS_OVERLAPPEDWINDOW;
+const EXTENDED_STYLE: WINDOW_EX_STYLE = WS_EX_LAYERED;
 
 #[derive(Debug)]
 pub struct Win32Window {
@@ -128,10 +130,10 @@ impl Win32Window {
         let title = HSTRING::from(title);
         let window = unsafe {
             CreateWindowExW(
-                WS_EX_LAYERED,
+                EXTENDED_STYLE,
                 class_name,
                 &title,
-                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                FRAME_STYLE | WS_VISIBLE,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 i32::from(width),
@@ -152,6 +154,36 @@ impl Win32Window {
         header.biWidth = rectangle.right.saturating_sub(rectangle.left);
         header.biHeight = -rectangle.bottom.saturating_sub(rectangle.top);
         Ok(())
+    }
+
+    /// Computes the window size that keeps the client area at its current size in physical
+    /// pixels once the frame is drawn at `dpi`. Only the frame grows or shrinks.
+    pub fn window_size_for_dpi(&self, dpi: u32) -> Win32Result<SIZE> {
+        let mut rectangle = RECT::default();
+        unsafe {
+            GetClientRect(self.window_handle, &raw mut rectangle)?;
+            AdjustWindowRectExForDpi(&raw mut rectangle, FRAME_STYLE, false, EXTENDED_STYLE, dpi)?;
+        }
+        let cx = rectangle.right.saturating_sub(rectangle.left);
+        let cy = rectangle.bottom.saturating_sub(rectangle.top);
+        let size = SIZE { cx, cy };
+        Ok(size)
+    }
+
+    pub fn move_to(&self, rectangle: &RECT) -> Win32Result<()> {
+        let cx = rectangle.right.saturating_sub(rectangle.left);
+        let cy = rectangle.bottom.saturating_sub(rectangle.top);
+        unsafe {
+            SetWindowPos(
+                self.window_handle,
+                None,
+                rectangle.left,
+                rectangle.top,
+                cx,
+                cy,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            )
+        }
     }
 
     pub fn set_transparency(&mut self, is_active: bool) -> Win32Result<()> {

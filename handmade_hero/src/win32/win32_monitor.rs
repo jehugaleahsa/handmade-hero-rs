@@ -1,6 +1,10 @@
 use handmade_hero_interface::{narrow_unsigned, units::si::frequency::Frequency};
 use uom::si::frequency::hertz;
 use windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
+use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+};
+use windows::core::Result;
 
 const DEFAULT_REFRESH_RATE: u32 = 60;
 
@@ -19,4 +23,8 @@ pub fn find_monitor_refresh_rate() -> Frequency {
         return Frequency::new::<hertz>(DEFAULT_REFRESH_RATE);
     }
     Frequency::new::<hertz>(frequency)
+}
+
+pub fn set_dpi_awareness() -> Result<()> {
+    unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) }
 }
