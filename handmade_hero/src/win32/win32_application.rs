@@ -7,7 +7,7 @@ use super::win32_sound_output::Win32SoundOutput;
 use super::win32_window::Win32Window;
 use crate::application_loader::{ApplicationLoader, ApplicationStub, LoadedApplication};
 use crate::playback_recorder::PlaybackRecorder;
-use crate::win32::win32_monitor::{find_monitor_refresh_rate, set_dpi_awareness};
+use crate::win32::win32_monitor::set_dpi_awareness;
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -27,7 +27,6 @@ use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::sound_buffer::SoundBuffer;
-use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::information::Information;
 use handmade_hero_interface::units::si::length::pixel;
 use std::cmp::Ordering;
@@ -40,6 +39,7 @@ use uom::num::Zero;
 use uom::si::f32::{Ratio, Time};
 use uom::si::frequency::hertz;
 use uom::si::information::byte;
+use uom::si::information_rate::byte_per_second;
 use uom::si::length::Length;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
@@ -55,11 +55,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 use windows::core::{Error, Result as Win32Result};
-
-/// The game updates once every this many monitor refreshes. Keeping the update rate as an
-/// exact ratio of the refresh rate, rather than collapsing it to a hertz value up front, lets
-/// the audio buffer math stay in integers.
-const REFRESHES_PER_UPDATE: u16 = 2;
 
 #[derive(Debug)]
 pub enum RecordingState {
@@ -338,13 +333,12 @@ impl Win32Application {
         height: u16,
     ) -> Result<ExitCode> {
         let _ = set_dpi_awareness();
-        let monitor_refresh_rate = find_monitor_refresh_rate();
-        self.start_application(application_loader, monitor_refresh_rate, width, height)?;
+        self.start_application(application_loader, width, height)?;
 
         let direct_sound = DirectSound::initialize(self.window.handle()).ok();
         // The format the device was last asked to open, whether or not it succeeded.
         let mut requested_format = self.state.audio().format();
-        let mut sound_output = self.start_sound_output(direct_sound.as_ref(), monitor_refresh_rate);
+        let mut sound_output = self.start_sound_output(direct_sound.as_ref());
 
         let mut counter = PerformanceCounter::start();
         loop {
@@ -373,7 +367,7 @@ impl Win32Application {
                     old_output.stop();
                 }
                 requested_format = desired_format;
-                sound_output = self.start_sound_output(direct_sound.as_ref(), monitor_refresh_rate);
+                sound_output = self.start_sound_output(direct_sound.as_ref());
             }
 
             if let Some(ref mut sound_output) = sound_output {
@@ -396,16 +390,9 @@ impl Win32Application {
         }
     }
 
-    /// How long a single game frame lasts.
-    ///
-    /// The refresh rate counts refreshes per second, so a count of refreshes divided by it is a
-    /// duration.
-    fn frame_duration(monitor_refresh_rate: Frequency) -> Time {
-        // Refresh rates are small whole numbers, so `f32` represents them exactly.
-        let refresh_rate = monitor_refresh_rate.get::<hertz>();
-        #[expect(clippy::cast_precision_loss)]
-        let refresh_rate = uom::si::f32::Frequency::new::<hertz>(refresh_rate as f32);
-        f32::from(REFRESHES_PER_UPDATE) / refresh_rate
+    fn default_frame_duration() -> Time {
+        let refresh_rate = uom::si::f32::Frequency::new::<hertz>(60.0);
+        1.0 / refresh_rate
     }
 
     /// Opens the audio device with the format the game currently wants and starts it playing.
@@ -415,22 +402,23 @@ impl Win32Application {
     fn start_sound_output<'a>(
         &self,
         direct_sound: Option<&'a DirectSound>,
-        monitor_refresh_rate: Frequency,
     ) -> Option<Win32SoundOutput<'a>> {
         let direct_sound = direct_sound?;
         let format = self.state.audio().format();
-        let frame_size = Self::sample_size_per_frame(format, monitor_refresh_rate);
+        let frame_size = self.sample_size_per_frame(format);
         Win32SoundOutput::start(direct_sound, format, frame_size).ok()
     }
 
-    /// Bytes of audio consumed by a single game frame.
-    ///
-    /// A frame lasts `REFRESHES_PER_UPDATE / monitor_refresh_rate` seconds, so dividing the byte
-    /// rate by the refresh rate cancels the per-second term and leaves a byte count. Dividing
-    /// last keeps every term an integer, so this needs no float round trip and carries no
-    /// rounding error.
-    fn sample_size_per_frame(format: AudioFormat, monitor_refresh_rate: Frequency) -> Information {
-        (format.sample_rate() * u32::from(REFRESHES_PER_UPDATE) / monitor_refresh_rate).into()
+    fn sample_size_per_frame(&self, format: AudioFormat) -> Information {
+        let bytes_per_second = format.sample_rate().get::<byte_per_second>();
+        #[expect(clippy::cast_precision_loss)]
+        let bytes_per_second = bytes_per_second as f32;
+        let frame_seconds = self.state.frame_duration().get::<second>();
+        let bytes_per_frame = bytes_per_second * frame_seconds;
+        #[expect(clippy::cast_sign_loss)]
+        #[expect(clippy::cast_possible_truncation)]
+        let bytes_per_frame = bytes_per_frame as u32;
+        Information::new::<byte>(bytes_per_frame)
     }
 
     fn process_message() -> Result<Option<ExitCode>> {
@@ -473,7 +461,6 @@ impl Win32Application {
     fn start_application(
         &mut self,
         loader: &mut ApplicationLoader,
-        monitor_refresh_rate: Frequency,
         width: u16,
         height: u16,
     ) -> Result<()> {
@@ -485,7 +472,7 @@ impl Win32Application {
 
         self.create_window(&application.name(), width, height)?;
 
-        let frame_duration = Self::frame_duration(monitor_refresh_rate);
+        let frame_duration = Self::default_frame_duration();
         self.state.set_frame_duration(frame_duration);
 
         self.initialize_application(application.as_ref());
