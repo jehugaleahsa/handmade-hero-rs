@@ -8,17 +8,25 @@ pub struct Monitor {
     height: Length,
     refresh_rate: Frequency,
     primary: bool,
+    current: bool,
 }
 
 impl Monitor {
     #[inline]
     #[must_use]
-    pub fn new(width: Length, height: Length, refresh_rate: Frequency, primary: bool) -> Self {
+    pub fn new(
+        width: Length,
+        height: Length,
+        refresh_rate: Frequency,
+        primary: bool,
+        current: bool,
+    ) -> Self {
         Self {
             width,
             height,
             refresh_rate,
             primary,
+            current,
         }
     }
 
@@ -44,5 +52,11 @@ impl Monitor {
     #[must_use]
     pub fn primary(&self) -> bool {
         self.primary
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn current(&self) -> bool {
+        self.current
     }
 }

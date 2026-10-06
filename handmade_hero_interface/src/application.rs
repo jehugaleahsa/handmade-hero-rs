@@ -2,8 +2,10 @@ use crate::application_error::Result;
 use crate::audio_context::AudioContext;
 use crate::initialize_context::InitializeContext;
 use crate::input_context::InputContext;
+use crate::monitor::Monitor;
 use crate::plugin_state::PluginState;
 use crate::render_context::RenderContext;
+use crate::units::si::time::Time;
 
 pub trait Application {
     /// The game's display name, used for the window title.
@@ -11,6 +13,8 @@ pub trait Application {
     /// The platform asks for this before any state exists, so it can't depend on the plugin
     /// state or the back buffer.
     fn name(&self) -> String;
+
+    fn suggest_frame_duration(&self, monitors: &[Monitor]) -> Option<Time>;
 
     /// Creates game-specific state.
     fn create_plugin_state(&self) -> Box<dyn PluginState>;

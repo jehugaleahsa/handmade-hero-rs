@@ -39,10 +39,11 @@ impl PluginStateSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use handmade_hero_interface::audio_context::AudioContext;
     use handmade_hero_interface::initialize_context::InitializeContext;
     use handmade_hero_interface::input_context::InputContext;
     use handmade_hero_interface::render_context::RenderContext;
+    use handmade_hero_interface::units::si::time::Time;
+    use handmade_hero_interface::{audio_context::AudioContext, monitor::Monitor};
     use serde::{Deserialize, Serialize};
 
     /// Stands in for the plugin's game state. Being `Serialize + Debug + 'static` is all it takes
@@ -60,6 +61,10 @@ mod tests {
     impl Application for FakeApplication {
         fn name(&self) -> String {
             String::from("Fake")
+        }
+
+        fn suggest_frame_duration(&self, _monitors: &[Monitor]) -> Option<Time> {
+            None
         }
 
         fn create_plugin_state(&self) -> Box<dyn PluginState> {
@@ -100,6 +105,10 @@ mod tests {
     impl Application for IncompatibleApplication {
         fn name(&self) -> String {
             String::from("Incompatible")
+        }
+
+        fn suggest_frame_duration(&self, _monitors: &[Monitor]) -> Option<Time> {
+            None
         }
 
         fn create_plugin_state(&self) -> Box<dyn PluginState> {

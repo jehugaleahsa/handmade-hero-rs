@@ -22,6 +22,7 @@ use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::key::Key;
 use handmade_hero_interface::key_mapping::KeyMapping;
 use handmade_hero_interface::keyboard_state::KeyboardState;
+use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::mouse_state::MouseState;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::plugin_state::PluginState;
@@ -390,11 +391,6 @@ impl Win32Application {
         }
     }
 
-    fn default_frame_duration() -> Time {
-        let refresh_rate = uom::si::f32::Frequency::new::<hertz>(60.0);
-        1.0 / refresh_rate
-    }
-
     /// Opens the audio device with the format the game currently wants and starts it playing.
     ///
     /// `None` when there is no device, or when the device refuses the format. Sound stays off
@@ -470,11 +466,10 @@ impl Win32Application {
             ));
         };
 
-        let _ = find_monitors();
-
         self.create_window(&application.name(), width, height)?;
 
-        let frame_duration = Self::default_frame_duration();
+        let monitors = find_monitors(self.window.handle());
+        let frame_duration = Self::find_frame_duration(&application, &monitors);
         self.state.set_frame_duration(frame_duration);
 
         self.initialize_application(application.as_ref());
@@ -492,6 +487,16 @@ impl Win32Application {
                 Ok(application)
             }
         }
+    }
+
+    fn find_frame_duration(application: &ApplicationStub, monitors: &[Monitor]) -> Time {
+        let duration = application.suggest_frame_duration(monitors);
+        duration.unwrap_or_else(Self::default_frame_duration)
+    }
+
+    fn default_frame_duration() -> Time {
+        let refresh_rate = uom::si::f32::Frequency::new::<hertz>(60.0);
+        2.0 / refresh_rate
     }
 
     /// Starts a brand new game with the given plugin.

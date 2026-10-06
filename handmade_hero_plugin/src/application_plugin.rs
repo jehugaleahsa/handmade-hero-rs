@@ -14,6 +14,7 @@ use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
+use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
@@ -761,6 +762,10 @@ impl Application for ApplicationPlugin {
     #[inline]
     fn name(&self) -> String {
         String::from("Handmade Hero")
+    }
+
+    fn suggest_frame_duration(&self, _monitors: &[Monitor]) -> Option<Time> {
+        None
     }
 
     #[inline]

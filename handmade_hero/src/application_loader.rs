@@ -4,8 +4,10 @@ use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
+use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::render_context::RenderContext;
+use handmade_hero_interface::units::si::time::Time;
 use libloading::{Library, Symbol, library_filename};
 use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Debug, Formatter};
@@ -33,6 +35,11 @@ impl Application for ApplicationStub {
     #[inline]
     fn name(&self) -> String {
         self.application.name()
+    }
+
+    #[inline]
+    fn suggest_frame_duration(&self, monitors: &[Monitor]) -> Option<Time> {
+        self.application.suggest_frame_duration(monitors)
     }
 
     #[inline]

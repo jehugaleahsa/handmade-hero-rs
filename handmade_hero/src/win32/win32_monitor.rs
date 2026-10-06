@@ -2,10 +2,10 @@ use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::units::si::length::{Length, pixel};
 use handmade_hero_interface::{narrow_unsigned, units::si::frequency::Frequency};
 use uom::si::frequency::hertz;
-use windows::Win32::Foundation::{LPARAM, RECT, TRUE};
+use windows::Win32::Foundation::{HWND, LPARAM, RECT, TRUE};
 use windows::Win32::Graphics::Gdi::{
     DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW,
-    HDC, HMONITOR, MONITORINFOEXW,
+    HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow,
 };
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
@@ -13,17 +13,27 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
 use windows::core::{BOOL, PCWSTR, Result};
 
-pub fn find_monitors() -> Vec<Monitor> {
-    let mut monitors = Vec::new();
+struct MonitorContext {
+    current: HMONITOR,
+    monitors: Vec<Monitor>,
+}
+
+pub fn find_monitors(window_handle: HWND) -> Vec<Monitor> {
+    let current = unsafe { MonitorFromWindow(window_handle, MONITOR_DEFAULTTONEAREST) };
+
+    let mut context = MonitorContext {
+        current,
+        monitors: Vec::new(),
+    };
     unsafe {
         let _ = EnumDisplayMonitors(
             None,
             None,
             Some(add_monitor),
-            LPARAM(&raw mut monitors as isize),
+            LPARAM(&raw mut context as isize),
         );
     }
-    monitors
+    context.monitors
 }
 
 extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
@@ -46,9 +56,10 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
     #[expect(clippy::cast_precision_loss)]
     let height = Length::new::<pixel>(height as f32);
     let primary = (monitor_info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY) != 0;
-    let monitor = Monitor::new(width, height, refresh_rate, primary);
-    let monitors = unsafe { &mut *(data.0 as *mut Vec<Monitor>) };
-    monitors.push(monitor);
+    let context = unsafe { &mut *(data.0 as *mut MonitorContext) };
+    let current = next == context.current;
+    let monitor = Monitor::new(width, height, refresh_rate, primary, current);
+    context.monitors.push(monitor);
     TRUE
 }
 
