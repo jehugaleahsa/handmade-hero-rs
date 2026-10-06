@@ -20,6 +20,7 @@ pub mod key;
 pub mod key_mapping;
 pub mod key_mapping_error;
 pub mod keyboard_state;
+pub mod monitor;
 pub mod mouse_state;
 pub mod performance_counter;
 pub mod plugin_state;

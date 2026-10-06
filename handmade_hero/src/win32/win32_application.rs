@@ -7,7 +7,7 @@ use super::win32_sound_output::Win32SoundOutput;
 use super::win32_window::Win32Window;
 use crate::application_loader::{ApplicationLoader, ApplicationStub, LoadedApplication};
 use crate::playback_recorder::PlaybackRecorder;
-use crate::win32::win32_monitor::set_dpi_awareness;
+use crate::win32::win32_monitor::{find_monitors, set_dpi_awareness};
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -469,6 +469,8 @@ impl Win32Application {
                 "The plugin was already running before the game started",
             ));
         };
+
+        let _ = find_monitors();
 
         self.create_window(&application.name(), width, height)?;
 
