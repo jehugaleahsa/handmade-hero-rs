@@ -30,14 +30,11 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
 use windows::core::{BOOL, PCWSTR, Result as Win32Result};
 
-/// A monitor as the game sees it, plus the handle Windows uses to refer to it.
-///
-/// The handle stays valid only until the monitors are reconfigured, so it never leaves the
-/// platform layer.
+/// A monitor as the game sees it, plus what the platform needs to change its display mode and
+/// cover it in fullscreen.
 #[derive(Debug)]
 pub struct Win32Monitor {
     monitor: Monitor,
-    handle: HMONITOR,
     /// The GDI device name, such as `\\.\DISPLAY1`, that display mode functions expect.
     device_name: [u16; 32],
     /// The monitor's full area on the desktop, taskbar included, in physical pixels.
@@ -55,12 +52,6 @@ impl Win32Monitor {
     #[must_use]
     pub fn bounds(&self) -> RECT {
         self.bounds
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn handle(&self) -> HMONITOR {
-        self.handle
     }
 }
 
@@ -93,8 +84,10 @@ fn find_frame_size(monitor: HMONITOR) -> SIZE {
 
 pub fn find_work_area(window_handle: HWND) -> Option<RECT> {
     let monitor = find_current_monitor(window_handle);
-    let mut monitor_info = MONITORINFO::default();
-    monitor_info.cbSize = narrow_unsigned!(size_of::<MONITORINFO>() => u32);
+    let mut monitor_info = MONITORINFO {
+        cbSize: narrow_unsigned!(size_of::<MONITORINFO>() => u32),
+        ..MONITORINFO::default()
+    };
     let success = unsafe { GetMonitorInfoW(monitor, &raw mut monitor_info) };
     success.as_bool().then_some(monitor_info.rcWork)
 }
@@ -119,34 +112,15 @@ pub fn find_monitors(window_handle: HWND) -> Vec<Win32Monitor> {
 }
 
 extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
-    let mut monitor_info = MONITORINFOEXW::default();
-    monitor_info.monitorInfo.cbSize = narrow_unsigned!(size_of::<MONITORINFOEXW>() => u32);
-    let monitor_info_result = unsafe { GetMonitorInfoW(next, &raw mut monitor_info.monitorInfo) };
-    if !monitor_info_result.as_bool() {
-        return TRUE;
-    }
-    let device_name = PCWSTR(monitor_info.szDevice.as_ptr());
-    let Some(current_mode) = find_current_display_mode(device_name) else {
+    let Some(monitor_info) = monitor_info_ex(next) else {
         return TRUE;
     };
-    let modes = find_display_modes(device_name, &current_mode)
-        .iter()
-        .map(|mode| {
-            let current = is_same_mode(mode, &current_mode);
-            let resolution = Dimensions::new(mode.dmPelsWidth, mode.dmPelsHeight);
-            let refresh_rate = Frequency::new::<hertz>(mode.dmDisplayFrequency);
-            MonitorMode::new(resolution, refresh_rate, current)
-        })
-        .collect();
+    let Some(modes) = find_display_modes_for(&monitor_info) else {
+        return TRUE;
+    };
 
-    let work_area = &monitor_info.monitorInfo.rcWork;
-    let work_width = work_area.right.abs_diff(work_area.left);
-    let work_height = work_area.top.abs_diff(work_area.bottom);
-    let work_resolution = Dimensions::new(work_width, work_height);
-    let frame = find_frame_size(next);
-    let max_window_width = work_width.saturating_sub(frame.cx.unsigned_abs());
-    let max_window_height = work_height.saturating_sub(frame.cy.unsigned_abs());
-    let max_windowed_resolution = Dimensions::new(max_window_width, max_window_height);
+    let work_resolution = work_resolution(&monitor_info);
+    let max_windowed_resolution = max_windowed_resolution(next, work_resolution);
     let primary = (monitor_info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY) != 0;
     let context = unsafe { &mut *(data.0 as *mut MonitorContext) };
     let current = next == context.current;
@@ -157,13 +131,11 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
         .iter()
         .find(|names| names.device_name == device_name);
     let display_name = names
-        .map(|names| names.display_name.clone())
-        .filter(|display_name| !display_name.is_empty())
-        .unwrap_or_else(|| device_name.clone());
+        .filter(|names| !names.display_name.is_empty())
+        .map_or_else(|| device_name.clone(), |names| names.display_name.clone());
     let identifier = names
-        .map(|names| names.identifier.clone())
-        .filter(|identifier| !identifier.is_empty())
-        .unwrap_or(device_name);
+        .filter(|names| !names.identifier.is_empty())
+        .map_or(device_name, |names| names.identifier.clone());
 
     let monitor = Monitor::new(
         display_name,
@@ -176,12 +148,52 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
     );
     let win32_monitor = Win32Monitor {
         monitor,
-        handle: next,
         device_name: monitor_info.szDevice,
         bounds: monitor_info.monitorInfo.rcMonitor,
     };
     context.monitors.push(win32_monitor);
     TRUE
+}
+
+fn monitor_info_ex(next: HMONITOR) -> Option<MONITORINFOEXW> {
+    let mut monitor_info = MONITORINFOEXW::default();
+    monitor_info.monitorInfo.cbSize = narrow_unsigned!(size_of::<MONITORINFOEXW>() => u32);
+    let monitor_info_result = unsafe { GetMonitorInfoW(next, &raw mut monitor_info.monitorInfo) };
+    if !monitor_info_result.as_bool() {
+        return None;
+    }
+    Some(monitor_info)
+}
+
+fn find_display_modes_for(monitor_info: &MONITORINFOEXW) -> Option<Vec<MonitorMode>> {
+    let device_name = PCWSTR(monitor_info.szDevice.as_ptr());
+    let current_mode = find_current_display_mode(device_name)?;
+    let modes = find_display_modes(device_name, &current_mode)
+        .iter()
+        .map(|mode| {
+            let current = is_same_mode(mode, &current_mode);
+            let resolution = Dimensions::new(mode.dmPelsWidth, mode.dmPelsHeight);
+            let refresh_rate = Frequency::new::<hertz>(mode.dmDisplayFrequency);
+            MonitorMode::new(resolution, refresh_rate, current)
+        })
+        .collect();
+    Some(modes)
+}
+
+fn work_resolution(monitor_info: &MONITORINFOEXW) -> Dimensions {
+    let work_area = &monitor_info.monitorInfo.rcWork;
+    let work_width = work_area.right.abs_diff(work_area.left);
+    let work_height = work_area.top.abs_diff(work_area.bottom);
+    Dimensions::new(work_width, work_height)
+}
+
+fn max_windowed_resolution(next: HMONITOR, work_resolution: Dimensions) -> Dimensions {
+    let frame = find_frame_size(next);
+    let work_width = work_resolution.width_in_pixels();
+    let work_height = work_resolution.height_in_pixels();
+    let max_window_width = work_width.saturating_sub(frame.cx.unsigned_abs());
+    let max_window_height = work_height.saturating_sub(frame.cy.unsigned_abs());
+    Dimensions::new(max_window_width, max_window_height)
 }
 
 pub fn set_display_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result<()> {
@@ -264,9 +276,10 @@ fn find_display_modes(device_name: PCWSTR, current_mode: &DEVMODEW) -> Vec<DEVMO
 }
 
 fn new_display_mode() -> DEVMODEW {
-    let mut mode = DEVMODEW::default();
-    mode.dmSize = narrow_unsigned!(size_of::<DEVMODEW>() => u16);
-    return mode;
+    DEVMODEW {
+        dmSize: narrow_unsigned!(size_of::<DEVMODEW>() => u16),
+        ..DEVMODEW::default()
+    }
 }
 
 fn is_same_mode(mode: &DEVMODEW, other: &DEVMODEW) -> bool {
@@ -330,23 +343,27 @@ fn find_monitor_names() -> Vec<MonitorNames> {
 }
 
 fn find_path_names(path: &DISPLAYCONFIG_PATH_INFO) -> Option<MonitorNames> {
-    let mut source = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
-    source.header = device_info_header::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>(
-        DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
-        path.sourceInfo.adapterId,
-        path.sourceInfo.id,
-    );
+    let mut source = DISPLAYCONFIG_SOURCE_DEVICE_NAME {
+        header: device_info_header::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>(
+            DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+            path.sourceInfo.adapterId,
+            path.sourceInfo.id,
+        ),
+        ..DISPLAYCONFIG_SOURCE_DEVICE_NAME::default()
+    };
     let source_info_result = unsafe { DisplayConfigGetDeviceInfo(&raw mut source.header) };
     if source_info_result != 0 {
         return None;
     }
 
-    let mut target = DISPLAYCONFIG_TARGET_DEVICE_NAME::default();
-    target.header = device_info_header::<DISPLAYCONFIG_TARGET_DEVICE_NAME>(
-        DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
-        path.targetInfo.adapterId,
-        path.targetInfo.id,
-    );
+    let mut target = DISPLAYCONFIG_TARGET_DEVICE_NAME {
+        header: device_info_header::<DISPLAYCONFIG_TARGET_DEVICE_NAME>(
+            DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+            path.targetInfo.adapterId,
+            path.targetInfo.id,
+        ),
+        ..DISPLAYCONFIG_TARGET_DEVICE_NAME::default()
+    };
     let target_info_result = unsafe { DisplayConfigGetDeviceInfo(&raw mut target.header) };
     if target_info_result != 0 {
         return None;

@@ -9,15 +9,15 @@ use uom::si::{
 };
 use windows::Win32::Foundation::{COLORREF, FALSE, HINSTANCE, HWND, POINT, RECT, SIZE};
 use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, BeginPaint, ClientToScreen, DIB_RGB_COLORS,
-    EndPaint, GetDC, HDC, PAINTSTRUCT, PatBlt, ReleaseDC, SRCCOPY, StretchDIBits,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, ClientToScreen, DIB_RGB_COLORS, GetDC, HDC,
+    PatBlt, ReleaseDC, SRCCOPY, StretchDIBits,
 };
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, GWL_STYLE, GetClientRect,
-    GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, HWND_TOP, IDC_ARROW, IsIconic, LWA_ALPHA,
-    LoadCursorW, RegisterClassW, SW_MINIMIZE, SW_RESTORE, SW_SHOW, SWP_FRAMECHANGED,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
+    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, DestroyWindow, GWL_STYLE,
+    GetClientRect, GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, HWND_TOP, IDC_ARROW,
+    IsIconic, LWA_ALPHA, LoadCursorW, RegisterClassW, SW_MINIMIZE, SW_RESTORE, SW_SHOW,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
     SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
     WINDOW_EX_STYLE, WINDOW_STYLE, WINDOWPLACEMENT, WNDCLASSW, WNDPROC, WS_EX_LAYERED,
     WS_MAXIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_THICKFRAME,
@@ -75,7 +75,11 @@ impl Win32Window {
 
     /// The size of the area the game draws into, which changes when the game goes fullscreen.
     pub fn client_size(&self) -> Win32Result<SIZE> {
-        let rectangle = self.current_client_rect()?;
+        Self::client_size_of(self.window_handle)
+    }
+
+    fn client_size_of(window: HWND) -> Win32Result<SIZE> {
+        let rectangle = Self::client_rect_of(window)?;
         let cx = Self::rectangle_width(&rectangle);
         let cy = Self::rectangle_height(&rectangle);
         Ok(SIZE { cx, cy })
@@ -87,19 +91,24 @@ impl Win32Window {
         title: &str,
         width: u16,
         height: u16,
-        application_pointer: *mut c_void,
+        state_pointer: *const c_void,
         window_procedure: WNDPROC,
     ) -> Win32Result<()> {
         let class_name = Self::create_window_class(instance, window_procedure)?;
-        self.window_handle = Self::create_win32_window(
-            instance,
-            class_name,
-            title,
-            width,
-            height,
-            application_pointer,
-        )?;
+        self.window_handle =
+            Self::create_win32_window(instance, class_name, title, width, height, state_pointer)?;
         Ok(())
+    }
+
+    /// Destroys the window, after which the window procedure gets no more messages for it.
+    pub fn destroy(&mut self) {
+        if self.window_handle.is_invalid() {
+            return;
+        }
+        unsafe {
+            let _ = DestroyWindow(self.window_handle);
+        }
+        self.window_handle = HWND::default();
     }
 
     fn create_window_class(instance: HINSTANCE, window_procedure: WNDPROC) -> Win32Result<PCWSTR> {
@@ -127,7 +136,7 @@ impl Win32Window {
         title: &str,
         width: u16,
         height: u16,
-        application_pointer: *mut c_void,
+        state_pointer: *const c_void,
     ) -> Win32Result<HWND> {
         // Win32 wants a null-terminated UTF-16 string. `HSTRING` owns one, and a reference to it
         // converts to the `PCWSTR` parameter. `CreateWindowExW` copies the title, so the string
@@ -146,7 +155,7 @@ impl Win32Window {
                 None,
                 None,
                 Some(instance),
-                Some(application_pointer),
+                Some(state_pointer),
             )?
         };
         Self::size_client_area(window, i32::from(width), i32::from(height))?;
@@ -196,8 +205,8 @@ impl Win32Window {
         Ok(size)
     }
 
-    pub fn window_size_for_dpi(&self, dpi: u32) -> Win32Result<SIZE> {
-        let client = self.client_size()?;
+    pub fn window_size_for_dpi(window: HWND, dpi: u32) -> Win32Result<SIZE> {
+        let client = Self::client_size_of(window)?;
         let frame = Self::frame_size_for_dpi(dpi)?;
         let cx = client.cx + frame.cx;
         let cy = client.cy + frame.cy;
@@ -205,12 +214,12 @@ impl Win32Window {
         Ok(size)
     }
 
-    pub fn move_to(&self, rectangle: &RECT) -> Win32Result<()> {
+    pub fn move_to(window: HWND, rectangle: &RECT) -> Win32Result<()> {
         let cx = Self::rectangle_width(rectangle);
         let cy = Self::rectangle_height(rectangle);
         unsafe {
             SetWindowPos(
-                self.window_handle,
+                window,
                 None,
                 rectangle.left,
                 rectangle.top,
@@ -294,20 +303,13 @@ impl Win32Window {
         unsafe { SetWindowLongPtrW(self.window_handle, GWL_STYLE, style) };
     }
 
-    pub fn set_transparency(&mut self, is_active: bool) -> Win32Result<()> {
+    pub fn set_transparency(window: HWND, is_active: bool) -> Win32Result<()> {
         // We make the window slightly transparent when not active to assist with debugging
         let alpha = if is_active { 0xFF } else { 0x90 };
         unsafe {
-            SetLayeredWindowAttributes(self.window_handle, COLORREF::default(), alpha, LWA_ALPHA)?;
+            SetLayeredWindowAttributes(window, COLORREF::default(), alpha, LWA_ALPHA)?;
         }
         Ok(())
-    }
-
-    pub fn repaint(&mut self, back_buffer: &BackBuffer) {
-        let mut paint_struct = PAINTSTRUCT::default();
-        let device_context = unsafe { BeginPaint(self.window_handle, &raw mut paint_struct) };
-        self.write_buffer(back_buffer, device_context);
-        let _ = unsafe { EndPaint(self.window_handle, &raw mut paint_struct) };
     }
 
     pub fn draw(&mut self, back_buffer: &BackBuffer) {
@@ -380,8 +382,12 @@ impl Win32Window {
     }
 
     fn current_client_rect(&self) -> Win32Result<RECT> {
+        Self::client_rect_of(self.window_handle)
+    }
+
+    fn client_rect_of(window: HWND) -> Win32Result<RECT> {
         let mut rectangle = RECT::default();
-        unsafe { GetClientRect(self.window_handle, &raw mut rectangle)? };
+        unsafe { GetClientRect(window, &raw mut rectangle)? };
         Ok(rectangle)
     }
 

@@ -1,22 +1,19 @@
 use super::direct_sound::DirectSound;
 use super::direct_sound_buffer::DirectSoundBuffer;
 use super::win32_controller::{Win32Controller, Win32ControllerState};
-use super::win32_key_event::{self, Win32KeyEvent};
-use super::win32_mouse::Win32Mouse;
 use super::win32_sound_output::Win32SoundOutput;
+use super::win32_state::{Win32State, window_procedure};
 use super::win32_window::Win32Window;
 use crate::application_loader::{ApplicationLoader, ApplicationStub, LoadedApplication};
 use crate::playback_recorder::PlaybackRecorder;
 use crate::win32::win32_monitor::{
-    Win32Monitor, find_current_monitor, find_monitors, restore_display_mode, set_display_mode,
-    set_dpi_awareness,
+    Win32Monitor, find_monitors, restore_display_mode, set_display_mode, set_dpi_awareness,
 };
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::audio_format::AudioFormat;
 use handmade_hero_interface::back_buffer::BackBuffer;
-use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::display::Display;
 use handmade_hero_interface::display_settings::DisplaySettings;
@@ -26,11 +23,8 @@ use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::key::Key;
-use handmade_hero_interface::key_mapping::KeyMapping;
-use handmade_hero_interface::keyboard_state::KeyboardState;
 use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::monitor_mode::MonitorMode;
-use handmade_hero_interface::mouse_state::MouseState;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::render_context::RenderContext;
@@ -50,16 +44,10 @@ use uom::si::information_rate::byte_per_second;
 use uom::si::length::Length;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, SIZE, WPARAM};
+use windows::Win32::Foundation::HINSTANCE;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, SetCapture};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CREATESTRUCTW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GetWindowLongPtrW, MSG,
-    PM_REMOVE, PeekMessageW, PostQuitMessage, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP,
-    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_GETDPISCALEDSIZE,
-    WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
-    WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NCCREATE, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
-    WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_WINDOWPOSCHANGED, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage, WM_QUIT,
 };
 use windows::core::{Error, Result as Win32Result};
 
@@ -75,9 +63,6 @@ pub struct Win32Application {
     state: GameState,
     input: InputState,
     plugin_state: Option<Box<dyn PluginState>>,
-    keyboard: KeyboardState,
-    key_mapping: KeyMapping,
-    mouse: Win32Mouse,
     window: Win32Window,
     back_buffer: BackBuffer,
     /// Storage the game fills with a frame of audio.
@@ -88,9 +73,6 @@ pub struct Win32Application {
     monitors_changed: bool,
     display: DisplayState,
     mode_change: ModeChange,
-    /// Set when the game gains or loses focus. The game loop reacts at the start of the next
-    /// frame rather than in the window procedure.
-    pending_activation: Option<bool>,
 }
 
 /// Whether the fullscreen monitor is in a display mode the game switched it to.
@@ -111,9 +93,6 @@ impl Win32Application {
             state: GameState::new(),
             input: InputState::new(),
             plugin_state: None,
-            keyboard: KeyboardState::new(),
-            key_mapping: KeyMapping::default(),
-            mouse: Win32Mouse::new(),
             window: Win32Window::new(),
             back_buffer: BackBuffer::default(),
             sound_buffer: SoundBuffer::new(),
@@ -123,26 +102,30 @@ impl Win32Application {
             monitors_changed: false,
             display: DisplayState::new(),
             mode_change: ModeChange::None,
-            pending_activation: None,
         }
     }
 
-    fn create_window(&mut self, title: &str, width: u16, height: u16) -> Result<()> {
+    fn create_window(
+        &mut self,
+        state: &Win32State,
+        title: &str,
+        width: u16,
+        height: u16,
+    ) -> Result<()> {
         let instance = Self::get_instance()
             .map_err(|e| ApplicationError::wrap("Could not retrieve the Windows handle", e))?;
-        let application_pointer = std::ptr::from_mut::<Win32Application>(self).cast::<c_void>();
+        let state_pointer = std::ptr::from_ref(state).cast::<c_void>();
         self.window
             .create_window(
                 instance,
                 title,
                 width,
                 height,
-                application_pointer,
+                state_pointer,
                 Some(window_procedure),
             )
             .map_err(|e| ApplicationError::wrap("Failed to create the window", e))?;
-        self.window
-            .set_transparency(true)
+        Win32Window::set_transparency(self.window.handle(), true)
             .map_err(|e| ApplicationError::wrap("Failed to enable transparency", e))?;
 
         self.resize_render_buffer()?;
@@ -180,96 +163,6 @@ impl Win32Application {
         Ok(())
     }
 
-    fn process_windows_message(
-        &mut self,
-        message: u32,
-        w_param: WPARAM,
-        l_param: LPARAM,
-    ) -> LRESULT {
-        match message {
-            WM_CLOSE | WM_DESTROY => Self::emit_quitting(),
-            WM_ACTIVATEAPP => {
-                let is_active = w_param.0 != 0;
-                self.pending_activation = Some(is_active);
-                self.window
-                    .set_transparency(is_active)
-                    .map_or(LRESULT(0), |()| LRESULT(0))
-            }
-            WM_PAINT => {
-                self.window.repaint(&self.back_buffer);
-                LRESULT(0)
-            }
-            WM_SYSKEYDOWN | WM_SYSKEYUP | WM_KEYDOWN | WM_KEYUP => {
-                self.handle_key_press(w_param, l_param)
-            }
-            WM_KILLFOCUS => {
-                // Any key or button still held will be released into some other window, so we
-                // would never hear about it. Let go of everything now rather than leave them
-                // stuck down, and stop holding the mouse so other windows get their clicks.
-                self.keyboard.release_all();
-                self.mouse.release_all();
-                unsafe {
-                    let _ = ReleaseCapture();
-                }
-                LRESULT(0)
-            }
-            WM_CAPTURECHANGED => {
-                // Another window took the mouse, so button releases will no longer reach us.
-                if l_param.0 != self.window.handle().0 as isize {
-                    self.mouse.release_all();
-                }
-                LRESULT(0)
-            }
-            WM_SETFOCUS => {
-                self.synchronize_keyboard();
-                LRESULT(0)
-            }
-            WM_MOUSEWHEEL => {
-                if !matches!(self.recording_state, RecordingState::Playing) {
-                    self.mouse.process_vertical_scroll(w_param);
-                }
-                LRESULT(0)
-            }
-            WM_MOUSEHWHEEL => {
-                if !matches!(self.recording_state, RecordingState::Playing) {
-                    self.mouse.process_horizontal_scroll(w_param);
-                }
-                LRESULT(0)
-            }
-            WM_LBUTTONDOWN => self.handle_normal_mouse_button(|s| s.left_mut(), true),
-            WM_LBUTTONUP => self.handle_normal_mouse_button(|s| s.left_mut(), false),
-            WM_MBUTTONDOWN => self.handle_normal_mouse_button(|s| s.middle_mut(), true),
-            WM_MBUTTONUP => self.handle_normal_mouse_button(|s| s.middle_mut(), false),
-            WM_RBUTTONDOWN => self.handle_normal_mouse_button(|s| s.right_mut(), true),
-            WM_RBUTTONUP => self.handle_normal_mouse_button(|s| s.right_mut(), false),
-            WM_XBUTTONDOWN => self.handle_mouse_x_button(w_param, true),
-            WM_XBUTTONUP => self.handle_mouse_x_button(w_param, false),
-            WM_GETDPISCALEDSIZE => self.handle_dpi_scaled_size(w_param, l_param),
-            WM_DPICHANGED => self.handle_dpi_changed(l_param),
-            WM_WINDOWPOSCHANGED => {
-                self.detect_monitor_change();
-                unsafe { DefWindowProcW(self.window.handle(), message, w_param, l_param) }
-            }
-            WM_DISPLAYCHANGE => {
-                self.refresh_monitors();
-                LRESULT(0)
-            }
-            _ => unsafe { DefWindowProcW(self.window.handle(), message, w_param, l_param) },
-        }
-    }
-
-    fn detect_monitor_change(&mut self) {
-        let current = find_current_monitor(self.window.handle());
-        let previous = self
-            .monitors
-            .iter()
-            .find(|monitor| monitor.monitor().current())
-            .map(Win32Monitor::handle);
-        if previous != Some(current) {
-            self.refresh_monitors();
-        }
-    }
-
     fn refresh_monitors(&mut self) {
         self.monitors = find_monitors(self.window.handle());
         self.monitors_changed = true;
@@ -283,102 +176,6 @@ impl Win32Application {
             .collect()
     }
 
-    fn handle_dpi_scaled_size(&self, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-        // Windows asks for our window size at the new DPI before moving the window there. We
-        // keep the game the same number of physical pixels on every monitor, so we ask for the
-        // current client area plus a frame drawn at the new DPI.
-        #[expect(clippy::cast_possible_truncation)]
-        let dpi = (w_param.0 & 0xFFFF) as u32;
-        let Ok(size) = self.window.window_size_for_dpi(dpi) else {
-            // Returning FALSE lets Windows scale the window by the DPI ratio instead.
-            return LRESULT(0);
-        };
-        let proposed_size = unsafe { &mut *(l_param.0 as *mut SIZE) };
-        *proposed_size = size;
-        LRESULT(1)
-    }
-
-    fn handle_dpi_changed(&self, l_param: LPARAM) -> LRESULT {
-        // The suggested rectangle already has the size we asked for in WM_GETDPISCALEDSIZE, and
-        // Windows positions it so the resize can't push the window back onto a monitor with the
-        // old DPI. Computing our own position risks bouncing between the two monitors.
-        let suggested = unsafe { &*(l_param.0 as *const RECT) };
-        let _ = self.window.move_to(suggested);
-        LRESULT(0)
-    }
-
-    fn handle_normal_mouse_button(
-        &mut self,
-        button_getter: impl FnOnce(&mut MouseState) -> &mut ButtonState,
-        is_down: bool,
-    ) -> LRESULT {
-        let button = button_getter(self.mouse.state_mut());
-        button.track_down(is_down);
-        self.handle_capture();
-        LRESULT(0)
-    }
-
-    fn handle_mouse_x_button(&mut self, w_param: WPARAM, is_down: bool) -> LRESULT {
-        if let Some(button) = self.mouse.x_button_mut(w_param) {
-            button.track_down(is_down);
-            self.handle_capture();
-        }
-        LRESULT(1) // Unlike the other buttons, Windows expects TRUE for side buttons.
-    }
-
-    fn handle_capture(&self) {
-        let window_handle = self.window.handle();
-        if self.mouse.is_any_down() {
-            if unsafe { GetCapture() } != window_handle {
-                unsafe { SetCapture(window_handle) };
-            }
-        } else {
-            unsafe {
-                let _ = ReleaseCapture();
-            }
-        }
-    }
-
-    /// Reconciles the tracked keyboard with what is physically held, for when focus returns.
-    ///
-    /// A user who ALT+TABs away and comes back with a key already down would otherwise have to
-    /// release and re-press it before the game noticed. Errors are ignored: the fallback is the
-    /// stale-but-harmless state we already had.
-    fn synchronize_keyboard(&mut self) {
-        if let Ok(key_states) = win32_key_event::physical_key_states() {
-            self.keyboard.synchronize(&self.key_mapping, key_states);
-        }
-    }
-
-    fn emit_quitting() -> LRESULT {
-        unsafe { PostQuitMessage(0) };
-        LRESULT(0)
-    }
-
-    /// Translates one key message into the platform-agnostic keyboard.
-    ///
-    /// This is deliberately the only place Windows key codes appear. Which button a key drives,
-    /// and what happens when several keys drive the same button, is the keyboard's business.
-    fn handle_key_press(&mut self, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-        let key_event = Win32KeyEvent::from_params(w_param, l_param);
-        if key_event.is_repeat() {
-            // A held key autorepeats as a stream of key-down messages. Only real changes matter.
-            return LRESULT(0);
-        }
-        let Some(key) = key_event.key() else {
-            return LRESULT(0);
-        };
-        let is_down = key_event.is_down();
-        self.keyboard.track_key(&self.key_mapping, key, is_down);
-
-        // Allow exiting with ALT+F4. Handling WM_SYSKEYDOWN ourselves means Windows no longer
-        // does this for us.
-        if key == Key::F4 && is_down && self.keyboard.is_alt_down() {
-            return Self::emit_quitting();
-        }
-        LRESULT(0)
-    }
-
     /// Hitting 'L' begins a recording session. Hitting 'L' again ends it and starts looping
     /// playback. CTRL+L stops playback and returns to live input.
     ///
@@ -386,11 +183,12 @@ impl Win32Application {
     /// whether it is down. Checking `ended_down` would flip the state on every frame the key is
     /// held. Doing this once per frame instead of inside the message handler also means a tap
     /// that lands entirely between two frames still toggles, thanks to the half-transition count.
-    fn process_recording_hotkey(&mut self) {
-        if !self.keyboard.key(Key::L).was_pressed() {
+    fn process_recording_hotkey(&mut self, state: &Win32State) {
+        let keyboard = state.keyboard();
+        if !keyboard.key(Key::L).was_pressed() {
             return;
         }
-        self.recording_state = match (&self.recording_state, self.keyboard.is_control_down()) {
+        self.recording_state = match (&self.recording_state, keyboard.is_control_down()) {
             (_, true) => RecordingState::None,
             (RecordingState::None | RecordingState::Playing, false) => RecordingState::Recording,
             (RecordingState::Recording, false) => RecordingState::Playing,
@@ -479,8 +277,8 @@ impl Win32Application {
             .map_err(|e| ApplicationError::wrap("Could not enter fullscreen", e))
     }
 
-    fn process_activation(&mut self) {
-        let Some(is_active) = self.pending_activation.take() else {
+    fn process_activation(&mut self, state: &Win32State) {
+        let Some(is_active) = state.take_activation() else {
             return;
         };
         let DisplaySettings::Fullscreen {
@@ -532,7 +330,20 @@ impl Win32Application {
         height: u16,
     ) -> Result<ExitCode> {
         let _ = set_dpi_awareness();
-        self.start_application(application_loader, width, height)?;
+        let state = Win32State::new();
+        let result = self.run_game(&state, application_loader, width, height);
+        self.window.destroy();
+        result
+    }
+
+    fn run_game(
+        &mut self,
+        state: &Win32State,
+        application_loader: &mut ApplicationLoader,
+        width: u16,
+        height: u16,
+    ) -> Result<ExitCode> {
+        self.start_application(state, application_loader, width, height)?;
 
         let direct_sound = DirectSound::initialize(self.window.handle()).ok();
         // The format the device was last asked to open, whether or not it succeeded.
@@ -544,16 +355,18 @@ impl Win32Application {
             // A new frame starts with every half-transition count at zero, while each button
             // keeps whether it ended the last frame down.
             self.input.reset_counts();
-            self.keyboard.reset_counts();
-            self.mouse.reset_counts();
+            state.reset_counts();
             if let Some(code) = Self::process_message()? {
                 if let Some(ref mut sound_output) = sound_output {
                     sound_output.stop();
                 }
                 return Ok(code);
             }
-            self.process_recording_hotkey();
-            self.process_activation();
+            if state.take_monitors_changed() {
+                self.refresh_monitors();
+            }
+            self.process_recording_hotkey(state);
+            self.process_activation(state);
             self.process_display_request();
 
             let application = self.load_application(application_loader)?;
@@ -561,7 +374,7 @@ impl Win32Application {
                 self.handle_monitor_change(application.as_ref(), sound_output.as_mut());
             }
 
-            self.process_recording(application.as_ref());
+            self.process_recording(state, application.as_ref());
             self.process_input(application.as_ref());
             self.render_to_buffer(application.as_ref());
 
@@ -659,6 +472,7 @@ impl Win32Application {
     /// around it. If that wouldn't fit on the monitor, the client area shrinks instead.
     fn start_application(
         &mut self,
+        state: &Win32State,
         loader: &mut ApplicationLoader,
         width: u16,
         height: u16,
@@ -669,7 +483,7 @@ impl Win32Application {
             ));
         };
 
-        self.create_window(&application.name(), width, height)?;
+        self.create_window(state, &application.name(), width, height)?;
 
         self.monitors = find_monitors(self.window.handle());
         let frame_duration = self.find_frame_duration(&application);
@@ -735,7 +549,7 @@ impl Win32Application {
         application.initialize(initialize_context);
     }
 
-    fn process_recording(&mut self, application: &ApplicationStub) {
+    fn process_recording(&mut self, state: &Win32State, application: &ApplicationStub) {
         // It seems our audio can't really use playback. The computation of how many bytes
         // to write depends on how fast the previous frame took to generate. Since this will
         // be different each frame, trying to restore the sound theta causes skipping and
@@ -750,13 +564,16 @@ impl Win32Application {
             } else {
                 self.recorder.reset_playback().unwrap_or_default(); // We miss a frame here
             }
+            // Scrolling during playback is dropped, rather than arriving all at once when live
+            // input resumes.
+            state.mouse_mut().capture_wheel();
         } else {
             // The keyboard and mouse have been accumulating events all frame. Publish a copy as
             // the input the game sees. Because this happens every live frame, stopping playback
             // needs no special reset: the next frame simply shows the real keys again.
-            *self.input.keyboard_mut() = self.keyboard.clone();
+            *self.input.keyboard_mut() = state.keyboard().clone();
             self.poll_all_controller_state();
-            self.capture_mouse_state();
+            self.capture_mouse_state(state);
 
             if let RecordingState::Recording = self.recording_state
                 && let Some(plugin) = self.plugin_state.as_deref()
@@ -843,14 +660,15 @@ impl Win32Application {
         controller.set_enabled(true);
     }
 
-    fn capture_mouse_state(&mut self) {
+    fn capture_mouse_state(&mut self, state: &Win32State) {
+        let mut mouse = state.mouse_mut();
         if let Ok(client_coordinate) = self.window.client_coordinate() {
-            self.mouse
+            mouse
                 .capture_position(client_coordinate)
                 .unwrap_or_default(); // Ignore errors
         }
-        self.mouse.capture_wheel();
-        *self.input.mouse_mut() = self.mouse.state().clone();
+        mouse.capture_wheel();
+        *self.input.mouse_mut() = mouse.state().clone();
     }
 
     fn render_to_buffer(&mut self, application: &ApplicationStub) {
@@ -1086,41 +904,6 @@ impl Win32Application {
 
         counter.restart();
     }
-}
-
-extern "system" fn window_procedure(
-    window_handle: HWND,
-    message: u32,
-    w_param: WPARAM,
-    l_param: LPARAM,
-) -> LRESULT {
-    if message == WM_NCCREATE {
-        let create_struct = unsafe { &*(l_param.0 as *const CREATESTRUCTW) };
-        let application = create_struct.lpCreateParams.cast::<Win32Application>();
-        unsafe { SetWindowLongPtrW(window_handle, GWL_USERDATA, application as isize) };
-        // The default handler is what records the window title, so it still has to run.
-        return unsafe { DefWindowProcW(window_handle, message, w_param, l_param) };
-    }
-
-    let application_pointer = unsafe { GetWindowLongPtrW(window_handle, GWL_USERDATA) };
-    let application_pointer = application_pointer as *mut Win32Application;
-    if application_pointer.is_null() {
-        // We're not initialized yet, so just let the default handler run.
-        return unsafe { DefWindowProcW(window_handle, message, w_param, l_param) };
-    }
-
-    // We keep an Application object alive for the duration of the application.
-    // This allows us to maintain state about the application without relying on
-    // global variables.
-    let application = unsafe { &mut *application_pointer };
-    if application.window.handle() != window_handle {
-        // Some of the messages passed to our application are not directed toward
-        // our window. We need to pass through the correct window handle for those
-        // messages or the window appears broken! I'll be curious to see if any
-        // behavior is broken if we ignore messages directed toward other windows.
-        return unsafe { DefWindowProcW(window_handle, message, w_param, l_param) };
-    }
-    application.process_windows_message(message, w_param, l_param)
 }
 
 #[cfg(test)]
