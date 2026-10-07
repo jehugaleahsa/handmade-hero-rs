@@ -1,6 +1,4 @@
-use uom::si::u32::Frequency;
-
-use crate::units::si::length::Length;
+use crate::{monitor_mode::MonitorMode, units::si::length::Length};
 
 #[derive(Debug, Clone)]
 pub struct Monitor {
@@ -8,7 +6,7 @@ pub struct Monitor {
     identifier: String,
     width: Length,
     height: Length,
-    refresh_rate: Frequency,
+    modes: Vec<MonitorMode>,
     primary: bool,
     current: bool,
 }
@@ -21,7 +19,7 @@ impl Monitor {
         identifier: String,
         width: Length,
         height: Length,
-        refresh_rate: Frequency,
+        modes: Vec<MonitorMode>,
         primary: bool,
         current: bool,
     ) -> Self {
@@ -30,7 +28,7 @@ impl Monitor {
             identifier,
             width,
             height,
-            refresh_rate,
+            modes,
             primary,
             current,
         }
@@ -62,8 +60,14 @@ impl Monitor {
 
     #[inline]
     #[must_use]
-    pub fn refresh_rate(&self) -> Frequency {
-        self.refresh_rate
+    pub fn modes(&self) -> &[MonitorMode] {
+        &self.modes
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn current_mode(&self) -> Option<&MonitorMode> {
+        self.modes.iter().find(|mode| mode.current())
     }
 
     #[inline]

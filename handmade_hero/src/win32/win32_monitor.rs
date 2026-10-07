@@ -1,7 +1,10 @@
+use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::monitor::Monitor;
+use handmade_hero_interface::monitor_mode::MonitorMode;
+use handmade_hero_interface::narrow_unsigned;
 use handmade_hero_interface::units::si::length::{Length, pixel};
-use handmade_hero_interface::{narrow_unsigned, units::si::frequency::Frequency};
 use uom::si::frequency::hertz;
+use uom::si::u32::Frequency;
 use windows::Win32::Devices::Display::{
     DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
     DISPLAYCONFIG_DEVICE_INFO_HEADER, DISPLAYCONFIG_DEVICE_INFO_TYPE, DISPLAYCONFIG_MODE_INFO,
@@ -13,14 +16,16 @@ use windows::Win32::Foundation::{
     ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, HWND, LPARAM, LUID, RECT, TRUE,
 };
 use windows::Win32::Graphics::Gdi::{
-    DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW,
-    HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow,
+    CDS_FULLSCREEN, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE_SUCCESSFUL, DM_BITSPERPEL,
+    DM_DISPLAYFREQUENCY, DM_INTERLACED, DM_PELSHEIGHT, DM_PELSWIDTH, ENUM_CURRENT_SETTINGS,
+    ENUM_DISPLAY_SETTINGS_MODE, EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW, HDC,
+    HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow,
 };
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
-use windows::core::{BOOL, PCWSTR, Result};
+use windows::core::{BOOL, PCWSTR, Result as Win32Result};
 
 /// A monitor as the game sees it, plus the handle Windows uses to refer to it.
 ///
@@ -30,6 +35,8 @@ use windows::core::{BOOL, PCWSTR, Result};
 pub struct Win32Monitor {
     monitor: Monitor,
     handle: HMONITOR,
+    /// The GDI device name, such as `\\.\DISPLAY1`, that display mode functions expect.
+    device_name: [u16; 32],
 }
 
 impl Win32Monitor {
@@ -87,9 +94,17 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
         return TRUE;
     }
     let device_name = PCWSTR(monitor_info.szDevice.as_ptr());
-    let Some(refresh_rate) = find_monitor_refresh_rate(device_name) else {
+    let Some(current_mode) = find_current_display_mode(device_name) else {
         return TRUE;
     };
+    let modes = find_display_modes(device_name, &current_mode)
+        .iter()
+        .map(|mode| {
+            let refresh_rate = Frequency::new::<hertz>(mode.dmDisplayFrequency);
+            let current = mode.dmDisplayFrequency == current_mode.dmDisplayFrequency;
+            MonitorMode::new(refresh_rate, current)
+        })
+        .collect();
 
     let dimensions = &monitor_info.monitorInfo.rcMonitor;
     let width = dimensions.right.abs_diff(dimensions.left);
@@ -121,35 +136,103 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
         identifier,
         width,
         height,
-        refresh_rate,
+        modes,
         primary,
         current,
     );
     let win32_monitor = Win32Monitor {
         monitor,
         handle: next,
+        device_name: monitor_info.szDevice,
     };
     context.monitors.push(win32_monitor);
     TRUE
 }
 
-fn find_monitor_refresh_rate(device_name: PCWSTR) -> Option<Frequency> {
-    let size = narrow_unsigned!(size_of::<DEVMODEW>() => u16);
-    let mut mode = DEVMODEW {
-        dmSize: size,
-        ..DEVMODEW::default()
+#[expect(dead_code, reason = "Called once the game can go fullscreen")]
+pub fn set_fullscreen_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result<()> {
+    let device_name = PCWSTR(monitor.device_name.as_ptr());
+    let current_mode = find_current_display_mode(device_name);
+    let Some(current_mode) = current_mode else {
+        return Err(ApplicationError::new(
+            "Could not read the monitor's current display mode",
+        ));
     };
+    let refresh_rate = mode.refresh_rate().get::<hertz>();
+    let display_modes = find_display_modes(device_name, &current_mode);
+    let display_modes: Vec<DEVMODEW> = display_modes
+        .into_iter()
+        .filter(|display_mode| display_mode.dmDisplayFrequency == refresh_rate)
+        .collect();
+    for mut display_mode in display_modes {
+        // Only the listed fields are applied, so the scaling and orientation stay as they are.
+        display_mode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY;
+        let result = unsafe {
+            ChangeDisplaySettingsExW(
+                device_name,
+                Some(&raw const display_mode),
+                None,
+                CDS_FULLSCREEN,
+                None,
+            )
+        };
+        if result == DISP_CHANGE_SUCCESSFUL {
+            return Ok(());
+        }
+    }
+    return Err(ApplicationError::new(
+        "The monitor does not offer the requested display mode",
+    ));
+}
+
+fn find_current_display_mode(device_name: PCWSTR) -> Option<DEVMODEW> {
+    let mut mode = new_display_mode();
     let success =
         unsafe { EnumDisplaySettingsW(device_name, ENUM_CURRENT_SETTINGS, &raw mut mode) };
-    if !success.as_bool() {
-        return None;
+    success.as_bool().then_some(mode)
+}
+
+fn find_display_modes(device_name: PCWSTR, current_mode: &DEVMODEW) -> Vec<DEVMODEW> {
+    let mut modes: Vec<DEVMODEW> = Vec::new();
+    for index in 0.. {
+        let mut mode = new_display_mode();
+        let success = unsafe {
+            EnumDisplaySettingsW(
+                device_name,
+                ENUM_DISPLAY_SETTINGS_MODE(index),
+                &raw mut mode,
+            )
+        };
+        if !success.as_bool() {
+            break;
+        }
+        let is_duplicate = modes
+            .iter()
+            .any(|existing| existing.dmDisplayFrequency == mode.dmDisplayFrequency);
+        if !is_duplicate && is_offered_mode(&mode, current_mode) {
+            modes.push(mode);
+        }
     }
-    let frequency = mode.dmDisplayFrequency;
-    if frequency == 0 || frequency == 1 {
-        return None;
+    modes.sort_by_key(|mode| mode.dmDisplayFrequency);
+    modes
+}
+
+fn is_offered_mode(mode: &DEVMODEW, current_mode: &DEVMODEW) -> bool {
+    let is_interlaced = unsafe { mode.Anonymous2.dmDisplayFlags } & DM_INTERLACED.0 != 0;
+    // Windows reports 0 or 1 for "the hardware's default rate", which isn't a real rate.
+    let has_refresh_rate = mode.dmDisplayFrequency > 1;
+    mode.dmPelsWidth == current_mode.dmPelsWidth
+        && mode.dmPelsHeight == current_mode.dmPelsHeight
+        && mode.dmBitsPerPel == current_mode.dmBitsPerPel
+        && has_refresh_rate
+        && !is_interlaced
+}
+
+fn new_display_mode() -> DEVMODEW {
+    DEVMODEW {
+        dmSize: narrow_unsigned!(size_of::<DEVMODEW>() => u16),
+        ..DEVMODEW::default()
     }
-    let frequency = Frequency::new::<hertz>(frequency);
-    Some(frequency)
 }
 
 fn find_monitor_names() -> Vec<MonitorNames> {
@@ -243,6 +326,6 @@ fn string_from_wide(wide: &[u16]) -> String {
     String::from_utf16_lossy(&wide[..length])
 }
 
-pub fn set_dpi_awareness() -> Result<()> {
+pub fn set_dpi_awareness() -> Win32Result<()> {
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) }
 }
