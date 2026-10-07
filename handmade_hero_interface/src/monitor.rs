@@ -6,6 +6,8 @@ pub struct Monitor {
     identifier: String,
     width_in_pixels: u32,
     height_in_pixels: u32,
+    work_width_in_pixels: u32,
+    work_height_in_pixels: u32,
     modes: Vec<MonitorMode>,
     primary: bool,
     current: bool,
@@ -14,11 +16,14 @@ pub struct Monitor {
 impl Monitor {
     #[inline]
     #[must_use]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         display_name: String,
         identifier: String,
         width_in_pixels: u32,
         height_in_pixels: u32,
+        work_width_in_pixels: u32,
+        work_height_in_pixels: u32,
         modes: Vec<MonitorMode>,
         primary: bool,
         current: bool,
@@ -28,6 +33,8 @@ impl Monitor {
             identifier,
             width_in_pixels,
             height_in_pixels,
+            work_width_in_pixels,
+            work_height_in_pixels,
             modes,
             primary,
             current,
@@ -56,6 +63,18 @@ impl Monitor {
     #[must_use]
     pub fn height_in_pixels(&self) -> u32 {
         self.height_in_pixels
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn work_width_in_pixels(&self) -> u32 {
+        self.work_width_in_pixels
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn work_height_in_pixels(&self) -> u32 {
+        self.work_height_in_pixels
     }
 
     #[inline]

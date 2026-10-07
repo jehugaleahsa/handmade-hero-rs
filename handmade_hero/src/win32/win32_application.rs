@@ -580,8 +580,8 @@ impl Win32Application {
     /// is created and the frame duration is set before initializing the plugin because
     /// it might need to inspect the render or audio buffers.
     ///
-    /// NOTE: The window size and client size are not the same. The client size will be
-    /// smaller than the request window size.
+    /// NOTE: `width` and `height` are the client area's size; the window grows to fit its frame
+    /// around it. If that wouldn't fit on the monitor, the client area shrinks instead.
     fn start_application(
         &mut self,
         loader: &mut ApplicationLoader,

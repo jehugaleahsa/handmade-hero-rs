@@ -18,7 +18,8 @@ use windows::Win32::Graphics::Gdi::{
     CDS_FULLSCREEN, CDS_TYPE, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE_SUCCESSFUL,
     DM_BITSPERPEL, DM_DISPLAYFREQUENCY, DM_INTERLACED, DM_PELSHEIGHT, DM_PELSWIDTH,
     ENUM_CURRENT_SETTINGS, ENUM_DISPLAY_SETTINGS_MODE, EnumDisplayMonitors, EnumDisplaySettingsW,
-    GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow,
+    GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO, MONITORINFOEXW,
+    MonitorFromWindow,
 };
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
@@ -76,6 +77,16 @@ pub fn find_current_monitor(window_handle: HWND) -> HMONITOR {
     unsafe { MonitorFromWindow(window_handle, MONITOR_DEFAULTTONEAREST) }
 }
 
+pub fn find_work_area(window_handle: HWND) -> Option<RECT> {
+    let monitor = find_current_monitor(window_handle);
+    let mut monitor_info = MONITORINFO {
+        cbSize: narrow_unsigned!(size_of::<MONITORINFO>() => u32),
+        ..MONITORINFO::default()
+    };
+    let success = unsafe { GetMonitorInfoW(monitor, &raw mut monitor_info) };
+    success.as_bool().then_some(monitor_info.rcWork)
+}
+
 pub fn find_monitors(window_handle: HWND) -> Vec<Win32Monitor> {
     let mut context = MonitorContext {
         current: find_current_monitor(window_handle),
@@ -120,6 +131,9 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
     let dimensions = &monitor_info.monitorInfo.rcMonitor;
     let width = dimensions.right.abs_diff(dimensions.left);
     let height = dimensions.top.abs_diff(dimensions.bottom);
+    let work_area = &monitor_info.monitorInfo.rcWork;
+    let work_width = work_area.right.abs_diff(work_area.left);
+    let work_height = work_area.top.abs_diff(work_area.bottom);
     let primary = (monitor_info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY) != 0;
     let context = unsafe { &mut *(data.0 as *mut MonitorContext) };
     let current = next == context.current;
@@ -143,6 +157,8 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
         identifier,
         width,
         height,
+        work_width,
+        work_height,
         modes,
         primary,
         current,

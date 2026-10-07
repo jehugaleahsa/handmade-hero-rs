@@ -12,20 +12,24 @@ use windows::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, BeginPaint, ClientToScreen, DIB_RGB_COLORS,
     EndPaint, GetDC, HDC, PAINTSTRUCT, PatBlt, ReleaseDC, SRCCOPY, StretchDIBits,
 };
-use windows::Win32::UI::HiDpi::AdjustWindowRectExForDpi;
+use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, GWL_STYLE, GetClientRect,
-    GetWindowLongPtrW, GetWindowPlacement, HWND_TOP, IDC_ARROW, LWA_ALPHA, LoadCursorW,
-    RegisterClassW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
-    SWP_NOZORDER, SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos,
-    WINDOW_EX_STYLE, WINDOW_STYLE, WINDOWPLACEMENT, WNDCLASSW, WNDPROC, WS_EX_LAYERED,
-    WS_OVERLAPPEDWINDOW, WS_VISIBLE,
+    GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, HWND_TOP, IDC_ARROW, LWA_ALPHA,
+    LoadCursorW, RegisterClassW, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SetLayeredWindowAttributes, SetWindowLongPtrW,
+    SetWindowPlacement, SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WINDOWPLACEMENT,
+    WNDCLASSW, WNDPROC, WS_EX_LAYERED, WS_MAXIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_THICKFRAME,
 };
+
+use super::win32_monitor::find_work_area;
 use windows::core::{Error, HSTRING, PCWSTR, Result as Win32Result, w};
 
 // The frame size depends on these styles, so creating the window and measuring its frame at a
-// new DPI must use the same values.
-const FRAME_STYLE: WINDOW_STYLE = WS_OVERLAPPEDWINDOW;
+// new DPI must use the same values. The game draws at a fixed size, so the player can't drag
+// the window's edges or maximize it.
+const FRAME_STYLE: WINDOW_STYLE =
+    WINDOW_STYLE(WS_OVERLAPPEDWINDOW.0 & !(WS_THICKFRAME.0 | WS_MAXIMIZEBOX.0));
 const EXTENDED_STYLE: WINDOW_EX_STYLE = WS_EX_LAYERED;
 
 #[derive(Debug)]
@@ -138,7 +142,7 @@ impl Win32Window {
                 EXTENDED_STYLE,
                 class_name,
                 &title,
-                FRAME_STYLE | WS_VISIBLE,
+                FRAME_STYLE,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 i32::from(width),
@@ -149,7 +153,48 @@ impl Win32Window {
                 Some(application_pointer),
             )?
         };
+        Self::size_client_area(window, i32::from(width), i32::from(height))?;
+        unsafe {
+            let _ = ShowWindow(window, SW_SHOW);
+        }
         Ok(window)
+    }
+
+    fn size_client_area(window: HWND, width: i32, height: i32) -> Win32Result<()> {
+        let dpi = unsafe { GetDpiForWindow(window) };
+        let mut rectangle = RECT {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        };
+        unsafe {
+            AdjustWindowRectExForDpi(&raw mut rectangle, FRAME_STYLE, false, EXTENDED_STYLE, dpi)?;
+        }
+        let mut window_width = Self::rectangle_width(&rectangle);
+        let mut window_height = Self::rectangle_height(&rectangle);
+
+        let mut window_rectangle = RECT::default();
+        unsafe { GetWindowRect(window, &raw mut window_rectangle)? };
+        let mut left = window_rectangle.left;
+        let mut top = window_rectangle.top;
+        if let Some(work_area) = find_work_area(window) {
+            window_width = window_width.min(Self::rectangle_width(&work_area));
+            window_height = window_height.min(Self::rectangle_height(&work_area));
+            left = left.clamp(work_area.left, work_area.right - window_width);
+            top = top.clamp(work_area.top, work_area.bottom - window_height);
+        }
+        unsafe {
+            SetWindowPos(
+                window,
+                None,
+                left,
+                top,
+                window_width,
+                window_height,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            )
+        }
     }
 
     fn set_client_dimensions(&mut self) -> Win32Result<()> {
