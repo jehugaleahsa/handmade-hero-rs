@@ -7,7 +7,9 @@ use super::win32_sound_output::Win32SoundOutput;
 use super::win32_window::Win32Window;
 use crate::application_loader::{ApplicationLoader, ApplicationStub, LoadedApplication};
 use crate::playback_recorder::PlaybackRecorder;
-use crate::win32::win32_monitor::{find_monitors, set_dpi_awareness};
+use crate::win32::win32_monitor::{
+    Win32Monitor, find_current_monitor, find_monitors, set_dpi_awareness,
+};
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -50,10 +52,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetCapture, ReleaseCapture, Se
 use windows::Win32::UI::WindowsAndMessaging::{
     CREATESTRUCTW, DefWindowProcW, DispatchMessageW, GWL_USERDATA, GetWindowLongPtrW, MSG,
     PM_REMOVE, PeekMessageW, PostQuitMessage, SetWindowLongPtrW, TranslateMessage, WM_ACTIVATEAPP,
-    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_GETDPISCALEDSIZE, WM_KEYDOWN,
-    WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
+    WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_GETDPISCALEDSIZE,
+    WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
     WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_NCCREATE, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
-    WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
+    WM_SETFOCUS, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_WINDOWPOSCHANGED, WM_XBUTTONDOWN, WM_XBUTTONUP,
 };
 use windows::core::{Error, Result as Win32Result};
 
@@ -78,6 +80,8 @@ pub struct Win32Application {
     sound_buffer: SoundBuffer,
     recording_state: RecordingState,
     recorder: PlaybackRecorder,
+    monitors: Vec<Win32Monitor>,
+    monitors_changed: bool,
 }
 
 impl Win32Application {
@@ -94,6 +98,8 @@ impl Win32Application {
             sound_buffer: SoundBuffer::new(),
             recording_state: RecordingState::None,
             recorder: PlaybackRecorder::new(exe_directory),
+            monitors: Vec::new(),
+            monitors_changed: false,
         }
     }
 
@@ -209,8 +215,41 @@ impl Win32Application {
             WM_XBUTTONUP => self.handle_mouse_x_button(w_param, false),
             WM_GETDPISCALEDSIZE => self.handle_dpi_scaled_size(w_param, l_param),
             WM_DPICHANGED => self.handle_dpi_changed(l_param),
+            WM_WINDOWPOSCHANGED => {
+                self.detect_monitor_change();
+                unsafe { DefWindowProcW(self.window.handle(), message, w_param, l_param) }
+            }
+            WM_DISPLAYCHANGE => {
+                self.refresh_monitors();
+                LRESULT(0)
+            }
             _ => unsafe { DefWindowProcW(self.window.handle(), message, w_param, l_param) },
         }
+    }
+
+    fn detect_monitor_change(&mut self) {
+        let current = find_current_monitor(self.window.handle());
+        let previous = self
+            .monitors
+            .iter()
+            .find(|monitor| monitor.monitor().current())
+            .map(Win32Monitor::handle);
+        if previous != Some(current) {
+            self.refresh_monitors();
+        }
+    }
+
+    fn refresh_monitors(&mut self) {
+        self.monitors = find_monitors(self.window.handle());
+        self.monitors_changed = true;
+    }
+
+    fn game_monitors(&self) -> Vec<Monitor> {
+        self.monitors
+            .iter()
+            .map(Win32Monitor::monitor)
+            .cloned()
+            .collect()
     }
 
     fn handle_dpi_scaled_size(&self, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
@@ -357,6 +396,9 @@ impl Win32Application {
             self.process_recording_hotkey();
 
             let application = self.load_application(application_loader)?;
+            if self.monitors_changed {
+                self.handle_monitor_change(application.as_ref());
+            }
 
             self.process_recording(application.as_ref());
             self.process_input(application.as_ref());
@@ -468,8 +510,8 @@ impl Win32Application {
 
         self.create_window(&application.name(), width, height)?;
 
-        let monitors = find_monitors(self.window.handle());
-        let frame_duration = Self::find_frame_duration(&application, &monitors);
+        self.monitors = find_monitors(self.window.handle());
+        let frame_duration = self.find_frame_duration(&application);
         self.state.set_frame_duration(frame_duration);
 
         self.initialize_application(application.as_ref());
@@ -489,8 +531,16 @@ impl Win32Application {
         }
     }
 
-    fn find_frame_duration(application: &ApplicationStub, monitors: &[Monitor]) -> Time {
-        let duration = application.suggest_frame_duration(monitors);
+    fn handle_monitor_change(&mut self, _application: &ApplicationStub) {
+        // TODO: Inform game the monitors changed. Imagine user selects menu item
+        // to change their primary display when in fullscreen mode, and then
+        // the game can suggest a different frame duration.
+        self.monitors_changed = false;
+    }
+
+    fn find_frame_duration(&self, application: &ApplicationStub) -> Time {
+        let monitors = self.game_monitors();
+        let duration = application.suggest_frame_duration(&monitors);
         duration.unwrap_or_else(Self::default_frame_duration)
     }
 
