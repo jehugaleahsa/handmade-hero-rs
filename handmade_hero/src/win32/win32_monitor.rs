@@ -2,7 +2,6 @@ use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::monitor_mode::MonitorMode;
 use handmade_hero_interface::narrow_unsigned;
-use handmade_hero_interface::units::si::length::{Length, pixel};
 use uom::si::frequency::hertz;
 use uom::si::u32::Frequency;
 use windows::Win32::Devices::Display::{
@@ -100,19 +99,19 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
     let modes = find_display_modes(device_name, &current_mode)
         .iter()
         .map(|mode| {
-            let refresh_rate = Frequency::new::<hertz>(mode.dmDisplayFrequency);
-            let current = mode.dmDisplayFrequency == current_mode.dmDisplayFrequency;
-            MonitorMode::new(refresh_rate, current)
+            let current = is_same_mode(mode, &current_mode);
+            MonitorMode::new(
+                mode.dmPelsWidth,
+                mode.dmPelsHeight,
+                Frequency::new::<hertz>(mode.dmDisplayFrequency),
+                current,
+            )
         })
         .collect();
 
     let dimensions = &monitor_info.monitorInfo.rcMonitor;
     let width = dimensions.right.abs_diff(dimensions.left);
-    #[expect(clippy::cast_precision_loss)]
-    let width = Length::new::<pixel>(width as f32);
     let height = dimensions.top.abs_diff(dimensions.bottom);
-    #[expect(clippy::cast_precision_loss)]
-    let height = Length::new::<pixel>(height as f32);
     let primary = (monitor_info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY) != 0;
     let context = unsafe { &mut *(data.0 as *mut MonitorContext) };
     let current = next == context.current;
@@ -158,11 +157,10 @@ pub fn set_display_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result<()
             "Could not read the monitor's current display mode",
         ));
     };
-    let refresh_rate = mode.refresh_rate().get::<hertz>();
     let display_modes = find_display_modes(device_name, &current_mode);
     let display_modes: Vec<DEVMODEW> = display_modes
         .into_iter()
-        .filter(|display_mode| display_mode.dmDisplayFrequency == refresh_rate)
+        .filter(|display_mode| matches_monitor_mode(display_mode, mode))
         .collect();
     for mut display_mode in display_modes {
         // Only the listed fields are applied, so the scaling and orientation stay as they are.
@@ -185,7 +183,6 @@ pub fn set_display_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result<()
     ))
 }
 
-/// Puts back the display mode the player chose in Windows, undoing `set_fullscreen_mode`.
 #[expect(dead_code, reason = "Called once the game can leave fullscreen")]
 pub fn restore_display_mode(monitor: &Win32Monitor) -> Result<()> {
     let device_name = PCWSTR(monitor.device_name.as_ptr());
@@ -221,28 +218,35 @@ fn find_display_modes(device_name: PCWSTR, current_mode: &DEVMODEW) -> Vec<DEVMO
         if !success.as_bool() {
             break;
         }
-        let is_duplicate = modes
-            .iter()
-            .any(|existing| existing.dmDisplayFrequency == mode.dmDisplayFrequency);
+        // Windows lists a mode once per scaling setting, among other things, so the same
+        // resolution and refresh rate can appear more than once.
+        let is_duplicate = modes.iter().any(|existing| is_same_mode(existing, &mode));
         if !is_duplicate && is_offered_mode(&mode, current_mode) {
             modes.push(mode);
         }
     }
-    modes.sort_by_key(|mode| mode.dmDisplayFrequency);
+    modes.sort_by_key(|mode| (mode.dmPelsWidth, mode.dmPelsHeight, mode.dmDisplayFrequency));
     modes
+}
+
+fn is_same_mode(mode: &DEVMODEW, other: &DEVMODEW) -> bool {
+    mode.dmPelsWidth == other.dmPelsWidth
+        && mode.dmPelsHeight == other.dmPelsHeight
+        && mode.dmDisplayFrequency == other.dmDisplayFrequency
+}
+
+fn matches_monitor_mode(display_mode: &DEVMODEW, mode: &MonitorMode) -> bool {
+    display_mode.dmPelsWidth == mode.width_in_pixels()
+        && display_mode.dmPelsHeight == mode.height_in_pixels()
+        && display_mode.dmDisplayFrequency == mode.refresh_rate().get::<hertz>()
 }
 
 fn is_offered_mode(mode: &DEVMODEW, current_mode: &DEVMODEW) -> bool {
     let is_interlaced = unsafe { mode.Anonymous2.dmDisplayFlags } & DM_INTERLACED.0 != 0;
     // Windows reports 0 or 1 for "the hardware's default rate", which isn't a real rate.
     let has_refresh_rate = mode.dmDisplayFrequency > 1;
-    mode.dmPelsWidth == current_mode.dmPelsWidth
-        && mode.dmPelsHeight == current_mode.dmPelsHeight
-        && mode.dmBitsPerPel == current_mode.dmBitsPerPel
-        && has_refresh_rate
-        && !is_interlaced
+    mode.dmBitsPerPel == current_mode.dmBitsPerPel && has_refresh_rate && !is_interlaced
 }
-
 fn new_display_mode() -> DEVMODEW {
     DEVMODEW {
         dmSize: narrow_unsigned!(size_of::<DEVMODEW>() => u16),

@@ -1,11 +1,11 @@
-use crate::{monitor_mode::MonitorMode, units::si::length::Length};
+use crate::monitor_mode::MonitorMode;
 
 #[derive(Debug, Clone)]
 pub struct Monitor {
     display_name: String,
     identifier: String,
-    width: Length,
-    height: Length,
+    width_in_pixels: u32,
+    height_in_pixels: u32,
     modes: Vec<MonitorMode>,
     primary: bool,
     current: bool,
@@ -17,8 +17,8 @@ impl Monitor {
     pub fn new(
         display_name: String,
         identifier: String,
-        width: Length,
-        height: Length,
+        width_in_pixels: u32,
+        height_in_pixels: u32,
         modes: Vec<MonitorMode>,
         primary: bool,
         current: bool,
@@ -26,8 +26,8 @@ impl Monitor {
         Self {
             display_name,
             identifier,
-            width,
-            height,
+            width_in_pixels,
+            height_in_pixels,
             modes,
             primary,
             current,
@@ -48,14 +48,14 @@ impl Monitor {
 
     #[inline]
     #[must_use]
-    pub fn width(&self) -> Length {
-        self.width
+    pub fn width_in_pixels(&self) -> u32 {
+        self.width_in_pixels
     }
 
     #[inline]
     #[must_use]
-    pub fn height(&self) -> Length {
-        self.height
+    pub fn height_in_pixels(&self) -> u32 {
+        self.height_in_pixels
     }
 
     #[inline]
