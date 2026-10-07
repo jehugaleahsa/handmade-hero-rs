@@ -253,7 +253,20 @@ impl ApplicationPlugin {
                 let Some(monitor) = monitors.iter().find(|monitor| monitor.current()) else {
                     return;
                 };
-                let Some(mode) = monitor.current_mode() else {
+                // TEMPORARY: picks the largest mode other than the current one, so going
+                // fullscreen always switches modes and Alt+Tab handling can be tested.
+                let Some(mode) = monitor
+                    .modes()
+                    .iter()
+                    .filter(|mode| !mode.current())
+                    .max_by_key(|mode| {
+                        (
+                            mode.width_in_pixels(),
+                            mode.height_in_pixels(),
+                            mode.refresh_rate().get::<hertz>(),
+                        )
+                    })
+                else {
                     return;
                 };
                 DisplaySettings::Fullscreen {

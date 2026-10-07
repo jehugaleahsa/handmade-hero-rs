@@ -88,6 +88,22 @@ pub struct Win32Application {
     monitors: Vec<Win32Monitor>,
     monitors_changed: bool,
     display: DisplayState,
+    mode_change: ModeChange,
+    /// Set when the game gains or loses focus. The game loop reacts at the start of the next
+    /// frame rather than in the window procedure.
+    pending_activation: Option<bool>,
+}
+
+/// Whether the fullscreen monitor is in a display mode the game switched it to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModeChange {
+    /// Every monitor is in the mode the player chose in Windows.
+    None,
+    /// The fullscreen monitor is in the game's mode.
+    Active,
+    /// The player switched to another application, so their own mode is back until the game is
+    /// active again.
+    Suspended,
 }
 
 impl Win32Application {
@@ -107,6 +123,8 @@ impl Win32Application {
             monitors: Vec::new(),
             monitors_changed: false,
             display: DisplayState::new(),
+            mode_change: ModeChange::None,
+            pending_activation: None,
         }
     }
 
@@ -149,6 +167,10 @@ impl Win32Application {
             .map_err(|e| ApplicationError::wrap("The client width did not fit in a usize", e))?;
         let client_height = usize::try_from(client_size.cy)
             .map_err(|e| ApplicationError::wrap("The client height did not fit in a usize", e))?;
+        if client_width == 0 || client_height == 0 {
+            // A minimized window has no client area. Keep the buffer for when it comes back.
+            return Ok(());
+        }
 
         #[expect(clippy::cast_precision_loss)]
         let width_in_pixels = Length::new::<pixel>(client_width as f32);
@@ -167,10 +189,13 @@ impl Win32Application {
     ) -> LRESULT {
         match message {
             WM_CLOSE | WM_DESTROY => Self::emit_quitting(),
-            WM_ACTIVATEAPP => self
-                .window
-                .set_transparency(w_param.0 != 0)
-                .map_or(LRESULT(0), |()| LRESULT(0)),
+            WM_ACTIVATEAPP => {
+                let is_active = w_param.0 != 0;
+                self.pending_activation = Some(is_active);
+                self.window
+                    .set_transparency(is_active)
+                    .map_or(LRESULT(0), |()| LRESULT(0))
+            }
             WM_PAINT => {
                 self.window.repaint(&self.back_buffer);
                 LRESULT(0)
@@ -409,8 +434,14 @@ impl Win32Application {
             } else {
                 false
             };
-            if !stays_on_monitor && let Some(monitor) = self.find_monitor(current) {
-                restore_display_mode(monitor)?;
+            if !stays_on_monitor {
+                // A suspended change has already given the player their mode back.
+                if self.mode_change == ModeChange::Active
+                    && let Some(monitor) = self.find_monitor(current)
+                {
+                    restore_display_mode(monitor)?;
+                }
+                self.mode_change = ModeChange::None;
             }
         }
         match settings {
@@ -436,6 +467,7 @@ impl Win32Application {
             .is_some_and(|current| current.matches(mode));
         if !is_current_mode {
             set_display_mode(monitor, mode)?;
+            self.mode_change = ModeChange::Active;
             // A new resolution changes the monitor's size, so its bounds have to be read again.
             self.refresh_monitors();
             bounds = self
@@ -446,6 +478,46 @@ impl Win32Application {
         self.window
             .enter_fullscreen(&bounds)
             .map_err(|e| ApplicationError::wrap("Could not enter fullscreen", e))
+    }
+
+    fn process_activation(&mut self) {
+        let Some(is_active) = self.pending_activation.take() else {
+            return;
+        };
+        let DisplaySettings::Fullscreen {
+            monitor_identifier,
+            mode,
+        } = self.display.current().clone()
+        else {
+            return;
+        };
+        match (is_active, self.mode_change) {
+            (false, ModeChange::Active) => {
+                if let Some(monitor) = self.find_monitor(&monitor_identifier) {
+                    let _ = restore_display_mode(monitor);
+                }
+                self.mode_change = ModeChange::Suspended;
+                self.refresh_monitors();
+                self.window.minimize();
+            }
+            (true, ModeChange::Suspended) => {
+                // Windows activates a minimized window before restoring it, so the window may
+                // still be minimized here. Restoring it first gives the repositioning and the
+                // buffer resize a real window to work with.
+                self.window.restore();
+                // The player's mode is back, so this switches modes again and repositions the
+                // window to the monitor's new size.
+                let _ = self
+                    .enter_fullscreen(&monitor_identifier, &mode)
+                    .and_then(|()| self.resize_render_buffer());
+                // Switching modes marks the change active again. If no switch happened, because
+                // the monitor was already in that mode or switching failed, nothing is changed.
+                if self.mode_change == ModeChange::Suspended {
+                    self.mode_change = ModeChange::None;
+                }
+            }
+            _ => {}
+        }
     }
 
     fn find_monitor(&self, identifier: &str) -> Option<&Win32Monitor> {
@@ -482,6 +554,7 @@ impl Win32Application {
                 return Ok(code);
             }
             self.process_recording_hotkey();
+            self.process_activation();
             self.process_display_request();
 
             let application = self.load_application(application_loader)?;

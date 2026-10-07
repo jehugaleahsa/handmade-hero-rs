@@ -15,11 +15,12 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, GWL_STYLE, GetClientRect,
-    GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, HWND_TOP, IDC_ARROW, LWA_ALPHA,
-    LoadCursorW, RegisterClassW, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SetLayeredWindowAttributes, SetWindowLongPtrW,
-    SetWindowPlacement, SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WINDOWPLACEMENT,
-    WNDCLASSW, WNDPROC, WS_EX_LAYERED, WS_MAXIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_THICKFRAME,
+    GetWindowLongPtrW, GetWindowPlacement, GetWindowRect, HWND_TOP, IDC_ARROW, IsIconic, LWA_ALPHA,
+    LoadCursorW, RegisterClassW, SW_MINIMIZE, SW_RESTORE, SW_SHOW, SWP_FRAMECHANGED,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
+    SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos, ShowWindow,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WINDOWPLACEMENT, WNDCLASSW, WNDPROC, WS_EX_LAYERED,
+    WS_MAXIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_THICKFRAME,
 };
 
 use super::win32_monitor::find_work_area;
@@ -246,6 +247,17 @@ impl Win32Window {
                 cy,
                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
             )
+        }
+    }
+
+    pub fn minimize(&self) {
+        let _ = unsafe { ShowWindow(self.window_handle, SW_MINIMIZE) };
+    }
+
+    pub fn restore(&self) {
+        let is_iconic = unsafe { IsIconic(self.window_handle).as_bool() };
+        if is_iconic {
+            let _ = unsafe { ShowWindow(self.window_handle, SW_RESTORE) };
         }
     }
 
