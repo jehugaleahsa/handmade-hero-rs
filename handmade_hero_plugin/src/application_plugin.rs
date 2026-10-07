@@ -77,11 +77,6 @@ impl ApplicationPlugin {
 
         // Load the world tile maps
         let world = plugin_state.world_mut();
-        let tile_width = width / f32::from(World::TILE_COLUMNS);
-        let tile_height = height / f32::from(World::TILE_ROWS);
-        world.tile_size = Length::new::<pixel>(tile_height);
-        world.x_offset = Length::new::<pixel>(-tile_width / 4.0);
-        world.y_offset = Length::zero();
 
         let hub = world.add_tile_map(TileMapKey::from_x_y(0, 0));
         Self::load_hub_tile_map(hub);
@@ -358,13 +353,22 @@ impl ApplicationPlugin {
 
     fn render_direct(
         #[allow(unused_variables)] game_state: &GameState,
-        plugin_state: &PluginGameState,
+        plugin_state: &mut PluginGameState,
         #[allow(unused_variables)] input_state: &InputState,
         buffer: &mut BackBuffer,
     ) {
         let width = buffer.width();
         let height = buffer.height();
         let window_bounds = Rectangle::new(0f32, 0f32, height.get::<pixel>(), width.get::<pixel>());
+
+        let world = plugin_state.world_mut();
+        let tile_width = width / f32::from(World::TILE_COLUMNS);
+        let tile_height = height / f32::from(World::TILE_ROWS);
+        world.tile_size = tile_height.max(tile_width);
+        let x_growth = (tile_height - tile_width) * f32::from(World::TILE_COLUMNS);
+        world.x_offset = x_growth.max(Length::zero()) / -2.0;
+        let y_growth = (tile_width - tile_height) * f32::from(World::TILE_ROWS);
+        world.y_offset = y_growth.max(Length::zero()) / -2.0;
 
         let world = plugin_state.world();
         let player_coordinate = plugin_state.player().coordinate();
@@ -862,7 +866,7 @@ impl Application for ApplicationPlugin {
             buffer,
             ..
         } = context;
-        if let Some(plugin_state) = plugin_state.downcast_ref::<PluginGameState>() {
+        if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
             Self::render_direct(game_state, plugin_state, input_state, buffer);
         }
     }
