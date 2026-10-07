@@ -366,6 +366,26 @@ impl Win32Application {
         };
     }
 
+    /// F11 switches between windowed and fullscreen on the monitor the window is on.
+    fn process_fullscreen_hotkey(&mut self) {
+        if !self.keyboard.key(Key::F11).was_pressed() {
+            return;
+        }
+        if self.window.is_fullscreen() {
+            let _ = self.window.exit_fullscreen();
+            return;
+        }
+        let Some(monitor) = self
+            .monitors
+            .iter()
+            .find(|monitor| monitor.monitor().current())
+        else {
+            return;
+        };
+        let bounds = monitor.bounds();
+        let _ = self.window.enter_fullscreen(&bounds);
+    }
+
     pub fn run(
         &mut self,
         application_loader: &mut ApplicationLoader,
@@ -394,6 +414,7 @@ impl Win32Application {
                 return Ok(code);
             }
             self.process_recording_hotkey();
+            self.process_fullscreen_hotkey();
 
             let application = self.load_application(application_loader)?;
             if self.monitors_changed {

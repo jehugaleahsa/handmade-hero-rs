@@ -14,9 +14,11 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::HiDpi::AdjustWindowRectExForDpi;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, GetClientRect, IDC_ARROW, LWA_ALPHA,
-    LoadCursorW, RegisterClassW, SWP_NOACTIVATE, SWP_NOZORDER, SetLayeredWindowAttributes,
-    SetWindowPos, WINDOW_EX_STYLE, WINDOW_STYLE, WNDCLASSW, WNDPROC, WS_EX_LAYERED,
+    CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreateWindowExW, GWL_STYLE, GetClientRect,
+    GetWindowLongPtrW, GetWindowPlacement, HWND_TOP, IDC_ARROW, LWA_ALPHA, LoadCursorW,
+    RegisterClassW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE,
+    SWP_NOZORDER, SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPlacement, SetWindowPos,
+    WINDOW_EX_STYLE, WINDOW_STYLE, WINDOWPLACEMENT, WNDCLASSW, WNDPROC, WS_EX_LAYERED,
     WS_OVERLAPPEDWINDOW, WS_VISIBLE,
 };
 use windows::core::{Error, HSTRING, PCWSTR, Result as Win32Result, w};
@@ -30,6 +32,8 @@ const EXTENDED_STYLE: WINDOW_EX_STYLE = WS_EX_LAYERED;
 pub struct Win32Window {
     bitmap_info: BITMAPINFO,
     window_handle: HWND,
+    /// Where the window sat before going fullscreen, so leaving fullscreen can put it back.
+    windowed_placement: Option<WINDOWPLACEMENT>,
 }
 
 impl Win32Window {
@@ -40,6 +44,7 @@ impl Win32Window {
         Win32Window {
             bitmap_info,
             window_handle: HWND::default(),
+            windowed_placement: None,
         }
     }
 
@@ -182,6 +187,74 @@ impl Win32Window {
                 SWP_NOZORDER | SWP_NOACTIVATE,
             )
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_fullscreen(&self) -> bool {
+        self.windowed_placement.is_some()
+    }
+
+    pub fn enter_fullscreen(&mut self, bounds: &RECT) -> Win32Result<()> {
+        if self.windowed_placement.is_none() {
+            let length = narrow_unsigned!(size_of::<WINDOWPLACEMENT>() => u32);
+            let mut placement = WINDOWPLACEMENT {
+                length,
+                ..WINDOWPLACEMENT::default()
+            };
+            unsafe { GetWindowPlacement(self.window_handle, &raw mut placement)? };
+            let style = self.style();
+            let new_style = style & !FRAME_STYLE;
+            self.set_style(new_style);
+            self.windowed_placement = Some(placement);
+        }
+        let cx = Self::rectangle_width(bounds);
+        let cy = Self::rectangle_height(bounds);
+        unsafe {
+            SetWindowPos(
+                self.window_handle,
+                Some(HWND_TOP),
+                bounds.left,
+                bounds.top,
+                cx,
+                cy,
+                SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+            )
+        }
+    }
+
+    pub fn exit_fullscreen(&mut self) -> Win32Result<()> {
+        let Some(placement) = self.windowed_placement.take() else {
+            return Ok(());
+        };
+        let style = self.style();
+        let new_style = style | FRAME_STYLE;
+        self.set_style(new_style);
+        unsafe {
+            SetWindowPlacement(self.window_handle, &raw const placement)?;
+            SetWindowPos(
+                self.window_handle,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+            )
+        }
+    }
+
+    fn style(&self) -> WINDOW_STYLE {
+        let style = unsafe { GetWindowLongPtrW(self.window_handle, GWL_STYLE) };
+        #[expect(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_sign_loss)]
+        WINDOW_STYLE(style as u32)
+    }
+
+    fn set_style(&self, style: WINDOW_STYLE) {
+        #[expect(clippy::cast_possible_wrap)]
+        let style = style.0 as isize;
+        unsafe { SetWindowLongPtrW(self.window_handle, GWL_STYLE, style) };
     }
 
     pub fn set_transparency(&mut self, is_active: bool) -> Win32Result<()> {

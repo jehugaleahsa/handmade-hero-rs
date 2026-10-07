@@ -36,6 +36,8 @@ pub struct Win32Monitor {
     handle: HMONITOR,
     /// The GDI device name, such as `\\.\DISPLAY1`, that display mode functions expect.
     device_name: [u16; 32],
+    /// The monitor's full area on the desktop, taskbar included, in physical pixels.
+    bounds: RECT,
 }
 
 impl Win32Monitor {
@@ -43,6 +45,12 @@ impl Win32Monitor {
     #[must_use]
     pub fn monitor(&self) -> &Monitor {
         &self.monitor
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn bounds(&self) -> RECT {
+        self.bounds
     }
 
     #[inline]
@@ -143,6 +151,7 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
         monitor,
         handle: next,
         device_name: monitor_info.szDevice,
+        bounds: monitor_info.monitorInfo.rcMonitor,
     };
     context.monitors.push(win32_monitor);
     TRUE
