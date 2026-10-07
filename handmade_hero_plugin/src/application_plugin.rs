@@ -74,6 +74,12 @@ impl ApplicationPlugin {
 
         // Load the world tile maps
         let world = plugin_state.world_mut();
+        let tile_width = width / f32::from(World::TILE_COLUMNS);
+        let tile_height = height / f32::from(World::TILE_ROWS);
+        world.tile_size = Length::new::<pixel>(tile_height);
+        world.x_offset = Length::new::<pixel>(-tile_width / 4.0);
+        world.y_offset = Length::zero();
+
         let hub = world.add_tile_map(TileMapKey::from_x_y(0, 0));
         Self::load_hub_tile_map(hub);
         let south = world.add_tile_map(TileMapKey::from_x_y(0, -1));
@@ -323,17 +329,15 @@ impl ApplicationPlugin {
         let player_coordinate = plugin_state.player().coordinate();
         let start_coordinate = Self::determine_start_coordinate(world, player_coordinate);
 
-        Self::render_tilemap(plugin_state, &window_bounds, &start_coordinate, buffer)
-            .unwrap_or_default(); // Ignore errors
+        let _ = Self::render_tilemap(plugin_state, &window_bounds, &start_coordinate, buffer);
 
-        Self::render_player(plugin_state, &window_bounds, &start_coordinate, buffer)
-            .unwrap_or_default(); // Ignore errors
+        let _ = Self::render_player(plugin_state, &window_bounds, &start_coordinate, buffer);
 
         #[cfg(feature = "audio_debug")]
-        Self::render_audio(game_state, plugin_state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
+        let _ = Self::render_audio(game_state, plugin_state, &window_bounds, buffer);
 
         #[cfg(feature = "mouse_debug")]
-        Self::render_mouse(plugin_state, input_state, &window_bounds, buffer).unwrap_or_default(); // Ignore errors
+        let _ = Self::render_mouse(plugin_state, input_state, &window_bounds, buffer);
     }
 
     fn render_tilemap(

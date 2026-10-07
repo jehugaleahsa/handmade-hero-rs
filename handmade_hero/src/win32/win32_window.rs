@@ -148,31 +148,29 @@ impl Win32Window {
     }
 
     fn set_client_dimensions(&mut self) -> Win32Result<()> {
-        let mut rectangle = RECT::default();
-        unsafe { GetClientRect(self.window_handle, &raw mut rectangle)? };
+        let rectangle = self.current_client_rect()?;
         let header = &mut self.bitmap_info.bmiHeader;
-        header.biWidth = rectangle.right.saturating_sub(rectangle.left);
-        header.biHeight = -rectangle.bottom.saturating_sub(rectangle.top);
+        header.biWidth = Self::rectangle_width(&rectangle);
+        header.biHeight = -Self::rectangle_height(&rectangle);
         Ok(())
     }
 
     /// Computes the window size that keeps the client area at its current size in physical
     /// pixels once the frame is drawn at `dpi`. Only the frame grows or shrinks.
     pub fn window_size_for_dpi(&self, dpi: u32) -> Win32Result<SIZE> {
-        let mut rectangle = RECT::default();
+        let mut rectangle = self.current_client_rect()?;
         unsafe {
-            GetClientRect(self.window_handle, &raw mut rectangle)?;
             AdjustWindowRectExForDpi(&raw mut rectangle, FRAME_STYLE, false, EXTENDED_STYLE, dpi)?;
         }
-        let cx = rectangle.right.saturating_sub(rectangle.left);
-        let cy = rectangle.bottom.saturating_sub(rectangle.top);
+        let cx = Self::rectangle_width(&rectangle);
+        let cy = Self::rectangle_height(&rectangle);
         let size = SIZE { cx, cy };
         Ok(size)
     }
 
     pub fn move_to(&self, rectangle: &RECT) -> Win32Result<()> {
-        let cx = rectangle.right.saturating_sub(rectangle.left);
-        let cy = rectangle.bottom.saturating_sub(rectangle.top);
+        let cx = Self::rectangle_width(rectangle);
+        let cy = Self::rectangle_height(rectangle);
         unsafe {
             SetWindowPos(
                 self.window_handle,
@@ -241,8 +239,12 @@ impl Win32Window {
     // If the client area exceeds our buffer size due to resizing the window,
     // render a black background. We don't stretch the content.
     fn render_out_of_bounds(&self, device_context: HDC, width: i32, height: i32) {
-        let client_height = self.client_height();
-        let client_width = self.client_width();
+        // The window may have been resized since creation
+        let Ok(client_rectangle) = self.current_client_rect() else {
+            return;
+        };
+        let client_width = Self::rectangle_width(&client_rectangle);
+        let client_height = Self::rectangle_height(&client_rectangle);
         unsafe {
             let _ = PatBlt(
                 device_context,
@@ -261,6 +263,24 @@ impl Win32Window {
                 BLACKNESS,
             );
         }
+    }
+
+    fn current_client_rect(&self) -> Win32Result<RECT> {
+        let mut rectangle = RECT::default();
+        unsafe { GetClientRect(self.window_handle, &raw mut rectangle)? };
+        Ok(rectangle)
+    }
+
+    #[inline]
+    #[must_use]
+    fn rectangle_width(rectangle: &RECT) -> i32 {
+        rectangle.right.saturating_sub(rectangle.left)
+    }
+
+    #[inline]
+    #[must_use]
+    fn rectangle_height(rectangle: &RECT) -> i32 {
+        rectangle.bottom.saturating_sub(rectangle.top)
     }
 
     pub fn client_coordinate(&self) -> Win32Result<POINT> {

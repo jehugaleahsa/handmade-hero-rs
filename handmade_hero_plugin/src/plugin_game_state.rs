@@ -5,6 +5,7 @@ use crate::world::World;
 use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use uom::num_traits::Zero;
 use uom::si::length::meter;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -17,9 +18,9 @@ pub struct PluginGameState {
 impl PluginGameState {
     #[must_use]
     pub fn new() -> Self {
-        let tile_size = Length::new::<meter>(1.4f32);
-        let x_offset = -(tile_size / 1.6f32);
-        let y_offset = -(tile_size / 3.5f32);
+        let tile_size = Length::new::<meter>(2.77f32);
+        let x_offset = Length::zero();
+        let y_offset = Length::zero();
         let world = World {
             rows: World::TILE_ROWS,
             columns: World::TILE_COLUMNS,

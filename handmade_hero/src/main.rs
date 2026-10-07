@@ -33,7 +33,7 @@ fn run_windows(
     use win32::win32_application::Win32Application;
 
     let mut windows_application = Win32Application::new(exe_directory);
-    windows_application.run(application_loader, 960, 540)
+    windows_application.run(application_loader, 1920, 1080)
 }
 
 /// The directory the executable lives in. The plugin is loaded from here and recordings are
