@@ -37,7 +37,6 @@ use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::sound_buffer::SoundBuffer;
 use handmade_hero_interface::units::si::information::Information;
 use handmade_hero_interface::units::si::length::pixel;
-use std::cmp::Ordering;
 use std::ffi::c_void;
 use std::path::Path;
 use std::process::ExitCode;
@@ -559,7 +558,7 @@ impl Win32Application {
 
             let application = self.load_application(application_loader)?;
             if self.monitors_changed {
-                self.handle_monitor_change(application.as_ref());
+                self.handle_monitor_change(application.as_ref(), sound_output.as_mut());
             }
 
             self.process_recording(application.as_ref());
@@ -693,11 +692,25 @@ impl Win32Application {
         }
     }
 
-    fn handle_monitor_change(&mut self, _application: &ApplicationStub) {
-        // TODO: Inform game the monitors changed. Imagine user selects menu item
-        // to change their primary display when in fullscreen mode, and then
-        // the game can suggest a different frame duration.
+    /// Runs at the start of the first frame after the window lands on another monitor or the
+    /// monitors are reconfigured, such as the player going fullscreen on a faster monitor. The
+    /// game gets to suggest a frame duration for the new monitors, and the audio written each
+    /// frame follows it.
+    fn handle_monitor_change(
+        &mut self,
+        application: &ApplicationStub,
+        sound_output: Option<&mut Win32SoundOutput<'_>>,
+    ) {
         self.monitors_changed = false;
+        let frame_duration = self.find_frame_duration(application);
+        if frame_duration == self.state.frame_duration() {
+            return;
+        }
+        self.state.set_frame_duration(frame_duration);
+        if let Some(sound_output) = sound_output {
+            let format = self.state.audio().format();
+            sound_output.set_frame_size(self.sample_size_per_frame(format));
+        }
     }
 
     fn find_frame_duration(&self, application: &ApplicationStub) -> Time {
@@ -915,13 +928,7 @@ impl Win32Application {
         target_cursor: u32,
     ) -> Information {
         let buffer_length = direct_sound_buffer.length().get::<byte>();
-        let bytes_to_write = match write_offset.cmp(&target_cursor) {
-            Ordering::Greater => buffer_length
-                .saturating_sub(write_offset)
-                .saturating_add(target_cursor),
-            Ordering::Less => target_cursor.saturating_sub(write_offset),
-            Ordering::Equal => 0,
-        };
+        let bytes_to_write = Self::bytes_to_target(write_offset, target_cursor, buffer_length);
         // The target cursor is estimated from elapsed time, so it can land partway through a
         // sample. Rounding down keeps every write offset on a sample boundary, which the ring
         // buffer math cannot guarantee on its own since offsets are bytes. The stray bytes are
@@ -930,6 +937,31 @@ impl Win32Application {
         let misaligned_bytes = bytes_to_write.checked_rem(sample_size).unwrap_or(0);
         let aligned_bytes_to_write = bytes_to_write.saturating_sub(misaligned_bytes);
         Information::new::<byte>(aligned_bytes_to_write)
+    }
+
+    /// Bytes to write to carry the ring buffer forward from `write_offset` to `target_cursor`.
+    ///
+    /// Earlier frames may already have written past the target. That happens when the frame
+    /// duration shrinks by more than half, since the last write reached one old frame ahead.
+    /// Read as a wrap around the ring, that would be a write of almost the whole buffer over
+    /// audio about to play, so nothing is written instead. A write offset that fell behind the
+    /// play cursor is the opposite case, lagging rather than leading, so it sits most of the ring
+    /// past the target and still catches up.
+    fn bytes_to_target(write_offset: u32, target_cursor: u32, buffer_length: u32) -> u32 {
+        let lead_over_target = Self::ring_distance(target_cursor, write_offset, buffer_length);
+        if lead_over_target < buffer_length / 2 {
+            return 0;
+        }
+        Self::ring_distance(write_offset, target_cursor, buffer_length)
+    }
+
+    /// How many bytes forward it is from `from` to `to`, going around the ring buffer if needed.
+    fn ring_distance(from: u32, to: u32, buffer_length: u32) -> u32 {
+        if to >= from {
+            to - from
+        } else {
+            buffer_length - from + to
+        }
     }
 
     /// Where we start writing and how much we write depends on the audio latency.
@@ -1089,4 +1121,57 @@ extern "system" fn window_procedure(
         return unsafe { DefWindowProcW(window_handle, message, w_param, l_param) };
     }
     application.process_windows_message(message, w_param, l_param)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Win32Application;
+
+    const BUFFER_LENGTH: u32 = 1000;
+
+    #[test]
+    fn test_bytes_to_target_writes_up_to_a_target_ahead() {
+        assert_eq!(
+            200,
+            Win32Application::bytes_to_target(300, 500, BUFFER_LENGTH)
+        );
+    }
+
+    #[test]
+    fn test_bytes_to_target_wraps_around_the_end_of_the_buffer() {
+        assert_eq!(
+            150,
+            Win32Application::bytes_to_target(900, 50, BUFFER_LENGTH)
+        );
+    }
+
+    #[test]
+    fn test_bytes_to_target_writes_nothing_when_already_past_the_target() {
+        assert_eq!(
+            0,
+            Win32Application::bytes_to_target(500, 450, BUFFER_LENGTH)
+        );
+    }
+
+    #[test]
+    fn test_bytes_to_target_writes_nothing_when_past_a_target_across_the_wrap() {
+        assert_eq!(0, Win32Application::bytes_to_target(20, 980, BUFFER_LENGTH));
+    }
+
+    #[test]
+    fn test_bytes_to_target_catches_up_when_the_write_offset_lags_across_the_wrap() {
+        // The play cursor has overtaken the write offset, so the target is far ahead of it.
+        assert_eq!(
+            450,
+            Win32Application::bytes_to_target(850, 300, BUFFER_LENGTH)
+        );
+    }
+
+    #[test]
+    fn test_bytes_to_target_writes_nothing_at_the_target() {
+        assert_eq!(
+            0,
+            Win32Application::bytes_to_target(400, 400, BUFFER_LENGTH)
+        );
+    }
 }

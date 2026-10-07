@@ -61,6 +61,11 @@ impl<'ds> Win32SoundOutput<'ds> {
     }
 
     #[inline]
+    pub fn set_frame_size(&mut self, frame_size: Information) {
+        self.frame_size = frame_size;
+    }
+
+    #[inline]
     #[must_use]
     pub fn safety_margin(&self) -> Information {
         self.frame_size / SOUND_SAFETY_MARGIN_DIVISOR
