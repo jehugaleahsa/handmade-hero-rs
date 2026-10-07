@@ -16,10 +16,10 @@ use windows::Win32::Foundation::{
     ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, HWND, LPARAM, LUID, RECT, TRUE,
 };
 use windows::Win32::Graphics::Gdi::{
-    CDS_FULLSCREEN, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE_SUCCESSFUL, DM_BITSPERPEL,
-    DM_DISPLAYFREQUENCY, DM_INTERLACED, DM_PELSHEIGHT, DM_PELSWIDTH, ENUM_CURRENT_SETTINGS,
-    ENUM_DISPLAY_SETTINGS_MODE, EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW, HDC,
-    HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow,
+    CDS_FULLSCREEN, CDS_TYPE, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE_SUCCESSFUL,
+    DM_BITSPERPEL, DM_DISPLAYFREQUENCY, DM_INTERLACED, DM_PELSHEIGHT, DM_PELSWIDTH,
+    ENUM_CURRENT_SETTINGS, ENUM_DISPLAY_SETTINGS_MODE, EnumDisplayMonitors, EnumDisplaySettingsW,
+    GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFOEXW, MonitorFromWindow,
 };
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
@@ -150,7 +150,7 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
 }
 
 #[expect(dead_code, reason = "Called once the game can go fullscreen")]
-pub fn set_fullscreen_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result<()> {
+pub fn set_display_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result<()> {
     let device_name = PCWSTR(monitor.device_name.as_ptr());
     let current_mode = find_current_display_mode(device_name);
     let Some(current_mode) = current_mode else {
@@ -180,9 +180,24 @@ pub fn set_fullscreen_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result
             return Ok(());
         }
     }
-    return Err(ApplicationError::new(
-        "The monitor does not offer the requested display mode",
-    ));
+    Err(ApplicationError::new(
+        "Could not set the requested display mode",
+    ))
+}
+
+/// Puts back the display mode the player chose in Windows, undoing `set_fullscreen_mode`.
+#[expect(dead_code, reason = "Called once the game can leave fullscreen")]
+pub fn restore_display_mode(monitor: &Win32Monitor) -> Result<()> {
+    let device_name = PCWSTR(monitor.device_name.as_ptr());
+    // Passing no mode tells Windows to switch back to the mode saved in its settings.
+    let result =
+        unsafe { ChangeDisplaySettingsExW(device_name, None, None, CDS_TYPE::default(), None) };
+    if result != DISP_CHANGE_SUCCESSFUL {
+        return Err(ApplicationError::new(
+            "Windows could not restore the display mode",
+        ));
+    }
+    Ok(())
 }
 
 fn find_current_display_mode(device_name: PCWSTR) -> Option<DEVMODEW> {
