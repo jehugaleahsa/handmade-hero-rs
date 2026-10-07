@@ -8,6 +8,8 @@ pub struct Monitor {
     height_in_pixels: u32,
     work_width_in_pixels: u32,
     work_height_in_pixels: u32,
+    max_windowed_width_in_pixels: u32,
+    max_windowed_height_in_pixels: u32,
     modes: Vec<MonitorMode>,
     primary: bool,
     current: bool,
@@ -24,6 +26,8 @@ impl Monitor {
         height_in_pixels: u32,
         work_width_in_pixels: u32,
         work_height_in_pixels: u32,
+        max_windowed_width_in_pixels: u32,
+        max_windowed_height_in_pixels: u32,
         modes: Vec<MonitorMode>,
         primary: bool,
         current: bool,
@@ -35,6 +39,8 @@ impl Monitor {
             height_in_pixels,
             work_width_in_pixels,
             work_height_in_pixels,
+            max_windowed_width_in_pixels,
+            max_windowed_height_in_pixels,
             modes,
             primary,
             current,
@@ -75,6 +81,18 @@ impl Monitor {
     #[must_use]
     pub fn work_height_in_pixels(&self) -> u32 {
         self.work_height_in_pixels
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn max_windowed_width_in_pixels(&self) -> u32 {
+        self.max_windowed_width_in_pixels
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn max_windowed_height_in_pixels(&self) -> u32 {
+        self.max_windowed_height_in_pixels
     }
 
     #[inline]

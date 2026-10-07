@@ -1,3 +1,4 @@
+use super::win32_window::Win32Window;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::monitor_mode::MonitorMode;
@@ -12,7 +13,7 @@ use windows::Win32::Devices::Display::{
     QueryDisplayConfig,
 };
 use windows::Win32::Foundation::{
-    ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, HWND, LPARAM, LUID, RECT, TRUE,
+    ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, HWND, LPARAM, LUID, RECT, SIZE, TRUE,
 };
 use windows::Win32::Graphics::Gdi::{
     CDS_FULLSCREEN, CDS_TYPE, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE_SUCCESSFUL,
@@ -22,7 +23,8 @@ use windows::Win32::Graphics::Gdi::{
     MonitorFromWindow,
 };
 use windows::Win32::UI::HiDpi::{
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForMonitor, MDT_EFFECTIVE_DPI,
+    SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
 use windows::core::{BOOL, PCWSTR, Result as Win32Result};
@@ -75,6 +77,17 @@ struct MonitorContext {
 
 pub fn find_current_monitor(window_handle: HWND) -> HMONITOR {
     unsafe { MonitorFromWindow(window_handle, MONITOR_DEFAULTTONEAREST) }
+}
+
+fn find_frame_size(monitor: HMONITOR) -> SIZE {
+    let mut dpi_x = 0;
+    let mut dpi_y = 0;
+    let dpi_result =
+        unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &raw mut dpi_x, &raw mut dpi_y) };
+    if dpi_result.is_err() {
+        return SIZE::default();
+    }
+    Win32Window::frame_size_for_dpi(dpi_x).unwrap_or_default()
 }
 
 pub fn find_work_area(window_handle: HWND) -> Option<RECT> {
@@ -134,6 +147,9 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
     let work_area = &monitor_info.monitorInfo.rcWork;
     let work_width = work_area.right.abs_diff(work_area.left);
     let work_height = work_area.top.abs_diff(work_area.bottom);
+    let frame = find_frame_size(next);
+    let max_windowed_width = work_width.saturating_sub(frame.cx.unsigned_abs());
+    let max_windowed_height = work_height.saturating_sub(frame.cy.unsigned_abs());
     let primary = (monitor_info.monitorInfo.dwFlags & MONITORINFOF_PRIMARY) != 0;
     let context = unsafe { &mut *(data.0 as *mut MonitorContext) };
     let current = next == context.current;
@@ -159,6 +175,8 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
         height,
         work_width,
         work_height,
+        max_windowed_width,
+        max_windowed_height,
         modes,
         primary,
         current,

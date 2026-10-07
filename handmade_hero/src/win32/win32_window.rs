@@ -158,17 +158,9 @@ impl Win32Window {
 
     fn size_client_area(window: HWND, width: i32, height: i32) -> Win32Result<()> {
         let dpi = unsafe { GetDpiForWindow(window) };
-        let mut rectangle = RECT {
-            left: 0,
-            top: 0,
-            right: width,
-            bottom: height,
-        };
-        unsafe {
-            AdjustWindowRectExForDpi(&raw mut rectangle, FRAME_STYLE, false, EXTENDED_STYLE, dpi)?;
-        }
-        let mut window_width = Self::rectangle_width(&rectangle);
-        let mut window_height = Self::rectangle_height(&rectangle);
+        let frame = Self::frame_size_for_dpi(dpi)?;
+        let mut window_width = width + frame.cx;
+        let mut window_height = height + frame.cy;
 
         let mut window_rectangle = RECT::default();
         unsafe { GetWindowRect(window, &raw mut window_rectangle)? };
@@ -193,15 +185,22 @@ impl Win32Window {
         }
     }
 
-    /// Computes the window size that keeps the client area at its current size in physical
-    /// pixels once the frame is drawn at `dpi`. Only the frame grows or shrinks.
-    pub fn window_size_for_dpi(&self, dpi: u32) -> Win32Result<SIZE> {
-        let mut rectangle = self.current_client_rect()?;
+    pub fn frame_size_for_dpi(dpi: u32) -> Win32Result<SIZE> {
+        let mut rectangle = RECT::default();
         unsafe {
             AdjustWindowRectExForDpi(&raw mut rectangle, FRAME_STYLE, false, EXTENDED_STYLE, dpi)?;
         }
         let cx = Self::rectangle_width(&rectangle);
         let cy = Self::rectangle_height(&rectangle);
+        let size = SIZE { cx, cy };
+        Ok(size)
+    }
+
+    pub fn window_size_for_dpi(&self, dpi: u32) -> Win32Result<SIZE> {
+        let client = self.client_size()?;
+        let frame = Self::frame_size_for_dpi(dpi)?;
+        let cx = client.cx + frame.cx;
+        let cy = client.cy + frame.cy;
         let size = SIZE { cx, cy };
         Ok(size)
     }
