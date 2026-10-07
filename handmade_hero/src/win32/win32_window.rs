@@ -72,16 +72,12 @@ impl Win32Window {
         self.window_handle
     }
 
-    #[inline]
-    #[must_use]
-    pub fn client_width(&self) -> i32 {
-        self.bitmap_info.bmiHeader.biWidth
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn client_height(&self) -> i32 {
-        -self.bitmap_info.bmiHeader.biHeight
+    /// The size of the area the game draws into, which changes when the game goes fullscreen.
+    pub fn client_size(&self) -> Win32Result<SIZE> {
+        let rectangle = self.current_client_rect()?;
+        let cx = Self::rectangle_width(&rectangle);
+        let cy = Self::rectangle_height(&rectangle);
+        Ok(SIZE { cx, cy })
     }
 
     pub fn create_window(
@@ -102,7 +98,6 @@ impl Win32Window {
             height,
             application_pointer,
         )?;
-        self.set_client_dimensions()?;
         Ok(())
     }
 
@@ -195,14 +190,6 @@ impl Win32Window {
                 SWP_NOZORDER | SWP_NOACTIVATE,
             )
         }
-    }
-
-    fn set_client_dimensions(&mut self) -> Win32Result<()> {
-        let rectangle = self.current_client_rect()?;
-        let header = &mut self.bitmap_info.bmiHeader;
-        header.biWidth = Self::rectangle_width(&rectangle);
-        header.biHeight = -Self::rectangle_height(&rectangle);
-        Ok(())
     }
 
     /// Computes the window size that keeps the client area at its current size in physical
@@ -319,23 +306,27 @@ impl Win32Window {
     }
 
     fn write_buffer(&mut self, back_buffer: &BackBuffer, device_context: HDC) {
-        let client_width = self.client_width();
-        let client_height = self.client_height();
-        self.render_out_of_bounds(device_context, client_width, client_height);
-
         let bitmap_data = back_buffer.bitmap();
         #[expect(clippy::cast_possible_truncation)]
         let buffer_width = back_buffer.width().get::<pixel>() as i32;
         #[expect(clippy::cast_possible_truncation)]
         let buffer_height = back_buffer.height().get::<pixel>() as i32;
 
+        // The header tells Windows how to read the pixels, so it describes the buffer, whatever
+        // size the window happens to be. A negative height means the rows run top to bottom.
+        let header = &mut self.bitmap_info.bmiHeader;
+        header.biWidth = buffer_width;
+        header.biHeight = -buffer_height;
+
+        self.render_out_of_bounds(device_context, buffer_width, buffer_height);
+
         unsafe {
             StretchDIBits(
                 device_context,
                 0,
                 0,
-                client_width,
-                client_height,
+                buffer_width,
+                buffer_height,
                 0,
                 0,
                 buffer_width,
@@ -348,8 +339,8 @@ impl Win32Window {
         }
     }
 
-    // If the client area exceeds our buffer size due to resizing the window,
-    // render a black background. We don't stretch the content.
+    // If the client area exceeds our buffer size, render a black background. We don't stretch
+    // the content.
     fn render_out_of_bounds(&self, device_context: HDC, width: i32, height: i32) {
         // The window may have been resized since creation
         let Ok(client_rectangle) = self.current_client_rect() else {

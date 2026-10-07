@@ -141,13 +141,13 @@ impl Win32Application {
     }
 
     fn resize_render_buffer(&mut self) -> Result<()> {
-        // We capture the actual client rectangle here. The client area is smaller
-        // than the window area, typically, so we need the actual dimensions.
-        let client_width_i32 = self.window.client_width();
-        let client_width = usize::try_from(client_width_i32)
+        let client_size = self
+            .window
+            .client_size()
+            .map_err(|e| ApplicationError::wrap("Could not read the window's client size", e))?;
+        let client_width = usize::try_from(client_size.cx)
             .map_err(|e| ApplicationError::wrap("The client width did not fit in a usize", e))?;
-        let client_height_i32 = self.window.client_height();
-        let client_height = usize::try_from(client_height_i32)
+        let client_height = usize::try_from(client_size.cy)
             .map_err(|e| ApplicationError::wrap("The client height did not fit in a usize", e))?;
 
         #[expect(clippy::cast_precision_loss)]
@@ -382,10 +382,13 @@ impl Win32Application {
             // A request replayed from a recording would change the display on every loop.
             return;
         }
-        let result = self.apply_display_settings(&request);
-        if result.is_ok() {
+        let applied = self.apply_display_settings(&request);
+        if applied.is_ok() {
             self.display.set_current(request);
         }
+        // A request that failed partway may still have changed the window's size, so the buffer
+        // follows the window either way.
+        let result = applied.and(self.resize_render_buffer());
         self.display.set_last_request(result);
     }
 
