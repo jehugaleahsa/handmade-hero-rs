@@ -157,7 +157,6 @@ extern "system" fn add_monitor(next: HMONITOR, _: HDC, _: *mut RECT, data: LPARA
     TRUE
 }
 
-#[expect(dead_code, reason = "Called once the game can go fullscreen")]
 pub fn set_display_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result<()> {
     let device_name = PCWSTR(monitor.device_name.as_ptr());
     let current_mode = find_current_display_mode(device_name);
@@ -192,7 +191,6 @@ pub fn set_display_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result<()
     ))
 }
 
-#[expect(dead_code, reason = "Called once the game can leave fullscreen")]
 pub fn restore_display_mode(monitor: &Win32Monitor) -> Result<()> {
     let device_name = PCWSTR(monitor.device_name.as_ptr());
     // Passing no mode tells Windows to switch back to the mode saved in its settings.

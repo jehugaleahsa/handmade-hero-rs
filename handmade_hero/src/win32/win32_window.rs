@@ -189,12 +189,6 @@ impl Win32Window {
         }
     }
 
-    #[inline]
-    #[must_use]
-    pub fn is_fullscreen(&self) -> bool {
-        self.windowed_placement.is_some()
-    }
-
     pub fn enter_fullscreen(&mut self, bounds: &RECT) -> Win32Result<()> {
         if self.windowed_placement.is_none() {
             let length = narrow_unsigned!(size_of::<WINDOWPLACEMENT>() => u32);

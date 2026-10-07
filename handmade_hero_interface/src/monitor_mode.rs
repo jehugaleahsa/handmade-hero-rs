@@ -48,4 +48,14 @@ impl MonitorMode {
     pub fn current(&self) -> bool {
         self.current
     }
+
+    /// Whether both describe the same resolution and refresh rate, regardless of which one is
+    /// current.
+    #[inline]
+    #[must_use]
+    pub fn matches(&self, other: &MonitorMode) -> bool {
+        self.width_in_pixels == other.width_in_pixels
+            && self.height_in_pixels == other.height_in_pixels
+            && self.refresh_rate == other.refresh_rate
+    }
 }

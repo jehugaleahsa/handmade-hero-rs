@@ -8,7 +8,8 @@ use super::win32_window::Win32Window;
 use crate::application_loader::{ApplicationLoader, ApplicationStub, LoadedApplication};
 use crate::playback_recorder::PlaybackRecorder;
 use crate::win32::win32_monitor::{
-    Win32Monitor, find_current_monitor, find_monitors, set_dpi_awareness,
+    Win32Monitor, find_current_monitor, find_monitors, restore_display_mode, set_display_mode,
+    set_dpi_awareness,
 };
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
@@ -17,6 +18,9 @@ use handmade_hero_interface::audio_format::AudioFormat;
 use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::controller_state::ControllerState;
+use handmade_hero_interface::display::Display;
+use handmade_hero_interface::display_settings::DisplaySettings;
+use handmade_hero_interface::display_state::DisplayState;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
@@ -25,6 +29,7 @@ use handmade_hero_interface::key::Key;
 use handmade_hero_interface::key_mapping::KeyMapping;
 use handmade_hero_interface::keyboard_state::KeyboardState;
 use handmade_hero_interface::monitor::Monitor;
+use handmade_hero_interface::monitor_mode::MonitorMode;
 use handmade_hero_interface::mouse_state::MouseState;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::plugin_state::PluginState;
@@ -82,6 +87,7 @@ pub struct Win32Application {
     recorder: PlaybackRecorder,
     monitors: Vec<Win32Monitor>,
     monitors_changed: bool,
+    display: DisplayState,
 }
 
 impl Win32Application {
@@ -100,6 +106,7 @@ impl Win32Application {
             recorder: PlaybackRecorder::new(exe_directory),
             monitors: Vec::new(),
             monitors_changed: false,
+            display: DisplayState::new(),
         }
     }
 
@@ -366,24 +373,82 @@ impl Win32Application {
         };
     }
 
-    /// F11 switches between windowed and fullscreen on the monitor the window is on.
-    fn process_fullscreen_hotkey(&mut self) {
-        if !self.keyboard.key(Key::F11).was_pressed() {
-            return;
-        }
-        if self.window.is_fullscreen() {
-            let _ = self.window.exit_fullscreen();
-            return;
-        }
-        let Some(monitor) = self
-            .monitors
-            .iter()
-            .find(|monitor| monitor.monitor().current())
-        else {
+    /// Applies the display settings the game asked for during the previous frame.
+    fn process_display_request(&mut self) {
+        let Some(request) = self.display.take_request() else {
             return;
         };
-        let bounds = monitor.bounds();
-        let _ = self.window.enter_fullscreen(&bounds);
+        if let RecordingState::Playing = self.recording_state {
+            // A request replayed from a recording would change the display on every loop.
+            return;
+        }
+        let result = self.apply_display_settings(&request);
+        if result.is_ok() {
+            self.display.set_current(request);
+        }
+        self.display.set_last_request(result);
+    }
+
+    fn apply_display_settings(&mut self, settings: &DisplaySettings) -> Result<()> {
+        // A monitor the game switched to another mode goes back to the player's own mode, unless
+        // the new settings pick a mode for that same monitor.
+        if let DisplaySettings::Fullscreen {
+            monitor_identifier: current,
+            ..
+        } = self.display.current()
+        {
+            let stays_on_monitor = if let DisplaySettings::Fullscreen {
+                monitor_identifier: next,
+                ..
+            } = settings
+            {
+                next == current
+            } else {
+                false
+            };
+            if !stays_on_monitor && let Some(monitor) = self.find_monitor(current) {
+                restore_display_mode(monitor)?;
+            }
+        }
+        match settings {
+            DisplaySettings::Windowed => self
+                .window
+                .exit_fullscreen()
+                .map_err(|e| ApplicationError::wrap("Could not leave fullscreen", e)),
+            DisplaySettings::Fullscreen {
+                monitor_identifier,
+                mode,
+            } => self.enter_fullscreen(monitor_identifier, mode),
+        }
+    }
+
+    fn enter_fullscreen(&mut self, monitor_identifier: &str, mode: &MonitorMode) -> Result<()> {
+        let monitor = self
+            .find_monitor(monitor_identifier)
+            .ok_or_else(|| ApplicationError::new("The requested monitor is not connected"))?;
+        let mut bounds = monitor.bounds();
+        let is_current_mode = monitor
+            .monitor()
+            .current_mode()
+            .is_some_and(|current| current.matches(mode));
+        if !is_current_mode {
+            set_display_mode(monitor, mode)?;
+            // A new resolution changes the monitor's size, so its bounds have to be read again.
+            self.refresh_monitors();
+            bounds = self
+                .find_monitor(monitor_identifier)
+                .ok_or_else(|| ApplicationError::new("The requested monitor is not connected"))?
+                .bounds();
+        }
+        self.window
+            .enter_fullscreen(&bounds)
+            .map_err(|e| ApplicationError::wrap("Could not enter fullscreen", e))
+    }
+
+    fn find_monitor(&self, identifier: &str) -> Option<&Win32Monitor> {
+        self.monitors
+            .iter()
+            .find(|monitor| monitor.monitor().identifier() == identifier)
     }
 
     pub fn run(
@@ -414,7 +479,7 @@ impl Win32Application {
                 return Ok(code);
             }
             self.process_recording_hotkey();
-            self.process_fullscreen_hotkey();
+            self.process_display_request();
 
             let application = self.load_application(application_loader)?;
             if self.monitors_changed {
@@ -618,10 +683,19 @@ impl Win32Application {
         let Some(plugin) = self.plugin_state.as_deref_mut() else {
             return;
         };
+        let monitors = &self.monitors;
+        let list_monitors = || -> Vec<Monitor> {
+            monitors
+                .iter()
+                .map(Win32Monitor::monitor)
+                .cloned()
+                .collect()
+        };
         let context = InputContext {
             input_state: &self.input,
             game_state: &mut self.state,
             plugin_state: plugin,
+            display: Display::new(&list_monitors, &mut self.display),
         };
         application.process_input(context);
     }

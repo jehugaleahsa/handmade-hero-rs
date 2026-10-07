@@ -10,10 +10,13 @@ use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::color::Color;
 use handmade_hero_interface::controller_state::ControllerState;
+use handmade_hero_interface::display::Display;
+use handmade_hero_interface::display_settings::DisplaySettings;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
+use handmade_hero_interface::key::Key;
 use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::point_2d::Point2d;
@@ -236,6 +239,30 @@ impl ApplicationPlugin {
         }
 
         plugin_state.player_mut().set_coordinates(new_coordinates);
+    }
+
+    /// F11 switches between windowed and fullscreen on the monitor the window is on.
+    fn process_display_hotkey(input_state: &InputState, display: &mut Display<'_>) {
+        if !input_state.keyboard().key(Key::F11).was_pressed() {
+            return;
+        }
+        let settings = match display.current() {
+            DisplaySettings::Fullscreen { .. } => DisplaySettings::Windowed,
+            DisplaySettings::Windowed => {
+                let monitors = display.monitors();
+                let Some(monitor) = monitors.iter().find(|monitor| monitor.current()) else {
+                    return;
+                };
+                let Some(mode) = monitor.current_mode() else {
+                    return;
+                };
+                DisplaySettings::Fullscreen {
+                    monitor_identifier: monitor.identifier().to_owned(),
+                    mode: mode.clone(),
+                }
+            }
+        };
+        display.request(settings);
     }
 
     fn calculate_delta_x_y(input_state: &InputState, game_state: &GameState) -> (f32, f32) {
@@ -804,8 +831,10 @@ impl Application for ApplicationPlugin {
             input_state,
             game_state,
             plugin_state,
+            mut display,
             ..
         } = context;
+        Self::process_display_hotkey(input_state, &mut display);
         if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
             Self::process_input_direct(input_state, game_state, plugin_state);
         }
