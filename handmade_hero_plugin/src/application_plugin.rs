@@ -260,9 +260,10 @@ impl ApplicationPlugin {
                     .iter()
                     .filter(|mode| !mode.current())
                     .max_by_key(|mode| {
+                        let dimensions = mode.resolution();
                         (
-                            mode.width_in_pixels(),
-                            mode.height_in_pixels(),
+                            dimensions.width_in_pixels(),
+                            dimensions.height_in_pixels(),
                             mode.refresh_rate().get::<hertz>(),
                         )
                     })

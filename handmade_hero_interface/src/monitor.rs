@@ -1,15 +1,11 @@
-use crate::monitor_mode::MonitorMode;
+use crate::{dimensions::Dimensions, monitor_mode::MonitorMode};
 
 #[derive(Debug, Clone)]
 pub struct Monitor {
     display_name: String,
     identifier: String,
-    width_in_pixels: u32,
-    height_in_pixels: u32,
-    work_width_in_pixels: u32,
-    work_height_in_pixels: u32,
-    max_windowed_width_in_pixels: u32,
-    max_windowed_height_in_pixels: u32,
+    work_resolution: Dimensions,
+    max_windowed_resolution: Dimensions,
     modes: Vec<MonitorMode>,
     primary: bool,
     current: bool,
@@ -18,16 +14,11 @@ pub struct Monitor {
 impl Monitor {
     #[inline]
     #[must_use]
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
         display_name: String,
         identifier: String,
-        width_in_pixels: u32,
-        height_in_pixels: u32,
-        work_width_in_pixels: u32,
-        work_height_in_pixels: u32,
-        max_windowed_width_in_pixels: u32,
-        max_windowed_height_in_pixels: u32,
+        work_resolution: Dimensions,
+        max_windowed_resolution: Dimensions,
         modes: Vec<MonitorMode>,
         primary: bool,
         current: bool,
@@ -35,12 +26,8 @@ impl Monitor {
         Self {
             display_name,
             identifier,
-            width_in_pixels,
-            height_in_pixels,
-            work_width_in_pixels,
-            work_height_in_pixels,
-            max_windowed_width_in_pixels,
-            max_windowed_height_in_pixels,
+            work_resolution,
+            max_windowed_resolution,
             modes,
             primary,
             current,
@@ -61,38 +48,14 @@ impl Monitor {
 
     #[inline]
     #[must_use]
-    pub fn width_in_pixels(&self) -> u32 {
-        self.width_in_pixels
+    pub fn work_resolution(&self) -> Dimensions {
+        self.work_resolution
     }
 
     #[inline]
     #[must_use]
-    pub fn height_in_pixels(&self) -> u32 {
-        self.height_in_pixels
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn work_width_in_pixels(&self) -> u32 {
-        self.work_width_in_pixels
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn work_height_in_pixels(&self) -> u32 {
-        self.work_height_in_pixels
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn max_windowed_width_in_pixels(&self) -> u32 {
-        self.max_windowed_width_in_pixels
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn max_windowed_height_in_pixels(&self) -> u32 {
-        self.max_windowed_height_in_pixels
+    pub fn max_windowed_resolution(&self) -> Dimensions {
+        self.max_windowed_resolution
     }
 
     #[inline]
