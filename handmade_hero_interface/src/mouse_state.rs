@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct MouseState {
-    x: u32,
-    y: u32,
+    x: i32,
+    y: i32,
     vertical_wheel_delta: i32,
     horizontal_wheel_delta: i32,
     buttons: [ButtonState; MouseState::BUTTON_COUNT],
@@ -20,23 +20,23 @@ impl MouseState {
 
     #[inline]
     #[must_use]
-    pub fn x(&self) -> u32 {
+    pub fn x(&self) -> i32 {
         self.x
     }
 
     #[inline]
-    pub fn set_x(&mut self, value: u32) {
+    pub fn set_x(&mut self, value: i32) {
         self.x = value;
     }
 
     #[inline]
     #[must_use]
-    pub fn y(&self) -> u32 {
+    pub fn y(&self) -> i32 {
         self.y
     }
 
     #[inline]
-    pub fn set_y(&mut self, value: u32) {
+    pub fn set_y(&mut self, value: i32) {
         self.y = value;
     }
 
