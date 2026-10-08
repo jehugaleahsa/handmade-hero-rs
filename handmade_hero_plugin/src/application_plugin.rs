@@ -63,8 +63,8 @@ impl ApplicationPlugin {
         // Put the player somewhere in the middle
         let width = back_buffer.width().get::<pixel>();
         let height = back_buffer.height().get::<pixel>();
-        let x = width / 2f32 + plugin_state.player().render_bounds().width() / 3f32;
-        let y = height / 2f32;
+        let x = width / 2.0;
+        let y = height / 2.0;
         let tile_map_coordinates = plugin_state
             .world()
             .get_tile_map_coordinate(Point2d::from_x_y(x, y));
@@ -364,11 +364,14 @@ impl ApplicationPlugin {
         let world = plugin_state.world_mut();
         let tile_width = width / f32::from(World::TILE_COLUMNS);
         let tile_height = height / f32::from(World::TILE_ROWS);
-        world.tile_size = tile_height.max(tile_width);
+        let tile_size = tile_height.max(tile_width);
+        world.tile_size = tile_size;
         let x_growth = (tile_height - tile_width) * f32::from(World::TILE_COLUMNS);
         world.x_offset = x_growth.max(Length::zero()) / -2.0;
         let y_growth = (tile_width - tile_height) * f32::from(World::TILE_ROWS);
         world.y_offset = y_growth.max(Length::zero()) / -2.0;
+
+        plugin_state.player_mut().resize(tile_size);
 
         let world = plugin_state.world();
         let player_coordinate = plugin_state.player().coordinate();

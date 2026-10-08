@@ -2,7 +2,11 @@ use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
-use handmade_hero_interface::{color::Color, rectangle::Rectangle, units::si::length::pixel};
+use handmade_hero_interface::{
+    color::Color,
+    rectangle::Rectangle,
+    units::si::length::{Length, pixel},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -18,15 +22,18 @@ impl Player {
     pub fn new(world: &World, tile_map_key: TileMapKey) -> Self {
         let tile_map_coordinate = TileMapCoordinate::at_x_y(0, 0);
         let coordinate = WorldCoordinate::new(world, tile_map_key, tile_map_coordinate);
-        let height = (world.tile_size() * 0.9f32).get::<pixel>();
-        let width = (world.tile_size() * 0.75f32).get::<pixel>();
         let color = Color::from(Color::from_rgb(0xFF, 0xFF, 0x00));
         Self {
             coordinate,
-            height,
-            width,
+            height: 0.0,
+            width: 0.0,
             color,
         }
+    }
+
+    pub fn resize(&mut self, tile_size: Length) {
+        self.height = (tile_size * 0.9f32).get::<pixel>();
+        self.width = (tile_size * 0.75f32).get::<pixel>();
     }
 
     #[inline]
