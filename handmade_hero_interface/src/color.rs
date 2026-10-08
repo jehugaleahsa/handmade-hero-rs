@@ -39,11 +39,17 @@ impl Color<u8> {
     #[must_use]
     #[inline]
     pub fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
+        Self::from_rgba(red, green, blue, 0)
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn from_rgba(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
         Self {
-            red,
-            green,
             blue,
-            alpha: 0,
+            green,
+            red,
+            alpha,
         }
     }
 }
@@ -77,10 +83,11 @@ impl From<Color<u8>> for u32 {
 impl From<Color<f32>> for Color<u8> {
     #[inline]
     fn from(value: Color<f32>) -> Self {
-        Color::from_rgb(
+        Color::from_rgba(
             Color::convert_to_u8(value.red),
             Color::convert_to_u8(value.green),
             Color::convert_to_u8(value.blue),
+            Color::convert_to_u8(value.alpha),
         )
     }
 }
