@@ -20,25 +20,25 @@ impl Player {
         Self { coordinate, color }
     }
 
-    #[inline]
     #[must_use]
     pub fn render_bounds(&self, world: &World) -> Rectangle<f32> {
         let tile_size = world.tile_size();
         let height_px = (tile_size * 0.9f32).get::<pixel>();
         let width_px = (tile_size * 0.75f32).get::<pixel>();
         let offset = self.coordinate.tile_offset();
-        Rectangle::new(offset.y(), offset.x(), height_px, width_px)
+        let x = offset.x() - width_px / 2.0;
+        Rectangle::new(offset.y(), x, height_px, width_px)
     }
 
-    #[inline]
     #[must_use]
-    pub fn collision_bounds(&self, world: &World) -> Rectangle<f32> {
+    pub fn collision_bound_deltas(world: &World) -> Rectangle<f32> {
         let tile_size = world.tile_size();
         let height_px = (tile_size * 0.9f32).get::<pixel>();
         let width_px = (tile_size * 0.75f32).get::<pixel>();
-        let offset = self.coordinate.tile_offset();
-        let bound_height_px = height_px / 4.0;
-        Rectangle::new(offset.y(), offset.x(), bound_height_px, width_px)
+        let x_delta = -0.5 * width_px;
+        let height_delta = 0.25 * height_px;
+        let width_delta = 0.5 * width_px;
+        Rectangle::new(0.0, x_delta, height_delta, width_delta)
     }
 
     #[must_use]

@@ -1,8 +1,8 @@
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
 use crate::world::World;
-use handmade_hero_interface::point_2d::Point2d;
-use handmade_hero_interface::units::si::length::{Length, pixel};
+use handmade_hero_interface::units::si::length::Length;
+use handmade_hero_interface::{point_2d::Point2d, units::si::length::pixel};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone)]
@@ -80,9 +80,8 @@ impl WorldCoordinate {
     }
 
     #[must_use]
-    pub fn shifted(&self, delta_x: f32, delta_y: f32, tile_size: Length) -> WorldCoordinate {
+    pub fn shifted(&self, delta_x: Length, delta_y: Length, tile_size: Length) -> WorldCoordinate {
         let tile_offset = self.tile_offset();
-        let tile_size = tile_size.get::<pixel>();
 
         let x_shift = ShiftedCoordinate {
             tile_map: self.tile_map_key.x(),
@@ -122,8 +121,8 @@ impl WorldCoordinate {
     #[expect(clippy::cast_sign_loss)]
     fn shifted_axis(
         axis: ShiftedCoordinate,
-        delta: f32,
-        tile_size: f32,
+        delta: Length,
+        tile_size: Length,
         max_tiles: u16,
     ) -> ShiftedCoordinate {
         let ShiftedCoordinate {
@@ -133,10 +132,11 @@ impl WorldCoordinate {
         } = axis;
 
         // Carry whole tiles out of the offset so it lands back in [0, tile_size).
-        let position = tile_offset + delta;
-        let mut tile_delta = f32::floor(position / tile_size);
-        let mut tile_offset = position.rem_euclid(tile_size);
-        if tile_offset >= tile_size {
+        let tile_size_px = tile_size.get::<pixel>();
+        let position = tile_offset + delta.get::<pixel>();
+        let mut tile_delta = f32::floor(position / tile_size_px);
+        let mut tile_offset = position.rem_euclid(tile_size_px);
+        if tile_offset >= tile_size_px {
             // `f32::rem_euclid` is documented to round up to the divisor when `position` is
             // a tiny negative value. Snapping to the next tile keeps the pair consistent.
             tile_offset = 0f32;
@@ -162,6 +162,8 @@ impl WorldCoordinate {
 
 #[cfg(test)]
 mod tests {
+    use handmade_hero_interface::units::si::length::{Length, pixel};
+
     use crate::world_coordinate::{ShiftedCoordinate, WorldCoordinate};
 
     const TILE_SIZE: f32 = 60f32;
@@ -173,7 +175,12 @@ mod tests {
             tile,
             tile_offset,
         };
-        let shifted = WorldCoordinate::shifted_axis(axis, delta, TILE_SIZE, MAX_TILES);
+        let shifted = WorldCoordinate::shifted_axis(
+            axis,
+            Length::new::<pixel>(delta),
+            Length::new::<pixel>(TILE_SIZE),
+            MAX_TILES,
+        );
         (shifted.tile_map, shifted.tile, shifted.tile_offset)
     }
 

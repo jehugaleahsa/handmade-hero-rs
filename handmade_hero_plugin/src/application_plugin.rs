@@ -1,3 +1,4 @@
+use crate::player::Player;
 use crate::tile_map::TileMap;
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
@@ -254,7 +255,7 @@ impl ApplicationPlugin {
         display.request(settings);
     }
 
-    fn calculate_delta_x_y(input_state: &InputState, game_state: &GameState) -> (f32, f32) {
+    fn calculate_delta_x_y(input_state: &InputState, game_state: &GameState) -> (Length, Length) {
         let keyboard = input_state.keyboard();
         let mut delta_x = Self::calculate_keyboard_delta_x(keyboard.as_controller());
         let mut delta_y = Self::calculate_keyboard_delta_y(keyboard.as_controller());
@@ -275,7 +276,7 @@ impl ApplicationPlugin {
         let max_distance_px = max_distance.get::<pixel>();
         delta_x *= max_distance_px;
         delta_y *= max_distance_px;
-        (delta_x, delta_y)
+        (Length::new::<pixel>(delta_x), Length::new::<pixel>(delta_y))
     }
 
     #[inline]
@@ -385,18 +386,18 @@ impl ApplicationPlugin {
         input_state: &InputState,
     ) -> Option<WorldCoordinate> {
         let (delta_x, delta_y) = Self::calculate_delta_x_y(input_state, game_state);
-        if delta_x == 0f32 && delta_y == 0f32 {
+        if delta_x.is_zero() && delta_y.is_zero() {
             return None;
         }
 
-        let old_coordinates = plugin_state.player().coordinate();
         let world = plugin_state.world();
+        let old_coordinates = plugin_state.player().coordinate();
         let new_coordinates = old_coordinates.shifted(delta_x, delta_y, world.tile_size());
-        let collision_bounds = plugin_state.player().collision_bounds(world);
-        if world.is_traversable(&new_coordinates, collision_bounds) {
+        let collision_deltas = Player::collision_bound_deltas(world);
+        if world.is_traversable(&new_coordinates, collision_deltas) {
             return Some(new_coordinates);
         }
-        return None;
+        None
     }
 
     fn render_tilemap(
@@ -740,7 +741,7 @@ impl ApplicationPlugin {
         // The position does not need translated into world-relative coordinates
         #[expect(clippy::cast_precision_loss)]
         let position = Rectangle::new(mouse.y() as f32, mouse.x() as f32, 10.0, 10.0);
-        let color = Color::from_rgb(0xFF, 0xFF, 0xFF);
+        let color = Color::from_rgb(0xFF, 0x00, 0x00);
         Self::render_rectangle(window_bounds, &position, color, pixels)?;
 
         for (index, button) in mouse.buttons().enumerate() {

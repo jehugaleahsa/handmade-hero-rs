@@ -54,19 +54,28 @@ impl World {
 
     /// Indicates whether all four corners of the rectangle fall within a traversable tile.
     #[must_use]
-    pub fn is_traversable(&self, coordinate: &WorldCoordinate, bounds: Rectangle<f32>) -> bool {
-        if !self.is_traversable_coordinate(coordinate) {
+    pub fn is_traversable(
+        &self,
+        coordinate: &WorldCoordinate,
+        collision_deltas: Rectangle<f32>,
+    ) -> bool {
+        let left = Length::new::<pixel>(collision_deltas.left());
+        let bottom = Length::new::<pixel>(collision_deltas.bottom());
+        let bottom_left = coordinate.shifted(left, bottom, self.tile_size);
+        if !self.is_traversable_coordinate(&bottom_left) {
             return false;
         }
-        let top_left = coordinate.shifted(0f32, bounds.height(), self.tile_size);
-        if !self.is_traversable_coordinate(&top_left) {
-            return false;
-        }
-        let bottom_right = coordinate.shifted(bounds.width(), 0f32, self.tile_size);
+        let width = Length::new::<pixel>(collision_deltas.width());
+        let bottom_right = coordinate.shifted(width, bottom, self.tile_size);
         if !self.is_traversable_coordinate(&bottom_right) {
             return false;
         }
-        let top_right = coordinate.shifted(bounds.width(), bounds.height(), self.tile_size);
+        let height = Length::new::<pixel>(collision_deltas.height());
+        let top_left = coordinate.shifted(left, height, self.tile_size);
+        if !self.is_traversable_coordinate(&top_left) {
+            return false;
+        }
+        let top_right = coordinate.shifted(width, height, self.tile_size);
         self.is_traversable_coordinate(&top_right)
     }
 
