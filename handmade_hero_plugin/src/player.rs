@@ -35,10 +35,9 @@ impl Player {
         let tile_size = world.tile_size();
         let height_px = (tile_size * 0.9f32).get::<pixel>();
         let width_px = (tile_size * 0.75f32).get::<pixel>();
-        let x_delta = -0.5 * width_px;
-        let height_delta = 0.25 * height_px;
-        let width_delta = 0.5 * width_px;
-        Rectangle::new(0.0, x_delta, height_delta, width_delta)
+        let left_delta = -0.5 * width_px;
+        let bound_height_px = 0.25 * height_px;
+        Rectangle::new(0.0, left_delta, bound_height_px, width_px)
     }
 
     #[must_use]

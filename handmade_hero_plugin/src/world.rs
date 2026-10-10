@@ -52,7 +52,8 @@ impl World {
         }
     }
 
-    /// Indicates whether all four corners of the rectangle fall within a traversable tile.
+    /// Indicates whether all four corners of the collision box fall within a traversable tile.
+    /// The box's edges are offsets, in pixels, from `coordinate`.
     #[must_use]
     pub fn is_traversable(
         &self,
@@ -65,17 +66,17 @@ impl World {
         if !self.is_traversable_coordinate(&bottom_left) {
             return false;
         }
-        let width = Length::new::<pixel>(collision_deltas.width());
-        let bottom_right = coordinate.shifted(width, bottom, self.tile_size);
+        let right = Length::new::<pixel>(collision_deltas.right());
+        let bottom_right = coordinate.shifted(right, bottom, self.tile_size);
         if !self.is_traversable_coordinate(&bottom_right) {
             return false;
         }
-        let height = Length::new::<pixel>(collision_deltas.height());
-        let top_left = coordinate.shifted(left, height, self.tile_size);
+        let top = Length::new::<pixel>(collision_deltas.top());
+        let top_left = coordinate.shifted(left, top, self.tile_size);
         if !self.is_traversable_coordinate(&top_left) {
             return false;
         }
-        let top_right = coordinate.shifted(width, height, self.tile_size);
+        let top_right = coordinate.shifted(right, top, self.tile_size);
         self.is_traversable_coordinate(&top_right)
     }
 
