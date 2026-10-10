@@ -65,7 +65,7 @@ impl ApplicationPlugin {
         Self::fit_world_to_buffer(plugin_state.world_mut(), back_buffer);
 
         let world = plugin_state.world();
-        let tile_size = world.tile_size().get::<pixel>();
+        let tile_size = world.tile_size();
         let x = f32::from(world.columns()) * tile_size / 2.0;
         let y = f32::from(world.rows()) * tile_size / 2.0;
         let tile_map_coordinates = world.get_tile_map_coordinate(Point2d::from_x_y(x, y));
@@ -260,24 +260,23 @@ impl ApplicationPlugin {
         let keyboard = input_state.keyboard();
         let mut delta_x = Self::calculate_keyboard_delta_x(keyboard.as_controller());
         let mut delta_y = Self::calculate_keyboard_delta_y(keyboard.as_controller());
-        if delta_x == 0f32 && delta_y == 0f32 {
+        if delta_x == 0.0 && delta_y == 0.0 {
             for controller in input_state.controllers() {
                 if controller.enabled() {
                     delta_x = Self::calculate_controller_delta_x(controller);
                     delta_y = Self::calculate_controller_delta_y(controller);
-                    if delta_x != 0f32 || delta_y != 0f32 {
+                    if delta_x != 0.0 || delta_y != 0.0 {
                         break;
                     }
                 }
             }
         }
         let frame_duration = game_state.frame_duration();
-        let max_speed = Length::new::<meter>(3f32) / Time::new::<second>(1f32);
+        let max_speed = Length::new::<meter>(3.0) / Time::new::<second>(1.0);
         let max_distance = frame_duration * max_speed;
-        let max_distance_px = max_distance.get::<pixel>();
-        delta_x *= max_distance_px;
-        delta_y *= max_distance_px;
-        (Length::new::<pixel>(delta_x), Length::new::<pixel>(delta_y))
+        let delta_x = delta_x * max_distance;
+        let delta_y = delta_y * max_distance;
+        (delta_x, delta_y)
     }
 
     #[inline]
@@ -341,7 +340,7 @@ impl ApplicationPlugin {
     ) {
         let width = buffer.width();
         let height = buffer.height();
-        let window_bounds = Rectangle::new(0f32, 0f32, height.get::<pixel>(), width.get::<pixel>());
+        let window_bounds = Rectangle::new(Length::zero(), Length::zero(), height, width);
 
         Self::fit_world_to_buffer(plugin_state.world_mut(), buffer);
 
@@ -403,7 +402,7 @@ impl ApplicationPlugin {
 
     fn render_tilemap(
         plugin_state: &PluginGameState,
-        window_bounds: &Rectangle<f32>,
+        window_bounds: &Rectangle<Length>,
         start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
@@ -442,12 +441,7 @@ impl ApplicationPlugin {
                 let column_index = f32::from(column_index);
                 let left = column_index * tile_size;
                 let bottom = row_index * tile_size;
-                let tile_rectangle = Rectangle::new(
-                    bottom.get::<pixel>(),
-                    left.get::<pixel>(),
-                    tile_size.get::<pixel>(),
-                    tile_size.get::<pixel>(),
-                );
+                let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);
 
                 let tile_map_key = TileMapKey::from_x_y(tile_map_x, tile_map_y);
                 let color = Self::determine_tile_color(
@@ -505,7 +499,7 @@ impl ApplicationPlugin {
 
     fn render_player(
         plugin_state: &PluginGameState,
-        window_bounds: &Rectangle<f32>,
+        window_bounds: &Rectangle<Length>,
         start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
@@ -551,25 +545,21 @@ impl ApplicationPlugin {
         tile: u16,
         tile_size: Length,
         max_tile: u16,
-    ) -> f32 {
-        let tile_size_px = tile_size.get::<pixel>();
+    ) -> Length {
         let tile_map_diff = f32::from(tile_map) - f32::from(start_tile_map);
-        let tile_map_diff = tile_map_diff * f32::from(max_tile) * tile_size_px;
+        let tile_map_diff = tile_map_diff * f32::from(max_tile) * tile_size;
         let tile_diff = f32::from(tile) - f32::from(start_tile);
-        let tile_diff = tile_diff * tile_size_px;
+        let tile_diff = tile_diff * tile_size;
         tile_map_diff + tile_diff
     }
 
     fn to_world_coordinate_rectangle(
-        rectangle: &Rectangle<f32>,
+        rectangle: &Rectangle<Length>,
         world: &World,
         height: Length,
-    ) -> Rectangle<f32> {
-        let moved = rectangle.moved_to(rectangle.left(), height.get::<pixel>() - rectangle.top());
-        moved.shifted(
-            world.x_offset.get::<pixel>(),
-            -world.y_offset.get::<pixel>(),
-        )
+    ) -> Rectangle<Length> {
+        let moved = rectangle.moved_to(rectangle.left(), height - rectangle.top());
+        moved.shifted(world.x_offset, -world.y_offset)
     }
 
     fn determine_start_coordinate(
@@ -601,8 +591,8 @@ impl ApplicationPlugin {
     }
 
     fn render_rectangle(
-        window_bounds: &Rectangle<f32>,
-        rectangle: &Rectangle<f32>,
+        window_bounds: &Rectangle<Length>,
+        rectangle: &Rectangle<Length>,
         color: Color<u8>,
         pixels: &mut [Color<u8>],
     ) -> Result<()> {
@@ -615,7 +605,7 @@ impl ApplicationPlugin {
 
         #[expect(clippy::cast_sign_loss)]
         #[expect(clippy::cast_possible_truncation)]
-        let pitch = window_bounds.width() as usize;
+        let pitch = window_bounds.width().get::<pixel>() as usize;
         let mut index = rectangle.bottom() * pitch + rectangle.left();
         for _y in rectangle.bottom()..rectangle.top() {
             let row = index;
@@ -632,7 +622,7 @@ impl ApplicationPlugin {
     fn render_audio(
         game_state: &GameState,
         plugin_state: &PluginGameState,
-        window_bounds: &Rectangle<f32>,
+        window_bounds: &Rectangle<Length>,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
         use uom::si::information::byte;
@@ -641,9 +631,9 @@ impl ApplicationPlugin {
             return Ok(());
         };
         let world = plugin_state.world();
-        let padding_x = 50f32;
-        let padding_y = 50f32;
-        let height = 100f32;
+        let padding_x = Length::new::<pixel>(50.0);
+        let padding_y = Length::new::<pixel>(50.0);
+        let height = Length::new::<pixel>(100.0);
         let line_bottom = window_bounds.top() - padding_y - height;
         let play_color = Color::from_rgb(0xFF, 0x00, 0x00);
         let write_color = Color::from_rgb(0x00, 0xFF, 0x00);
@@ -654,7 +644,7 @@ impl ApplicationPlugin {
         let window_width = window_bounds.width();
         let buffer_length_bytes = buffer_length.get::<byte>();
         #[expect(clippy::cast_precision_loss)]
-        let chunk = (window_width - 2f32 * padding_x) / buffer_length_bytes as f32;
+        let chunk = (window_width - 2.0 * padding_x) / buffer_length_bytes as f32;
         let audio = plugin_state.audio();
         for (index, (play_cursor, write_cursor)) in audio
             .flip_play_cursors()
@@ -668,13 +658,13 @@ impl ApplicationPlugin {
             };
             #[expect(clippy::cast_precision_loss)]
             let x = padding_x + chunk * play_cursor as f32;
-            let line = Rectangle::new(bottom, x, height, 1f32);
+            let line = Rectangle::new(bottom, x, height, Length::new::<pixel>(1.0));
             let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
             Self::render_rectangle(window_bounds, &line, play_color, pixels)?;
 
             #[expect(clippy::cast_precision_loss)]
             let x = padding_x + chunk * write_cursor as f32;
-            let line = Rectangle::new(bottom, x, height, 1f32);
+            let line = Rectangle::new(bottom, x, height, Length::new::<pixel>(1.0));
             let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
             Self::render_rectangle(window_bounds, &line, write_color, pixels)?;
         }
@@ -683,7 +673,7 @@ impl ApplicationPlugin {
             let bottom = line_bottom - height;
             #[expect(clippy::cast_precision_loss)]
             let x = padding_x + chunk * play_cursor as f32;
-            let line = Rectangle::new(bottom, x, height, 1f32);
+            let line = Rectangle::new(bottom, x, height, Length::new::<pixel>(1.0));
             let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
             Self::render_rectangle(window_bounds, &line, play_color, pixels)?;
         }
@@ -692,7 +682,7 @@ impl ApplicationPlugin {
             let bottom = line_bottom - height;
             #[expect(clippy::cast_precision_loss)]
             let x = padding_x + chunk * write_cursor as f32;
-            let line = Rectangle::new(bottom, x, height, 1f32);
+            let line = Rectangle::new(bottom, x, height, Length::new::<pixel>(1.0));
             let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
             Self::render_rectangle(window_bounds, &line, write_color, pixels)?;
         }
@@ -701,7 +691,7 @@ impl ApplicationPlugin {
             let bottom = line_bottom - height;
             #[expect(clippy::cast_precision_loss)]
             let x = padding_x + chunk * expected_frame_boundary as f32;
-            let line = Rectangle::new(bottom, x, height, 1f32);
+            let line = Rectangle::new(bottom, x, height, Length::new::<pixel>(1.0));
             let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
             Self::render_rectangle(window_bounds, &line, boundary_color, pixels)?;
         }
@@ -710,7 +700,7 @@ impl ApplicationPlugin {
             let bottom = line_bottom - 2.0 * height;
             #[expect(clippy::cast_precision_loss)]
             let x = padding_x + chunk * write_offset as f32;
-            let line = Rectangle::new(bottom, x, height, 1f32);
+            let line = Rectangle::new(bottom, x, height, Length::new::<pixel>(1.0));
             let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
             Self::render_rectangle(window_bounds, &line, play_color, pixels)?;
 
@@ -718,7 +708,7 @@ impl ApplicationPlugin {
                 #[expect(clippy::cast_precision_loss)]
                 let write_end = write_offset as f32 + write_length.get::<byte>() as f32;
                 let x = padding_x + chunk * write_end;
-                let line = Rectangle::new(bottom, x, height, 1f32);
+                let line = Rectangle::new(bottom, x, height, Length::new::<pixel>(1.0));
                 let line = Self::to_world_coordinate_rectangle(&line, world, buffer_height);
                 Self::render_rectangle(window_bounds, &line, write_color, pixels)?;
             }
@@ -731,7 +721,7 @@ impl ApplicationPlugin {
     fn render_mouse(
         plugin_state: &PluginGameState,
         input_state: &InputState,
-        window_bounds: &Rectangle<f32>,
+        window_bounds: &Rectangle<Length>,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
         let world = plugin_state.world();
@@ -741,15 +731,21 @@ impl ApplicationPlugin {
 
         // The position does not need translated into world-relative coordinates
         #[expect(clippy::cast_precision_loss)]
-        let position = Rectangle::new(mouse.y() as f32, mouse.x() as f32, 10.0, 10.0);
+        let bottom = Length::new::<pixel>(mouse.y() as f32);
+        #[expect(clippy::cast_precision_loss)]
+        let left = Length::new::<pixel>(mouse.x() as f32);
+        let length = Length::new::<pixel>(10.0);
+        let position = Rectangle::new(bottom - length / 2.0, left - length / 2.0, length, length);
         let color = Color::from_rgb(0xFF, 0x00, 0x00);
         Self::render_rectangle(window_bounds, &position, color, pixels)?;
 
         for (index, button) in mouse.buttons().enumerate() {
             if button.ended_down() {
+                let bottom = Length::new::<pixel>(100.0);
                 #[expect(clippy::cast_precision_loss)]
-                let offset = index as f32 * 25.0 + 100.0;
-                let indicator = Rectangle::new(100.0, offset, 10.0, 10.0);
+                let offset = Length::new::<pixel>(index as f32 * 25.0 + 100.0);
+                let length = Length::new::<pixel>(10.0);
+                let indicator = Rectangle::new(bottom, offset, length, length);
                 let indicator = Self::to_world_coordinate_rectangle(&indicator, world, height);
                 Self::render_rectangle(window_bounds, &indicator, color, pixels)?;
             }

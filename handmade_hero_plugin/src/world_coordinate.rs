@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 struct ShiftedCoordinate {
     tile_map: i16,
     tile: u16,
-    tile_offset: f32,
+    tile_offset: Length,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -75,7 +75,7 @@ impl WorldCoordinate {
 
     #[inline]
     #[must_use]
-    pub fn tile_offset(&self) -> Point2d<f32> {
+    pub fn tile_offset(&self) -> Point2d<Length> {
         self.tile_map_coordinate.offset()
     }
 
@@ -133,29 +133,31 @@ impl WorldCoordinate {
 
         // Carry whole tiles out of the offset so it lands back in [0, tile_size).
         let tile_size_px = tile_size.get::<pixel>();
-        let position = tile_offset + delta.get::<pixel>();
-        let mut tile_delta = f32::floor(position / tile_size_px);
-        let mut tile_offset = position.rem_euclid(tile_size_px);
-        if tile_offset >= tile_size_px {
+        let position = tile_offset + delta;
+        let position_px = position.get::<pixel>();
+        let mut tile_delta_px = (position_px / tile_size_px).floor();
+        let mut tile_offset_px = position_px.rem_euclid(tile_size_px);
+        if tile_offset_px >= tile_size_px {
             // `f32::rem_euclid` is documented to round up to the divisor when `position` is
             // a tiny negative value. Snapping to the next tile keeps the pair consistent.
-            tile_offset = 0f32;
-            tile_delta += 1f32;
+            tile_offset_px = 0f32;
+            tile_delta_px += 1f32;
         }
         // The intermediate tile index can leave the range of a single tile map in either
         // direction, so the carry runs in `i32` and narrows back at the end.
-        let tile = i32::from(tile) + tile_delta as i32;
+        let tile = i32::from(tile) + tile_delta_px as i32;
 
         // Carry whole tile maps out of the tile index. Euclidean division is floor division
         // for a positive divisor, so the negative and positive cases share one expression.
         let max_tiles = i32::from(max_tiles);
         let tile_map = i32::from(tile_map) + tile.div_euclid(max_tiles);
         let tile = tile.rem_euclid(max_tiles);
+        let tile_offset = Length::new::<pixel>(tile_offset_px);
 
         ShiftedCoordinate {
-            tile_offset,
             tile: tile as u16,
             tile_map: tile_map as i16,
+            tile_offset,
         }
     }
 }
@@ -173,7 +175,7 @@ mod tests {
         let axis = ShiftedCoordinate {
             tile_map,
             tile,
-            tile_offset,
+            tile_offset: Length::new::<pixel>(tile_offset),
         };
         let shifted = WorldCoordinate::shifted_axis(
             axis,
@@ -181,7 +183,11 @@ mod tests {
             Length::new::<pixel>(TILE_SIZE),
             MAX_TILES,
         );
-        (shifted.tile_map, shifted.tile, shifted.tile_offset)
+        (
+            shifted.tile_map,
+            shifted.tile,
+            shifted.tile_offset.get::<pixel>(),
+        )
     }
 
     fn assert_axis(actual: (i16, u16, f32), expected: (i16, u16, f32)) {

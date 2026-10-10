@@ -4,7 +4,7 @@ use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
 use crate::{collision_deltas::CollisionDeltas, tile_map_coordinate::TileMapCoordinate};
 use handmade_hero_interface::units::si::length::Length;
-use handmade_hero_interface::{color::Color, rectangle::Rectangle, units::si::length::pixel};
+use handmade_hero_interface::{color::Color, rectangle::Rectangle};
 use serde::{Deserialize, Serialize};
 use uom::num_traits::Zero;
 
@@ -24,13 +24,11 @@ impl Player {
     }
 
     #[must_use]
-    pub fn render_bounds(&self, world: &World) -> Rectangle<f32> {
+    pub fn render_bounds(&self, world: &World) -> Rectangle<Length> {
         let Dimensions { width, height } = Self::dimensions(world);
-        let height_px = height.get::<pixel>();
-        let width_px = width.get::<pixel>();
         let offset = self.coordinate.tile_offset();
-        let x = offset.x() - width_px / 2.0;
-        Rectangle::new(offset.y(), x, height_px, width_px)
+        let x = offset.x() - width / 2.0;
+        Rectangle::new(offset.y(), x, height, width)
     }
 
     #[must_use]

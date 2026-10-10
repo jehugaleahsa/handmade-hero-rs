@@ -1,11 +1,11 @@
-use handmade_hero_interface::point_2d::Point2d;
+use handmade_hero_interface::{point_2d::Point2d, units::si::length::Length};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Copy, Clone)]
 pub struct TileMapCoordinate {
     x: u16,
     y: u16,
-    offset: Point2d<f32>,
+    offset: Point2d<Length>,
 }
 
 impl TileMapCoordinate {
@@ -21,7 +21,7 @@ impl TileMapCoordinate {
 
     #[inline]
     #[must_use]
-    pub fn at_x_y_offset(x: u16, y: u16, offset: Point2d<f32>) -> Self {
+    pub fn at_x_y_offset(x: u16, y: u16, offset: Point2d<Length>) -> Self {
         Self { x, y, offset }
     }
 
@@ -39,7 +39,7 @@ impl TileMapCoordinate {
 
     #[inline]
     #[must_use]
-    pub fn offset(&self) -> Point2d<f32> {
+    pub fn offset(&self) -> Point2d<Length> {
         self.offset
     }
 }

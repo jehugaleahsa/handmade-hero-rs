@@ -97,9 +97,9 @@ impl World {
     }
 
     #[must_use]
-    pub fn get_tile_map_coordinate(&self, point: Point2d<f32>) -> TileMapCoordinate {
+    pub fn get_tile_map_coordinate(&self, point: Point2d<Length>) -> TileMapCoordinate {
         let (tile_x, tile_y) = self.get_tile_x_y(point);
-        let tile_size = self.tile_size.get::<pixel>();
+        let tile_size = self.tile_size;
         let (tile_x_offset, tile_y_offset) =
             (f32::from(tile_x) * tile_size, f32::from(tile_y) * tile_size);
         let offset = Point2d::from_x_y(point.x() - tile_x_offset, point.y() - tile_y_offset);
@@ -109,13 +109,13 @@ impl World {
     #[must_use]
     #[expect(clippy::cast_sign_loss)]
     #[expect(clippy::cast_possible_truncation)]
-    pub fn get_tile_x_y(&self, point: Point2d<f32>) -> (u16, u16) {
-        let tile_size = self.tile_size.get::<pixel>();
+    pub fn get_tile_x_y(&self, point: Point2d<Length>) -> (u16, u16) {
+        let tile_size = self.tile_size;
 
-        let tile_x = (point.x() / tile_size) as u16;
+        let tile_x = (point.x().get::<pixel>() / tile_size.get::<pixel>()) as u16;
         let tile_x = u16::min(tile_x, self.columns - 1);
 
-        let tile_y = (point.y() / tile_size) as u16;
+        let tile_y = (point.y().get::<pixel>() / tile_size.get::<pixel>()) as u16;
         let tile_y = u16::min(tile_y, self.rows - 1);
 
         (tile_x, tile_y)
