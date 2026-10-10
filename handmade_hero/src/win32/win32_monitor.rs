@@ -1,9 +1,9 @@
 use super::win32_window::Win32Window;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
-use handmade_hero_interface::dimensions::Dimensions;
 use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::monitor_mode::MonitorMode;
 use handmade_hero_interface::narrow_unsigned;
+use handmade_hero_interface::resolution::Resolution;
 use uom::si::frequency::hertz;
 use uom::si::u32::Frequency;
 use windows::Win32::Devices::Display::{
@@ -172,7 +172,7 @@ fn find_display_modes_for(monitor_info: &MONITORINFOEXW) -> Option<Vec<MonitorMo
         .iter()
         .map(|mode| {
             let current = is_same_mode(mode, &current_mode);
-            let resolution = Dimensions::new(mode.dmPelsWidth, mode.dmPelsHeight);
+            let resolution = Resolution::new(mode.dmPelsWidth, mode.dmPelsHeight);
             let refresh_rate = Frequency::new::<hertz>(mode.dmDisplayFrequency);
             MonitorMode::new(resolution, refresh_rate, current)
         })
@@ -180,20 +180,20 @@ fn find_display_modes_for(monitor_info: &MONITORINFOEXW) -> Option<Vec<MonitorMo
     Some(modes)
 }
 
-fn work_resolution(monitor_info: &MONITORINFOEXW) -> Dimensions {
+fn work_resolution(monitor_info: &MONITORINFOEXW) -> Resolution {
     let work_area = &monitor_info.monitorInfo.rcWork;
     let work_width = work_area.right.abs_diff(work_area.left);
     let work_height = work_area.top.abs_diff(work_area.bottom);
-    Dimensions::new(work_width, work_height)
+    Resolution::new(work_width, work_height)
 }
 
-fn max_windowed_resolution(next: HMONITOR, work_resolution: Dimensions) -> Dimensions {
+fn max_windowed_resolution(next: HMONITOR, work_resolution: Resolution) -> Resolution {
     let frame = find_frame_size(next);
     let work_width = work_resolution.width_in_pixels();
     let work_height = work_resolution.height_in_pixels();
     let max_window_width = work_width.saturating_sub(frame.cx.unsigned_abs());
     let max_window_height = work_height.saturating_sub(frame.cy.unsigned_abs());
-    Dimensions::new(max_window_width, max_window_height)
+    Resolution::new(max_window_width, max_window_height)
 }
 
 pub fn set_display_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result<()> {
@@ -289,7 +289,7 @@ fn is_same_mode(mode: &DEVMODEW, other: &DEVMODEW) -> bool {
 }
 
 fn matches_monitor_mode(display_mode: &DEVMODEW, mode: &MonitorMode) -> bool {
-    let resolution = Dimensions::new(display_mode.dmPelsWidth, display_mode.dmPelsHeight);
+    let resolution = Resolution::new(display_mode.dmPelsWidth, display_mode.dmPelsHeight);
     let refresh_rate_hertz = mode.refresh_rate().get::<hertz>();
     resolution == mode.resolution() && display_mode.dmDisplayFrequency == refresh_rate_hertz
 }

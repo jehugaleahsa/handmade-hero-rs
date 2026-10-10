@@ -1,11 +1,11 @@
 /// A width and height counted in screen pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Dimensions {
+pub struct Resolution {
     width_in_pixels: u32,
     height_in_pixels: u32,
 }
 
-impl Dimensions {
+impl Resolution {
     #[inline]
     #[must_use]
     pub fn new(width_in_pixels: u32, height_in_pixels: u32) -> Self {

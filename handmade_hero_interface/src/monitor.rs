@@ -1,11 +1,11 @@
-use crate::{dimensions::Dimensions, monitor_mode::MonitorMode};
+use crate::{monitor_mode::MonitorMode, resolution::Resolution};
 
 #[derive(Debug, Clone)]
 pub struct Monitor {
     display_name: String,
     identifier: String,
-    work_resolution: Dimensions,
-    max_windowed_resolution: Dimensions,
+    work_resolution: Resolution,
+    max_windowed_resolution: Resolution,
     modes: Vec<MonitorMode>,
     primary: bool,
     current: bool,
@@ -17,8 +17,8 @@ impl Monitor {
     pub fn new(
         display_name: String,
         identifier: String,
-        work_resolution: Dimensions,
-        max_windowed_resolution: Dimensions,
+        work_resolution: Resolution,
+        max_windowed_resolution: Resolution,
         modes: Vec<MonitorMode>,
         primary: bool,
         current: bool,
@@ -48,13 +48,13 @@ impl Monitor {
 
     #[inline]
     #[must_use]
-    pub fn work_resolution(&self) -> Dimensions {
+    pub fn work_resolution(&self) -> Resolution {
         self.work_resolution
     }
 
     #[inline]
     #[must_use]
-    pub fn max_windowed_resolution(&self) -> Dimensions {
+    pub fn max_windowed_resolution(&self) -> Resolution {
         self.max_windowed_resolution
     }
 

@@ -1,10 +1,10 @@
 use uom::si::u32::Frequency;
 
-use crate::dimensions::Dimensions;
+use crate::resolution::Resolution;
 
 #[derive(Debug, Clone)]
 pub struct MonitorMode {
-    resolution: Dimensions,
+    resolution: Resolution,
     refresh_rate: Frequency,
     current: bool,
 }
@@ -12,7 +12,7 @@ pub struct MonitorMode {
 impl MonitorMode {
     #[inline]
     #[must_use]
-    pub fn new(resolution: Dimensions, refresh_rate: Frequency, current: bool) -> Self {
+    pub fn new(resolution: Resolution, refresh_rate: Frequency, current: bool) -> Self {
         Self {
             resolution,
             refresh_rate,
@@ -22,7 +22,7 @@ impl MonitorMode {
 
     #[inline]
     #[must_use]
-    pub fn resolution(&self) -> Dimensions {
+    pub fn resolution(&self) -> Resolution {
         self.resolution
     }
 
