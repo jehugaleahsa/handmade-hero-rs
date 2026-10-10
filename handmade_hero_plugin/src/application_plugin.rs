@@ -59,6 +59,10 @@ impl ApplicationPlugin {
         #[cfg(feature = "audio_debug")]
         Self::initialize_audio_debugging(game_state, plugin_state);
 
+        // The player's tile and offset below are measured in tiles of the current size, so
+        // the world must be sized to the buffer before placing the player.
+        Self::fit_world_to_buffer(plugin_state.world_mut(), back_buffer);
+
         // Put the player somewhere in the middle
         let width = back_buffer.width().get::<pixel>();
         let height = back_buffer.height().get::<pixel>();
@@ -340,15 +344,7 @@ impl ApplicationPlugin {
         let height = buffer.height();
         let window_bounds = Rectangle::new(0f32, 0f32, height.get::<pixel>(), width.get::<pixel>());
 
-        let world = plugin_state.world_mut();
-        let tile_width = width / f32::from(World::TILE_COLUMNS);
-        let tile_height = height / f32::from(World::TILE_ROWS);
-        let tile_size = tile_height.max(tile_width);
-        world.tile_size = tile_size;
-        let x_growth = (tile_height - tile_width) * f32::from(World::TILE_COLUMNS);
-        world.x_offset = x_growth.max(Length::zero()) / -2.0;
-        let y_growth = (tile_width - tile_height) * f32::from(World::TILE_ROWS);
-        world.y_offset = y_growth.max(Length::zero()) / -2.0;
+        Self::fit_world_to_buffer(plugin_state.world_mut(), buffer);
 
         if let Some(new_coordinates) =
             Self::find_new_player_coordinates(game_state, plugin_state, input_state)
@@ -369,6 +365,21 @@ impl ApplicationPlugin {
 
         #[cfg(feature = "mouse_debug")]
         let _ = Self::render_mouse(plugin_state, input_state, &window_bounds, buffer);
+    }
+
+    /// Sizes the tiles so the tile grid covers the whole buffer, then centers the grid on
+    /// whichever axis overflows.
+    fn fit_world_to_buffer(world: &mut World, buffer: &BackBuffer) {
+        let width = buffer.width();
+        let height = buffer.height();
+        let tile_width = width / f32::from(World::TILE_COLUMNS);
+        let tile_height = height / f32::from(World::TILE_ROWS);
+        let tile_size = tile_height.max(tile_width);
+        world.tile_size = tile_size;
+        let x_growth = (tile_height - tile_width) * f32::from(World::TILE_COLUMNS);
+        world.x_offset = x_growth.max(Length::zero()) / -2.0;
+        let y_growth = (tile_width - tile_height) * f32::from(World::TILE_ROWS);
+        world.y_offset = y_growth.max(Length::zero()) / -2.0;
     }
 
     fn find_new_player_coordinates(
