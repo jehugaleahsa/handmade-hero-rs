@@ -14,18 +14,17 @@ use handmade_hero_interface::display::Display;
 use handmade_hero_interface::display_settings::DisplaySettings;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
-use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::key::Key;
 use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
-use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::{Length, pixel};
 use handmade_hero_interface::units::si::time::Time;
+use handmade_hero_interface::update_render_context::UpdateRenderContext;
 use std::cmp::Ordering;
 use std::f32;
 use uom::num::Zero;
@@ -216,26 +215,6 @@ impl ApplicationPlugin {
         }
     }
 
-    fn process_input_direct(
-        input_state: &InputState,
-        game_state: &GameState,
-        plugin_state: &mut PluginGameState,
-    ) {
-        let (delta_x, delta_y) = Self::calculate_delta_x_y(input_state, game_state);
-        if delta_x == 0f32 && delta_y == 0f32 {
-            return;
-        }
-
-        let world = plugin_state.world();
-        let old_coordinates = plugin_state.player().coordinate();
-        let new_coordinates = old_coordinates.shifted(delta_x, delta_y);
-        if !world.is_traversable(&new_coordinates, plugin_state.player().collision_bounds()) {
-            return;
-        }
-
-        plugin_state.player_mut().set_coordinates(new_coordinates);
-    }
-
     /// F11 switches between windowed and fullscreen on the monitor the window is on.
     fn process_display_hotkey(input_state: &InputState, display: &mut Display<'_>) {
         if !input_state.keyboard().key(Key::F11).was_pressed() {
@@ -351,10 +330,10 @@ impl ApplicationPlugin {
         }
     }
 
-    fn render_direct(
-        #[allow(unused_variables)] game_state: &GameState,
+    fn update_render_direct(
+        game_state: &GameState,
         plugin_state: &mut PluginGameState,
-        #[allow(unused_variables)] input_state: &InputState,
+        input_state: &InputState,
         buffer: &mut BackBuffer,
     ) {
         let width = buffer.width();
@@ -371,7 +350,11 @@ impl ApplicationPlugin {
         let y_growth = (tile_width - tile_height) * f32::from(World::TILE_ROWS);
         world.y_offset = y_growth.max(Length::zero()) / -2.0;
 
-        plugin_state.player_mut().resize(tile_size);
+        if let Some(new_coordinates) =
+            Self::find_new_player_coordinates(game_state, plugin_state, input_state)
+        {
+            plugin_state.player_mut().set_coordinates(new_coordinates);
+        }
 
         let world = plugin_state.world();
         let player_coordinate = plugin_state.player().coordinate();
@@ -386,6 +369,26 @@ impl ApplicationPlugin {
 
         #[cfg(feature = "mouse_debug")]
         let _ = Self::render_mouse(plugin_state, input_state, &window_bounds, buffer);
+    }
+
+    fn find_new_player_coordinates(
+        game_state: &GameState,
+        plugin_state: &PluginGameState,
+        input_state: &InputState,
+    ) -> Option<WorldCoordinate> {
+        let (delta_x, delta_y) = Self::calculate_delta_x_y(input_state, game_state);
+        if delta_x == 0f32 && delta_y == 0f32 {
+            return None;
+        }
+
+        let old_coordinates = plugin_state.player().coordinate();
+        let world = plugin_state.world();
+        let new_coordinates = old_coordinates.shifted(delta_x, delta_y, world.tile_size());
+        let collision_bounds = plugin_state.player().collision_bounds(world);
+        if world.is_traversable(&new_coordinates, collision_bounds) {
+            return Some(new_coordinates);
+        }
+        return None;
     }
 
     fn render_tilemap(
@@ -502,13 +505,12 @@ impl ApplicationPlugin {
         let world = plugin_state.world();
         let player = plugin_state.player();
         let player_coordinate = player.coordinate();
-        let tile_size = world.tile_size().get::<pixel>();
         let x_offset = Self::determine_player_offset(
             start_coordinate.tile_map_x(),
             start_coordinate.tile_x(),
             player_coordinate.tile_map_x(),
             player_coordinate.tile_x(),
-            tile_size,
+            world.tile_size(),
             world.columns(),
         );
         let y_offset = Self::determine_player_offset(
@@ -516,11 +518,11 @@ impl ApplicationPlugin {
             start_coordinate.tile_y(),
             player_coordinate.tile_map_y(),
             player_coordinate.tile_y(),
-            tile_size,
+            world.tile_size(),
             world.rows(),
         );
 
-        let player_bounds = player.render_bounds();
+        let player_bounds = player.render_bounds(world);
         let player_bounds = player_bounds.shifted(x_offset, y_offset);
         let player_bounds =
             Self::to_world_coordinate_rectangle(&player_bounds, world, buffer_height);
@@ -537,13 +539,14 @@ impl ApplicationPlugin {
         start_tile: u16,
         tile_map: i16,
         tile: u16,
-        tile_size: f32,
+        tile_size: Length,
         max_tile: u16,
     ) -> f32 {
+        let tile_size_px = tile_size.get::<pixel>();
         let tile_map_diff = f32::from(tile_map) - f32::from(start_tile_map);
-        let tile_map_diff = tile_map_diff * f32::from(max_tile) * tile_size;
+        let tile_map_diff = tile_map_diff * f32::from(max_tile) * tile_size_px;
         let tile_diff = f32::from(tile) - f32::from(start_tile);
-        let tile_diff = tile_diff * tile_size;
+        let tile_diff = tile_diff * tile_size_px;
         tile_map_diff + tile_diff
     }
 
@@ -847,30 +850,18 @@ impl Application for ApplicationPlugin {
         }
     }
 
-    fn process_input(&self, context: InputContext<'_>) {
-        let InputContext {
-            input_state,
+    fn update_render(&self, context: UpdateRenderContext<'_>) {
+        let UpdateRenderContext {
             game_state,
             plugin_state,
+            input_state,
+            buffer,
             mut display,
             ..
         } = context;
         Self::process_display_hotkey(input_state, &mut display);
         if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
-            Self::process_input_direct(input_state, game_state, plugin_state);
-        }
-    }
-
-    fn render(&self, context: RenderContext<'_>) {
-        let RenderContext {
-            game_state,
-            plugin_state,
-            input_state,
-            buffer,
-            ..
-        } = context;
-        if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
-            Self::render_direct(game_state, plugin_state, input_state, buffer);
+            Self::update_render_direct(game_state, plugin_state, input_state, buffer);
         }
     }
 

@@ -3,11 +3,10 @@ use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::initialize_context::InitializeContext;
-use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::plugin_state::PluginState;
-use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::units::si::time::Time;
+use handmade_hero_interface::update_render_context::UpdateRenderContext;
 use libloading::{Library, Symbol, library_filename};
 use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Debug, Formatter};
@@ -61,13 +60,8 @@ impl Application for ApplicationStub {
     }
 
     #[inline]
-    fn process_input(&self, context: InputContext<'_>) {
-        self.application.process_input(context);
-    }
-
-    #[inline]
-    fn render(&self, context: RenderContext<'_>) {
-        self.application.render(context);
+    fn update_render(&self, context: UpdateRenderContext<'_>) {
+        self.application.update_render(context);
     }
 
     #[inline]

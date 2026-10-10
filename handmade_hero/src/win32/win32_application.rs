@@ -20,17 +20,16 @@ use handmade_hero_interface::display_settings::DisplaySettings;
 use handmade_hero_interface::display_state::DisplayState;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
-use handmade_hero_interface::input_context::InputContext;
 use handmade_hero_interface::input_state::InputState;
 use handmade_hero_interface::key::Key;
 use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::monitor_mode::MonitorMode;
 use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::plugin_state::PluginState;
-use handmade_hero_interface::render_context::RenderContext;
 use handmade_hero_interface::sound_buffer::SoundBuffer;
 use handmade_hero_interface::units::si::information::Information;
 use handmade_hero_interface::units::si::length::pixel;
+use handmade_hero_interface::update_render_context::UpdateRenderContext;
 use std::ffi::c_void;
 use std::path::Path;
 use std::process::ExitCode;
@@ -375,8 +374,7 @@ impl Win32Application {
             }
 
             self.process_recording(state, application.as_ref());
-            self.process_input(application.as_ref());
-            self.render_to_buffer(application.as_ref());
+            self.process_input_and_render(application.as_ref());
 
             let desired_format = self.state.audio().format();
             if desired_format != requested_format {
@@ -585,7 +583,7 @@ impl Win32Application {
         }
     }
 
-    fn process_input(&mut self, application: &ApplicationStub) {
+    fn process_input_and_render(&mut self, application: &ApplicationStub) {
         let Some(plugin) = self.plugin_state.as_deref_mut() else {
             return;
         };
@@ -597,13 +595,14 @@ impl Win32Application {
                 .cloned()
                 .collect()
         };
-        let context = InputContext {
-            input_state: &self.input,
+        let context = UpdateRenderContext {
             game_state: &mut self.state,
             plugin_state: plugin,
+            input_state: &self.input,
+            buffer: &mut self.back_buffer,
             display: Display::new(&list_monitors, &mut self.display),
         };
-        application.process_input(context);
+        application.update_render(context);
     }
 
     // NOTE: We probably don't want to call this as part of the main game loop since it
@@ -669,19 +668,6 @@ impl Win32Application {
         }
         mouse.capture_wheel();
         *self.input.mouse_mut() = mouse.state().clone();
-    }
-
-    fn render_to_buffer(&mut self, application: &ApplicationStub) {
-        let Some(plugin) = self.plugin_state.as_deref_mut() else {
-            return;
-        };
-        let context = RenderContext {
-            game_state: &mut self.state,
-            plugin_state: plugin,
-            input_state: &self.input,
-            buffer: &mut self.back_buffer,
-        };
-        application.render(context);
     }
 
     fn fill_sound_buffer(

@@ -58,15 +58,15 @@ impl World {
         if !self.is_traversable_coordinate(coordinate) {
             return false;
         }
-        let top_left = coordinate.shifted(0f32, bounds.height());
+        let top_left = coordinate.shifted(0f32, bounds.height(), self.tile_size);
         if !self.is_traversable_coordinate(&top_left) {
             return false;
         }
-        let bottom_right = coordinate.shifted(bounds.width(), 0f32);
+        let bottom_right = coordinate.shifted(bounds.width(), 0f32, self.tile_size);
         if !self.is_traversable_coordinate(&bottom_right) {
             return false;
         }
-        let top_right = coordinate.shifted(bounds.width(), bounds.height());
+        let top_right = coordinate.shifted(bounds.width(), bounds.height(), self.tile_size);
         self.is_traversable_coordinate(&top_right)
     }
 

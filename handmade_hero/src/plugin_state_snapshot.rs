@@ -40,9 +40,8 @@ impl PluginStateSnapshot {
 mod tests {
     use super::*;
     use handmade_hero_interface::initialize_context::InitializeContext;
-    use handmade_hero_interface::input_context::InputContext;
-    use handmade_hero_interface::render_context::RenderContext;
     use handmade_hero_interface::units::si::time::Time;
+    use handmade_hero_interface::update_render_context::UpdateRenderContext;
     use handmade_hero_interface::{audio_context::AudioContext, monitor::Monitor};
     use serde::{Deserialize, Serialize};
 
@@ -81,8 +80,7 @@ mod tests {
         }
 
         fn initialize(&self, _: InitializeContext<'_>) {}
-        fn process_input(&self, _: InputContext<'_>) {}
-        fn render(&self, _: RenderContext<'_>) {}
+        fn update_render(&self, _: UpdateRenderContext<'_>) {}
         fn write_sound(&self, _: AudioContext<'_>) {}
     }
 
@@ -125,8 +123,7 @@ mod tests {
         }
 
         fn initialize(&self, _: InitializeContext<'_>) {}
-        fn process_input(&self, _: InputContext<'_>) {}
-        fn render(&self, _: RenderContext<'_>) {}
+        fn update_render(&self, _: UpdateRenderContext<'_>) {}
         fn write_sound(&self, _: AudioContext<'_>) {}
     }
 

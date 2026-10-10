@@ -1,7 +1,7 @@
 use handmade_hero_interface::point_2d::Point2d;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Copy, Clone)]
 pub struct TileMapCoordinate {
     x: u16,
     y: u16,

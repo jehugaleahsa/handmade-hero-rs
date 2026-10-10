@@ -16,7 +16,6 @@ struct ShiftedCoordinate {
 pub struct WorldCoordinate {
     tile_map_key: TileMapKey,
     tile_map_coordinate: TileMapCoordinate,
-    tile_size: Length,
     rows: u16,
     columns: u16,
 }
@@ -25,13 +24,7 @@ impl WorldCoordinate {
     #[inline]
     #[must_use]
     pub fn new(world: &World, key: TileMapKey, tile_map_coordinate: TileMapCoordinate) -> Self {
-        Self::new_internal(
-            key,
-            tile_map_coordinate,
-            world.rows(),
-            world.columns(),
-            world.tile_size(),
-        )
+        Self::new_internal(key, tile_map_coordinate, world.rows(), world.columns())
     }
 
     #[inline]
@@ -41,14 +34,12 @@ impl WorldCoordinate {
         tile_map_coordinate: TileMapCoordinate,
         rows: u16,
         columns: u16,
-        tile_size: Length,
     ) -> Self {
         Self {
             tile_map_key: key,
             tile_map_coordinate,
             rows,
             columns,
-            tile_size,
         }
     }
 
@@ -89,9 +80,9 @@ impl WorldCoordinate {
     }
 
     #[must_use]
-    pub fn shifted(&self, delta_x: f32, delta_y: f32) -> WorldCoordinate {
+    pub fn shifted(&self, delta_x: f32, delta_y: f32, tile_size: Length) -> WorldCoordinate {
         let tile_offset = self.tile_offset();
-        let tile_size = self.tile_size.get::<pixel>();
+        let tile_size = tile_size.get::<pixel>();
 
         let x_shift = ShiftedCoordinate {
             tile_map: self.tile_map_key.x(),
@@ -123,7 +114,6 @@ impl WorldCoordinate {
             new_tile_coordinate,
             self.rows,
             self.columns,
-            self.tile_size,
         )
     }
 

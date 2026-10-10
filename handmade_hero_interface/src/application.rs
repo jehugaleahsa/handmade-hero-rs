@@ -1,11 +1,10 @@
 use crate::application_error::Result;
 use crate::audio_context::AudioContext;
 use crate::initialize_context::InitializeContext;
-use crate::input_context::InputContext;
 use crate::monitor::Monitor;
 use crate::plugin_state::PluginState;
-use crate::render_context::RenderContext;
 use crate::units::si::time::Time;
+use crate::update_render_context::UpdateRenderContext;
 
 pub trait Application {
     /// The game's display name, used for the window title.
@@ -30,9 +29,7 @@ pub trait Application {
 
     fn initialize(&self, context: InitializeContext<'_>);
 
-    fn process_input(&self, context: InputContext<'_>);
-
-    fn render(&self, context: RenderContext<'_>);
+    fn update_render(&self, context: UpdateRenderContext<'_>);
 
     fn write_sound(&self, context: AudioContext<'_>);
 }
