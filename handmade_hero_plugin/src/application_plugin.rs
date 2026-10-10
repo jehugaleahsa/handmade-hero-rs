@@ -63,14 +63,11 @@ impl ApplicationPlugin {
         // the world must be sized to the buffer before placing the player.
         Self::fit_world_to_buffer(plugin_state.world_mut(), back_buffer);
 
-        // Put the player somewhere in the middle
-        let width = back_buffer.width().get::<pixel>();
-        let height = back_buffer.height().get::<pixel>();
-        let x = width / 2.0;
-        let y = height / 2.0;
-        let tile_map_coordinates = plugin_state
-            .world()
-            .get_tile_map_coordinate(Point2d::from_x_y(x, y));
+        let world = plugin_state.world();
+        let tile_size = world.tile_size().get::<pixel>();
+        let x = f32::from(world.columns()) * tile_size / 2.0;
+        let y = f32::from(world.rows()) * tile_size / 2.0;
+        let tile_map_coordinates = world.get_tile_map_coordinate(Point2d::from_x_y(x, y));
         let new_coordinates = WorldCoordinate::new(
             plugin_state.world(),
             plugin_state.player().tile_map_key(),
