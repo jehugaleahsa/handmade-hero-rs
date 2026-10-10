@@ -6,7 +6,7 @@ use uom::si::time::second;
 use windows::core::Result as Win32Result;
 
 /// The sound safety margin is this fraction of a frame of audio.
-const SOUND_SAFETY_MARGIN_DIVISOR: u32 = 3;
+const SOUND_SAFETY_MARGIN_DIVISOR: u32 = 2;
 
 /// The device buffer the platform fills, plus everything whose lifetime is tied to it.
 #[derive(Debug)]
