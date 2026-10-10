@@ -229,12 +229,13 @@ impl ApplicationPlugin {
                 let Some(monitor) = monitors.iter().find(|monitor| monitor.current()) else {
                     return;
                 };
-                // TEMPORARY: picks the largest mode other than the current one, so going
-                // fullscreen always switches modes and Alt+Tab handling can be tested.
+                let current_refresh_rate = monitor.modes().iter().find(|mode| mode.current());
                 let Some(mode) = monitor
                     .modes()
                     .iter()
-                    .filter(|mode| !mode.current())
+                    .filter(|mode| {
+                        current_refresh_rate.is_none_or(|m| mode.refresh_rate() == m.refresh_rate())
+                    })
                     .max_by_key(|mode| {
                         let dimensions = mode.resolution();
                         (
