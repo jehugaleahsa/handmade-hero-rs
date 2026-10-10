@@ -1,9 +1,12 @@
-use crate::tile_map_coordinate::TileMapCoordinate;
+use crate::dimensions::Dimensions;
 use crate::tile_map_key::TileMapKey;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
+use crate::{collision_deltas::CollisionDeltas, tile_map_coordinate::TileMapCoordinate};
+use handmade_hero_interface::units::si::length::Length;
 use handmade_hero_interface::{color::Color, rectangle::Rectangle, units::si::length::pixel};
 use serde::{Deserialize, Serialize};
+use uom::num_traits::Zero;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Player {
@@ -22,22 +25,33 @@ impl Player {
 
     #[must_use]
     pub fn render_bounds(&self, world: &World) -> Rectangle<f32> {
-        let tile_size = world.tile_size();
-        let height_px = (tile_size * 0.9f32).get::<pixel>();
-        let width_px = (tile_size * 0.75f32).get::<pixel>();
+        let Dimensions { width, height } = Self::dimensions(world);
+        let height_px = height.get::<pixel>();
+        let width_px = width.get::<pixel>();
         let offset = self.coordinate.tile_offset();
         let x = offset.x() - width_px / 2.0;
         Rectangle::new(offset.y(), x, height_px, width_px)
     }
 
     #[must_use]
-    pub fn collision_bound_deltas(world: &World) -> Rectangle<f32> {
+    pub fn collision_bound_deltas(world: &World) -> CollisionDeltas {
+        let Dimensions { width, height } = Self::dimensions(world);
+        let left_delta = -0.5 * width;
+        let right_delta = 0.5 * width;
+        let bound_height = 0.25 * height;
+        CollisionDeltas {
+            top: bound_height,
+            bottom: Length::zero(),
+            left: left_delta,
+            right: right_delta,
+        }
+    }
+
+    fn dimensions(world: &World) -> Dimensions {
         let tile_size = world.tile_size();
-        let height_px = (tile_size * 0.9f32).get::<pixel>();
-        let width_px = (tile_size * 0.75f32).get::<pixel>();
-        let left_delta = -0.5 * width_px;
-        let bound_height_px = 0.25 * height_px;
-        Rectangle::new(0.0, left_delta, bound_height_px, width_px)
+        let height = tile_size * 0.9f32;
+        let width = tile_size * 0.75f32;
+        Dimensions { width, height }
     }
 
     #[must_use]

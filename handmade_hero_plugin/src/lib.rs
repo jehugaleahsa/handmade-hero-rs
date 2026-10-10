@@ -1,4 +1,6 @@
 mod application_plugin;
+mod collision_deltas;
+mod dimensions;
 mod player;
 mod plugin_audio_state;
 mod plugin_game_state;

@@ -1,9 +1,9 @@
+use crate::collision_deltas::CollisionDeltas;
 use crate::tile_map::TileMap;
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
 use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::point_2d::Point2d;
-use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::units::si::length::{Length, pixel};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -58,20 +58,22 @@ impl World {
     pub fn is_traversable(
         &self,
         coordinate: &WorldCoordinate,
-        collision_deltas: Rectangle<f32>,
+        collision_deltas: CollisionDeltas,
     ) -> bool {
-        let left = Length::new::<pixel>(collision_deltas.left());
-        let bottom = Length::new::<pixel>(collision_deltas.bottom());
+        let CollisionDeltas {
+            top,
+            bottom,
+            left,
+            right,
+        } = collision_deltas;
         let bottom_left = coordinate.shifted(left, bottom, self.tile_size);
         if !self.is_traversable_coordinate(&bottom_left) {
             return false;
         }
-        let right = Length::new::<pixel>(collision_deltas.right());
         let bottom_right = coordinate.shifted(right, bottom, self.tile_size);
         if !self.is_traversable_coordinate(&bottom_right) {
             return false;
         }
-        let top = Length::new::<pixel>(collision_deltas.top());
         let top_left = coordinate.shifted(left, top, self.tile_size);
         if !self.is_traversable_coordinate(&top_left) {
             return false;
