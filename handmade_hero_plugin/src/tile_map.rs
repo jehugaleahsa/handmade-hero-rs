@@ -35,7 +35,8 @@ impl Index<(u16, u16)> for TileMap {
     #[inline]
     fn index(&self, index: (u16, u16)) -> &Self::Output {
         let (row, column) = index;
-        &self.tiles[self.offset_of(row, column)]
+        let offset = self.offset_of(row, column);
+        &self.tiles[offset]
     }
 }
 

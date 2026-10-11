@@ -77,7 +77,7 @@ impl WorldCoordinate {
     #[inline]
     #[must_use]
     pub fn tile_offset(&self) -> Point2d<Length> {
-        self.tile_map_coordinate.offset()
+        self.tile_map_coordinate.tile_offset()
     }
 
     #[must_use]

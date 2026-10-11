@@ -13,15 +13,27 @@ use uom::si::ratio::ratio;
 #[derive(Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct World {
-    pub rows: u16,
-    pub columns: u16,
-    pub tile_maps: HashMap<TileMapKey, TileMap>,
-    pub tile_size: Length,
+    rows: u16,
+    columns: u16,
+    tile_size: Length,
+    tile_maps: HashMap<TileMapKey, TileMap>,
 }
 
 impl World {
     pub const TILE_ROWS: u16 = 9;
     pub const TILE_COLUMNS: u16 = 17;
+
+    #[inline]
+    #[must_use]
+    pub fn new(rows: u16, columns: u16, tile_size: Length) -> Self {
+        let tile_maps = HashMap::new();
+        Self {
+            rows,
+            columns,
+            tile_size,
+            tile_maps,
+        }
+    }
 
     #[inline]
     #[must_use]

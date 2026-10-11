@@ -409,13 +409,13 @@ impl ApplicationPlugin {
         let world = plugin_state.world();
         let player_coordinate = plugin_state.player().coordinate();
 
-        let tile_size = world.tile_size;
+        let tile_size = world.tile_size();
         let mut tile_map_y = start_coordinate.tile_map_y();
         let mut tile_y = start_coordinate.tile_y();
-        for row_index in 0..world.rows {
+        for row_index in 0..world.rows() {
             let mut tile_map_x = start_coordinate.tile_map_x();
             let mut tile_x = start_coordinate.tile_x();
-            for column_index in 0..world.columns {
+            for column_index in 0..world.columns() {
                 let row_index = f32::from(row_index);
                 let column_index = f32::from(column_index);
                 let left = column_index * tile_size;
@@ -434,14 +434,14 @@ impl ApplicationPlugin {
                 Self::render_rectangle(viewport, &tile_rectangle, Color::from(color), pixels)?;
 
                 tile_x += 1;
-                if tile_x >= world.columns {
+                if tile_x >= world.columns() {
                     tile_map_x += 1;
                     tile_x = 0;
                 }
             }
 
             tile_y += 1;
-            if tile_y >= world.rows {
+            if tile_y >= world.rows() {
                 tile_map_y += 1;
                 tile_y = 0;
             }

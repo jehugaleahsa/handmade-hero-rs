@@ -4,7 +4,6 @@ use crate::tile_map_key::TileMapKey;
 use crate::world::World;
 use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use uom::si::length::meter;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -18,12 +17,7 @@ impl PluginGameState {
     #[must_use]
     pub fn new() -> Self {
         let tile_size = Length::new::<meter>(1.4);
-        let world = World {
-            rows: World::TILE_ROWS,
-            columns: World::TILE_COLUMNS,
-            tile_maps: HashMap::new(),
-            tile_size,
-        };
+        let world = World::new(World::TILE_ROWS, World::TILE_COLUMNS, tile_size);
         let current_tile_map_key = TileMapKey::from_x_y(0, 0);
         let player = Player::new(&world, current_tile_map_key);
         Self {
