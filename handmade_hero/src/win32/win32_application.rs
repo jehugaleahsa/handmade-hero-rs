@@ -28,7 +28,6 @@ use handmade_hero_interface::performance_counter::PerformanceCounter;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::sound_buffer::SoundBuffer;
 use handmade_hero_interface::units::si::information::Information;
-use handmade_hero_interface::units::si::length::pixel;
 use handmade_hero_interface::update_render_context::UpdateRenderContext;
 use std::ffi::c_void;
 use std::path::Path;
@@ -40,7 +39,6 @@ use uom::si::f32::{Ratio, Time};
 use uom::si::frequency::hertz;
 use uom::si::information::byte;
 use uom::si::information_rate::byte_per_second;
-use uom::si::length::Length;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
 use windows::Win32::Foundation::HINSTANCE;
@@ -153,11 +151,7 @@ impl Win32Application {
             return Ok(());
         }
 
-        #[expect(clippy::cast_precision_loss)]
-        let width_in_pixels = Length::new::<pixel>(client_width as f32);
-        #[expect(clippy::cast_precision_loss)]
-        let height_in_pixels = Length::new::<pixel>(client_height as f32);
-        self.back_buffer.resize(width_in_pixels, height_in_pixels)?;
+        self.back_buffer.resize(client_width, client_height)?;
 
         Ok(())
     }

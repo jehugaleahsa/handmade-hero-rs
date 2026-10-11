@@ -189,11 +189,11 @@ fn work_resolution(monitor_info: &MONITORINFOEXW) -> Resolution {
 
 fn max_windowed_resolution(next: HMONITOR, work_resolution: Resolution) -> Resolution {
     let frame = find_frame_size(next);
-    let work_width = work_resolution.width_in_pixels();
-    let work_height = work_resolution.height_in_pixels();
-    let max_window_width = work_width.saturating_sub(frame.cx.unsigned_abs());
-    let max_window_height = work_height.saturating_sub(frame.cy.unsigned_abs());
-    Resolution::new(max_window_width, max_window_height)
+    let work_width_px = work_resolution.width_px();
+    let work_height_px = work_resolution.height_px();
+    let max_width_px = work_width_px.saturating_sub(frame.cx.unsigned_abs());
+    let max_height_px = work_height_px.saturating_sub(frame.cy.unsigned_abs());
+    Resolution::new(max_width_px, max_height_px)
 }
 
 pub fn set_display_mode(monitor: &Win32Monitor, mode: &MonitorMode) -> Result<()> {

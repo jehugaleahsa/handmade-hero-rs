@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate uom;
-
 pub mod application;
 pub mod application_error;
 pub mod audio_context;

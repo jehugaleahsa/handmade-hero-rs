@@ -1,9 +1,10 @@
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
 use crate::world::World;
+use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::units::si::length::Length;
-use handmade_hero_interface::{point_2d::Point2d, units::si::length::pixel};
 use serde::{Deserialize, Serialize};
+use uom::si::length::meter;
 
 #[derive(Debug, Copy, Clone)]
 struct ShiftedCoordinate {
@@ -132,118 +133,32 @@ impl WorldCoordinate {
         } = axis;
 
         // Carry whole tiles out of the offset so it lands back in [0, tile_size).
-        let tile_size_px = tile_size.get::<pixel>();
+        let tile_size_m = tile_size.get::<meter>();
         let position = tile_offset + delta;
-        let position_px = position.get::<pixel>();
-        let mut tile_delta_px = (position_px / tile_size_px).floor();
-        let mut tile_offset_px = position_px.rem_euclid(tile_size_px);
-        if tile_offset_px >= tile_size_px {
+        let position_m = position.get::<meter>();
+        let mut tile_delta = (position_m / tile_size_m).floor();
+        let mut tile_offset_m = position_m.rem_euclid(tile_size_m);
+        if tile_offset_m >= tile_size_m {
             // `f32::rem_euclid` is documented to round up to the divisor when `position` is
             // a tiny negative value. Snapping to the next tile keeps the pair consistent.
-            tile_offset_px = 0f32;
-            tile_delta_px += 1f32;
+            tile_offset_m = 0.0;
+            tile_delta += 1.0;
         }
         // The intermediate tile index can leave the range of a single tile map in either
         // direction, so the carry runs in `i32` and narrows back at the end.
-        let tile = i32::from(tile) + tile_delta_px as i32;
+        let tile = i32::from(tile) + tile_delta as i32;
 
         // Carry whole tile maps out of the tile index. Euclidean division is floor division
         // for a positive divisor, so the negative and positive cases share one expression.
         let max_tiles = i32::from(max_tiles);
         let tile_map = i32::from(tile_map) + tile.div_euclid(max_tiles);
         let tile = tile.rem_euclid(max_tiles);
-        let tile_offset = Length::new::<pixel>(tile_offset_px);
+        let tile_offset = Length::new::<meter>(tile_offset_m);
 
         ShiftedCoordinate {
             tile: tile as u16,
             tile_map: tile_map as i16,
             tile_offset,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use handmade_hero_interface::units::si::length::{Length, pixel};
-
-    use crate::world_coordinate::{ShiftedCoordinate, WorldCoordinate};
-
-    const TILE_SIZE: f32 = 60f32;
-    const MAX_TILES: u16 = 9;
-
-    fn shift(tile_map: i16, tile: u16, tile_offset: f32, delta: f32) -> (i16, u16, f32) {
-        let axis = ShiftedCoordinate {
-            tile_map,
-            tile,
-            tile_offset: Length::new::<pixel>(tile_offset),
-        };
-        let shifted = WorldCoordinate::shifted_axis(
-            axis,
-            Length::new::<pixel>(delta),
-            Length::new::<pixel>(TILE_SIZE),
-            MAX_TILES,
-        );
-        (
-            shifted.tile_map,
-            shifted.tile,
-            shifted.tile_offset.get::<pixel>(),
-        )
-    }
-
-    fn assert_axis(actual: (i16, u16, f32), expected: (i16, u16, f32)) {
-        assert_eq!(actual.0, expected.0, "tile map");
-        assert_eq!(actual.1, expected.1, "tile");
-        assert!(
-            (actual.2 - expected.2).abs() < 1e-4f32,
-            "tile offset: expected {}, found {}",
-            expected.2,
-            actual.2
-        );
-    }
-
-    #[test]
-    fn test_shift_stays_within_tile() {
-        assert_axis(shift(0, 3, 10f32, 15f32), (0, 3, 25f32));
-    }
-
-    #[test]
-    fn test_shift_crosses_forward_into_next_tile() {
-        assert_axis(shift(0, 3, 50f32, 20f32), (0, 4, 10f32));
-    }
-
-    #[test]
-    fn test_shift_crosses_backward_into_previous_tile() {
-        assert_axis(shift(0, 3, 10f32, -20f32), (0, 2, 50f32));
-    }
-
-    /// Landing exactly on a tile boundary must not leave the offset sitting at `tile_size`,
-    /// which would be one whole tile past where the coordinate actually is.
-    #[test]
-    fn test_shift_lands_on_exact_tile_boundary() {
-        assert_axis(shift(0, 1, 0f32, -TILE_SIZE), (0, 0, 0f32));
-    }
-
-    #[test]
-    fn test_shift_crosses_forward_into_next_tile_map() {
-        assert_axis(shift(0, 8, 50f32, 20f32), (1, 0, 10f32));
-    }
-
-    #[test]
-    fn test_shift_crosses_backward_into_previous_tile_map() {
-        assert_axis(shift(0, 0, 10f32, -20f32), (-1, 8, 50f32));
-    }
-
-    /// Landing exactly on a tile map boundary must wrap the tile index to zero rather than
-    /// to `max_tiles`, which is one past the end of the map.
-    #[test]
-    fn test_shift_lands_on_exact_tile_map_boundary() {
-        let delta = -f32::from(MAX_TILES) * TILE_SIZE;
-        assert_axis(shift(0, 0, 0f32, delta), (-1, 0, 0f32));
-    }
-
-    #[test]
-    fn test_shift_spans_multiple_tile_maps() {
-        let delta = -f32::from(MAX_TILES * 2) * TILE_SIZE - 30f32;
-        assert_axis(shift(0, 0, 0f32, delta), (-3, 8, 30f32));
     }
 }

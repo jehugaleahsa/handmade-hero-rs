@@ -36,7 +36,7 @@ impl Player {
         let Dimensions { width, height } = Self::dimensions(world);
         let left_delta = -0.5 * width;
         let right_delta = 0.5 * width;
-        let bound_height = 0.25 * height;
+        let bound_height = 0.125 * height;
         CollisionDeltas {
             top: bound_height,
             bottom: Length::zero(),

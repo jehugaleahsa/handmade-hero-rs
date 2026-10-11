@@ -7,5 +7,6 @@ mod plugin_game_state;
 mod tile_map;
 mod tile_map_coordinate;
 mod tile_map_key;
+mod viewport;
 mod world;
 mod world_coordinate;

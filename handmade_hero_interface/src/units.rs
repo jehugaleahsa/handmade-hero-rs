@@ -3,12 +3,16 @@ pub mod si {
         use uom::si::SI;
 
         pub type Length = uom::si::length::Length<SI<f32>, f32>;
+    }
 
-        unit! {
-            system: uom::si;
-            quantity: uom::si::length;
-            @pixel: 1.0 / 42.85; "px", "pixel", "pixels";
-        }
+    pub mod linear_number_density {
+        use uom::si::SI;
+
+        /// A count per unit of length, such as how many screen pixels span one meter of the
+        /// world. Multiplying a [`Length`](super::length::Length) by one leaves a dimensionless
+        /// count.
+        pub type LinearNumberDensity =
+            uom::si::linear_number_density::LinearNumberDensity<SI<f32>, f32>;
     }
 
     pub mod time {
@@ -39,33 +43,5 @@ pub mod si {
         /// buffer. Dividing one by a [`Frequency`](super::frequency::Frequency) cancels the
         /// per-second term and leaves an [`Information`](super::information::Information).
         pub type InformationRate = uom::si::information_rate::InformationRate<SI<u32>, u32>;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::units::si::length::{Length, pixel};
-    use uom::si::length::meter;
-
-    const PIXELS_PER_METER: f32 = 42.85;
-
-    #[test]
-    fn test_meter_to_pixels() {
-        let meters = Length::new::<meter>(1f32);
-        let pixels = meters.get::<pixel>();
-        #[expect(clippy::float_cmp)]
-        {
-            assert_eq!(PIXELS_PER_METER, pixels);
-        }
-    }
-
-    #[test]
-    fn test_pixels_to_meters() {
-        let meters = Length::new::<pixel>(PIXELS_PER_METER);
-        let pixels = meters.get::<meter>();
-        #[expect(clippy::float_cmp)]
-        {
-            assert_eq!(1.0, pixels);
-        }
     }
 }

@@ -1,8 +1,6 @@
 use std::ffi::c_void;
 
-use handmade_hero_interface::{
-    back_buffer::BackBuffer, color::Color, narrow_unsigned, units::si::length::pixel,
-};
+use handmade_hero_interface::{back_buffer::BackBuffer, color::Color, narrow_unsigned};
 use uom::si::{
     information::{bit, byte},
     u32::Information,
@@ -321,9 +319,11 @@ impl Win32Window {
     fn write_buffer(&mut self, back_buffer: &BackBuffer, device_context: HDC) {
         let bitmap_data = back_buffer.bitmap();
         #[expect(clippy::cast_possible_truncation)]
-        let buffer_width = back_buffer.width().get::<pixel>() as i32;
+        #[expect(clippy::cast_possible_wrap)]
+        let buffer_width = back_buffer.width_px() as i32;
         #[expect(clippy::cast_possible_truncation)]
-        let buffer_height = back_buffer.height().get::<pixel>() as i32;
+        #[expect(clippy::cast_possible_wrap)]
+        let buffer_height = back_buffer.height_px() as i32;
 
         // The header tells Windows how to read the pixels, so it describes the buffer, whatever
         // size the window happens to be. A negative height means the rows run top to bottom.

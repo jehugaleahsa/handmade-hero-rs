@@ -4,10 +4,11 @@ use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
 use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::point_2d::Point2d;
-use handmade_hero_interface::units::si::length::{Length, pixel};
+use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use uom::si::ratio::ratio;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -15,8 +16,6 @@ pub struct World {
     pub rows: u16,
     pub columns: u16,
     pub tile_maps: HashMap<TileMapKey, TileMap>,
-    pub x_offset: Length,
-    pub y_offset: Length,
     pub tile_size: Length,
 }
 
@@ -53,7 +52,6 @@ impl World {
     }
 
     /// Indicates whether all four corners of the collision box fall within a traversable tile.
-    /// The box's edges are offsets, in pixels, from `coordinate`.
     #[must_use]
     pub fn is_traversable(
         &self,
@@ -112,10 +110,10 @@ impl World {
     pub fn get_tile_x_y(&self, point: Point2d<Length>) -> (u16, u16) {
         let tile_size = self.tile_size;
 
-        let tile_x = (point.x().get::<pixel>() / tile_size.get::<pixel>()) as u16;
+        let tile_x = (point.x() / tile_size).get::<ratio>() as u16;
         let tile_x = u16::min(tile_x, self.columns - 1);
 
-        let tile_y = (point.y().get::<pixel>() / tile_size.get::<pixel>()) as u16;
+        let tile_y = (point.y() / tile_size).get::<ratio>() as u16;
         let tile_y = u16::min(tile_y, self.rows - 1);
 
         (tile_x, tile_y)

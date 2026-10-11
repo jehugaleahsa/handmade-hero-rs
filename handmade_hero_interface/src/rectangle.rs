@@ -1,9 +1,7 @@
 use crate::application_error::{ApplicationError, Result};
 use crate::point_2d::Point2d;
-use crate::units::si::length::{Length, pixel};
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Sub};
-use uom::num_traits::Zero;
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct Rectangle<T> {
@@ -214,43 +212,6 @@ impl Rectangle<f32> {
         #[expect(clippy::float_cmp)]
         #[expect(clippy::cast_precision_loss)]
         if rounded != truncated as f32 {
-            return Err(ApplicationError::new(
-                "Rectangle vertex cannot be converted to usize",
-            ));
-        }
-        Ok(truncated)
-    }
-}
-
-impl Rectangle<Length> {
-    /// # Errors
-    /// An error is returned if any of the `f32` positions cannot be converted to a `usize`.
-    #[inline]
-    pub fn round_to_usize(&self) -> Result<Rectangle<usize>> {
-        let top = Self::round_safe(self.top)?;
-        let left = Self::round_safe(self.left)?;
-        let bottom = Self::round_safe(self.bottom)?;
-        let right = Self::round_safe(self.right)?;
-        Ok(Rectangle {
-            top,
-            left,
-            bottom,
-            right,
-        })
-    }
-
-    fn round_safe(value: Length) -> Result<usize> {
-        if value < Length::zero() {
-            return Err(ApplicationError::new("Rectangle with negative vertex"));
-        }
-        let value_px = value.get::<pixel>();
-        let rounded_px = value_px.round();
-        #[expect(clippy::cast_possible_truncation)]
-        #[expect(clippy::cast_sign_loss)]
-        let truncated = rounded_px as usize;
-        #[expect(clippy::float_cmp)]
-        #[expect(clippy::cast_precision_loss)]
-        if rounded_px != truncated as f32 {
             return Err(ApplicationError::new(
                 "Rectangle vertex cannot be converted to usize",
             ));
