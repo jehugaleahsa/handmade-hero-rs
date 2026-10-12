@@ -199,7 +199,7 @@ impl ApplicationPlugin {
         );
     }
 
-    fn load_tile_map(destination: &mut TileMap, source: &[u32], row_count: u16, column_count: u16) {
+    fn load_tile_map(destination: &mut TileMap, source: &[u32], row_count: u8, column_count: u8) {
         // In our world coordinate system, the y-coordinates increase from the bottom up.
         // But in memory, the y-coordinates increase from the top down. Therefore, when
         // we copy our hard-coded tile map arrays, we flip the coordinate of each row.
@@ -453,8 +453,8 @@ impl ApplicationPlugin {
         world: &World,
         player_coordinate: &WorldCoordinate,
         tile_map_key: TileMapKey,
-        tile_x: u16,
-        tile_y: u16,
+        tile_x: u8,
+        tile_y: u8,
     ) -> Color<f32> {
         let tile = world
             .get_tile_map(tile_map_key)
@@ -516,11 +516,11 @@ impl ApplicationPlugin {
 
     fn determine_player_offset(
         start_tile_map: i16,
-        start_tile: u16,
+        start_tile: u8,
         tile_map: i16,
-        tile: u16,
+        tile: u8,
         tile_size: Length,
-        max_tile: u16,
+        max_tile: u8,
     ) -> Length {
         let tile_map_diff = f32::from(tile_map) - f32::from(start_tile_map);
         let tile_map_diff = tile_map_diff * f32::from(max_tile) * tile_size;
@@ -548,7 +548,7 @@ impl ApplicationPlugin {
         WorldCoordinate::new(world, start_tile_map_key, tile_map_coordinates)
     }
 
-    fn determine_start(tile_map: i16, tile: u16, max_tile: u16) -> (i16, u16) {
+    fn determine_start(tile_map: i16, tile: u8, max_tile: u8) -> (i16, u8) {
         let middle = max_tile / 2;
         match tile.cmp(&middle) {
             Ordering::Less => (tile_map - 1, max_tile - (middle - tile)),

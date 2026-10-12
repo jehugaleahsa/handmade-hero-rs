@@ -59,7 +59,6 @@ impl Monitor {
     }
 
     #[inline]
-    #[must_use]
     pub fn modes(&self) -> impl Iterator<Item = &MonitorMode> {
         self.modes.iter()
     }

@@ -13,37 +13,37 @@ use uom::si::ratio::ratio;
 #[derive(Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct World {
-    rows: u16,
-    columns: u16,
-    tile_size: Length,
     tile_maps: HashMap<TileMapKey, TileMap>,
+    tile_size: Length,
+    rows: u8,
+    columns: u8,
 }
 
 impl World {
-    pub const TILE_ROWS: u16 = 9;
-    pub const TILE_COLUMNS: u16 = 17;
+    pub const TILE_ROWS: u8 = 9;
+    pub const TILE_COLUMNS: u8 = 17;
 
     #[inline]
     #[must_use]
-    pub fn new(rows: u16, columns: u16, tile_size: Length) -> Self {
+    pub fn new(rows: u8, columns: u8, tile_size: Length) -> Self {
         let tile_maps = HashMap::new();
         Self {
+            tile_maps,
+            tile_size,
             rows,
             columns,
-            tile_size,
-            tile_maps,
         }
     }
 
     #[inline]
     #[must_use]
-    pub fn rows(&self) -> u16 {
+    pub fn rows(&self) -> u8 {
         self.rows
     }
 
     #[inline]
     #[must_use]
-    pub fn columns(&self) -> u16 {
+    pub fn columns(&self) -> u8 {
         self.columns
     }
 
@@ -119,14 +119,14 @@ impl World {
     #[must_use]
     #[expect(clippy::cast_sign_loss)]
     #[expect(clippy::cast_possible_truncation)]
-    pub fn get_tile_x_y(&self, point: Point2d<Length>) -> (u16, u16) {
+    pub fn get_tile_x_y(&self, point: Point2d<Length>) -> (u8, u8) {
         let tile_size = self.tile_size;
 
-        let tile_x = (point.x() / tile_size).get::<ratio>() as u16;
-        let tile_x = u16::min(tile_x, self.columns - 1);
+        let tile_x = (point.x() / tile_size).get::<ratio>() as u8;
+        let tile_x = tile_x.min(self.columns - 1);
 
-        let tile_y = (point.y() / tile_size).get::<ratio>() as u16;
-        let tile_y = u16::min(tile_y, self.rows - 1);
+        let tile_y = (point.y() / tile_size).get::<ratio>() as u8;
+        let tile_y = tile_y.min(self.rows - 1);
 
         (tile_x, tile_y)
     }

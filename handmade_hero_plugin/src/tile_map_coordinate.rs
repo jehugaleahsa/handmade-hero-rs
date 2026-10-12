@@ -3,14 +3,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Copy, Clone)]
 pub struct TileMapCoordinate {
-    offset: Point2d<u16>,
+    offset: Point2d<u8>,
     tile_offset: Point2d<Length>,
 }
 
 impl TileMapCoordinate {
     #[inline]
     #[must_use]
-    pub fn at_x_y(x: u16, y: u16) -> Self {
+    pub fn at_x_y(x: u8, y: u8) -> Self {
         let offset = Point2d::from_x_y(x, y);
         let tile_offset = Point2d::default();
         Self {
@@ -21,7 +21,7 @@ impl TileMapCoordinate {
 
     #[inline]
     #[must_use]
-    pub fn at_x_y_offset(x: u16, y: u16, tile_offset: Point2d<Length>) -> Self {
+    pub fn at_x_y_offset(x: u8, y: u8, tile_offset: Point2d<Length>) -> Self {
         let offset = Point2d::from_x_y(x, y);
         Self {
             offset,
@@ -31,13 +31,13 @@ impl TileMapCoordinate {
 
     #[inline]
     #[must_use]
-    pub fn x(&self) -> u16 {
+    pub fn x(&self) -> u8 {
         self.offset.x()
     }
 
     #[inline]
     #[must_use]
-    pub fn y(&self) -> u16 {
+    pub fn y(&self) -> u8 {
         self.offset.y()
     }
 

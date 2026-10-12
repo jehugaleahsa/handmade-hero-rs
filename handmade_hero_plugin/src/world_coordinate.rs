@@ -9,7 +9,7 @@ use uom::si::length::meter;
 #[derive(Debug, Copy, Clone)]
 struct ShiftedCoordinate {
     tile_map: i16,
-    tile: u16,
+    tile: u8,
     tile_offset: Length,
 }
 
@@ -17,8 +17,8 @@ struct ShiftedCoordinate {
 pub struct WorldCoordinate {
     tile_map_key: TileMapKey,
     tile_map_coordinate: TileMapCoordinate,
-    rows: u16,
-    columns: u16,
+    rows: u8,
+    columns: u8,
 }
 
 impl WorldCoordinate {
@@ -33,8 +33,8 @@ impl WorldCoordinate {
     fn new_internal(
         key: TileMapKey,
         tile_map_coordinate: TileMapCoordinate,
-        rows: u16,
-        columns: u16,
+        rows: u8,
+        columns: u8,
     ) -> Self {
         Self {
             tile_map_key: key,
@@ -64,13 +64,13 @@ impl WorldCoordinate {
 
     #[inline]
     #[must_use]
-    pub fn tile_x(&self) -> u16 {
+    pub fn tile_x(&self) -> u8 {
         self.tile_map_coordinate.x()
     }
 
     #[inline]
     #[must_use]
-    pub fn tile_y(&self) -> u16 {
+    pub fn tile_y(&self) -> u8 {
         self.tile_map_coordinate.y()
     }
 
@@ -124,7 +124,7 @@ impl WorldCoordinate {
         axis: ShiftedCoordinate,
         delta: Length,
         tile_size: Length,
-        max_tiles: u16,
+        max_tiles: u8,
     ) -> ShiftedCoordinate {
         let ShiftedCoordinate {
             tile_offset,
@@ -156,7 +156,7 @@ impl WorldCoordinate {
         let tile_offset = Length::new::<meter>(tile_offset_m);
 
         ShiftedCoordinate {
-            tile: tile as u16,
+            tile: tile as u8,
             tile_map: tile_map as i16,
             tile_offset,
         }
