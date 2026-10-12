@@ -28,6 +28,12 @@ where
     pub fn y(self) -> T {
         self.y
     }
+
+    #[inline]
+    #[must_use]
+    pub fn to_tuple(self) -> (T, T) {
+        (self.x, self.y)
+    }
 }
 
 impl<T> Point2d<T>

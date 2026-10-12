@@ -26,9 +26,9 @@ impl Player {
     #[must_use]
     pub fn render_bounds(&self, world: &World) -> Rectangle<Length> {
         let Dimensions { width, height } = Self::dimensions(world);
-        let offset = self.coordinate.tile_offset();
-        let x = offset.x() - width / 2.0;
-        Rectangle::new(offset.y(), x, height, width)
+        let (offset_x, offset_y) = self.coordinate.tile_offset().to_tuple();
+        let x = offset_x - width / 2.0;
+        Rectangle::new(offset_y, x, height, width)
     }
 
     #[must_use]

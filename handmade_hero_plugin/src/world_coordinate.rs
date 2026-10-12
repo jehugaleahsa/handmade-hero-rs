@@ -82,12 +82,12 @@ impl WorldCoordinate {
 
     #[must_use]
     pub fn shifted(&self, delta_x: Length, delta_y: Length, tile_size: Length) -> WorldCoordinate {
-        let tile_offset = self.tile_offset();
+        let (tile_offset_x, tile_offset_y) = self.tile_offset().to_tuple();
 
         let x_shift = ShiftedCoordinate {
             tile_map: self.tile_map_key.x(),
             tile: self.tile_x(),
-            tile_offset: tile_offset.x(),
+            tile_offset: tile_offset_x,
         };
         let ShiftedCoordinate {
             tile_map: tile_map_x,
@@ -98,7 +98,7 @@ impl WorldCoordinate {
         let y_shift = ShiftedCoordinate {
             tile_map: self.tile_map_key.y(),
             tile: self.tile_y(),
-            tile_offset: tile_offset.y(),
+            tile_offset: tile_offset_y,
         };
         let ShiftedCoordinate {
             tile_map: tile_map_y,
@@ -127,9 +127,9 @@ impl WorldCoordinate {
         max_tiles: u8,
     ) -> ShiftedCoordinate {
         let ShiftedCoordinate {
-            tile_offset,
-            tile,
             tile_map,
+            tile,
+            tile_offset,
         } = axis;
 
         // Carry whole tiles out of the offset so it lands back in [0, tile_size).
@@ -156,8 +156,8 @@ impl WorldCoordinate {
         let tile_offset = Length::new::<meter>(tile_offset_m);
 
         ShiftedCoordinate {
-            tile: tile as u8,
             tile_map: tile_map as i16,
+            tile: tile as u8,
             tile_offset,
         }
     }

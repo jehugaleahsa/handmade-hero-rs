@@ -64,9 +64,9 @@ impl Win32Mouse {
 
     /// Records the cursor position relative to the window's client area.
     pub fn capture_position(&mut self, client_coordinate: POINT) -> Win32Result<()> {
-        let mouse_coordinate = Self::coordinates()?;
-        let x = mouse_coordinate.x().saturating_sub(client_coordinate.x);
-        let y = mouse_coordinate.y().saturating_sub(client_coordinate.y);
+        let (x, y) = Self::coordinates()?.to_tuple();
+        let x = x.saturating_sub(client_coordinate.x);
+        let y = y.saturating_sub(client_coordinate.y);
         self.state.set_x(x);
         self.state.set_y(y);
         Ok(())

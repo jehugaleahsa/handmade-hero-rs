@@ -71,10 +71,8 @@ where
     #[inline]
     #[must_use]
     pub fn contains_point(&self, point: Point2d<T>) -> bool {
-        point.x() >= self.left
-            && point.x() < self.right
-            && point.y() < self.top
-            && point.y() >= self.bottom
+        let (x, y) = point.to_tuple();
+        x >= self.left && x < self.right && y < self.top && y >= self.bottom
     }
 
     #[inline]
@@ -174,7 +172,8 @@ where
     #[inline]
     #[must_use]
     pub fn moved_to_point(&self, point: Point2d<T>) -> Self {
-        self.moved_to(point.x(), point.y())
+        let (x, y) = point.to_tuple();
+        self.moved_to(x, y)
     }
 
     #[inline]

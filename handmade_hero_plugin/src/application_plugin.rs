@@ -21,7 +21,6 @@ use handmade_hero_interface::key::Key;
 use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::monitor_mode::MonitorMode;
 use handmade_hero_interface::plugin_state::PluginState;
-use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::stereo_sample::StereoSample;
 use handmade_hero_interface::units::si::frequency::Frequency;
@@ -65,7 +64,7 @@ impl ApplicationPlugin {
         let tile_size = world.tile_size();
         let x = f32::from(world.columns()) * tile_size / 2.0;
         let y = f32::from(world.rows()) * tile_size / 2.0;
-        let tile_map_coordinates = world.get_tile_map_coordinate(Point2d::from_x_y(x, y));
+        let tile_map_coordinates = world.convert_to_tile_map_coordinate(x, y);
         let new_coordinates = WorldCoordinate::new(
             plugin_state.world(),
             plugin_state.player().tile_map_key(),
