@@ -1,8 +1,8 @@
+use crate::collision_deltas::CollisionDeltas;
 use crate::dimensions::Dimensions;
 use crate::tile_map_key::TileMapKey;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
-use crate::{collision_deltas::CollisionDeltas, tile_map_coordinate::TileMapCoordinate};
 use handmade_hero_interface::units::si::length::Length;
 use handmade_hero_interface::{color::Color, rectangle::Rectangle};
 use serde::{Deserialize, Serialize};
@@ -17,8 +17,7 @@ pub struct Player {
 impl Player {
     #[must_use]
     pub fn new(world: &World, tile_map_key: TileMapKey) -> Self {
-        let tile_map_coordinate = TileMapCoordinate::at_x_y(0, 0);
-        let coordinate = WorldCoordinate::new(world, tile_map_key, tile_map_coordinate);
+        let coordinate = WorldCoordinate::new(world, tile_map_key);
         let color = Color::from(Color::from_rgb(0xFF, 0xFF, 0x00));
         Self { coordinate, color }
     }

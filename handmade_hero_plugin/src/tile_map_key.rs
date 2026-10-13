@@ -9,7 +9,7 @@ pub struct TileMapKey {
 impl TileMapKey {
     #[inline]
     #[must_use]
-    pub fn from_x_y(x: i16, y: i16) -> Self {
+    pub fn at_x_y(x: i16, y: i16) -> Self {
         Self { x, y }
     }
 

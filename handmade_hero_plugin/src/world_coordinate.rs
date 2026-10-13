@@ -24,7 +24,8 @@ pub struct WorldCoordinate {
 impl WorldCoordinate {
     #[inline]
     #[must_use]
-    pub fn new(world: &World, key: TileMapKey, tile_map_coordinate: TileMapCoordinate) -> Self {
+    pub fn new(world: &World, key: TileMapKey) -> Self {
+        let tile_map_coordinate = TileMapCoordinate::default();
         Self::new_internal(key, tile_map_coordinate, world.rows(), world.columns())
     }
 
@@ -42,6 +43,17 @@ impl WorldCoordinate {
             rows,
             columns,
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn within_tile_map(self, tile_map_coordinate: TileMapCoordinate) -> Self {
+        Self::new_internal(
+            self.tile_map_key,
+            tile_map_coordinate,
+            self.rows,
+            self.columns,
+        )
     }
 
     #[inline]
@@ -106,7 +118,7 @@ impl WorldCoordinate {
             tile_offset: tile_offset_y,
         } = Self::shifted_axis(y_shift, delta_y, tile_size, self.rows);
 
-        let new_tile_map_key = TileMapKey::from_x_y(tile_map_x, tile_map_y);
+        let new_tile_map_key = TileMapKey::at_x_y(tile_map_x, tile_map_y);
         let new_tile_offset = Point2d::from_x_y(tile_offset_x, tile_offset_y);
         let new_tile_coordinate = TileMapCoordinate::at_x_y_offset(tile_x, tile_y, new_tile_offset);
         WorldCoordinate::new_internal(

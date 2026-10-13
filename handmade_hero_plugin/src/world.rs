@@ -1,14 +1,11 @@
 use crate::collision_deltas::CollisionDeltas;
 use crate::tile_map::TileMap;
-use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
 use crate::world_coordinate::WorldCoordinate;
-use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use uom::si::ratio::ratio;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -104,32 +101,5 @@ impl World {
     #[must_use]
     pub fn get_tile_map(&self, key: TileMapKey) -> Option<&TileMap> {
         self.tile_maps.get(&key)
-    }
-
-    #[must_use]
-    pub fn convert_to_tile_map_coordinate(&self, x: Length, y: Length) -> TileMapCoordinate {
-        let (tile_x, tile_y) = self.convert_to_tile_x_y(x, y);
-        let tile_size = self.tile_size;
-        let tile_x_offset = f32::from(tile_x) * tile_size;
-        let tile_y_offset = f32::from(tile_y) * tile_size;
-        let x = x - tile_x_offset;
-        let y = y - tile_y_offset;
-        let offset = Point2d::from_x_y(x, y);
-        TileMapCoordinate::at_x_y_offset(tile_x, tile_y, offset)
-    }
-
-    #[must_use]
-    #[expect(clippy::cast_sign_loss)]
-    #[expect(clippy::cast_possible_truncation)]
-    pub fn convert_to_tile_x_y(&self, x: Length, y: Length) -> (u8, u8) {
-        let tile_size = self.tile_size;
-
-        let tile_x = (x / tile_size).get::<ratio>() as u8;
-        let tile_x = tile_x.min(self.columns - 1);
-
-        let tile_y = (y / tile_size).get::<ratio>() as u8;
-        let tile_y = tile_y.min(self.rows - 1);
-
-        (tile_x, tile_y)
     }
 }

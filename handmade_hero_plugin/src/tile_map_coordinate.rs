@@ -1,7 +1,7 @@
 use handmade_hero_interface::{point_2d::Point2d, units::si::length::Length};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize, Copy, Clone)]
+#[derive(Debug, Default, Deserialize, Serialize, Copy, Clone)]
 pub struct TileMapCoordinate {
     offset: Point2d<u8>,
     tile_offset: Point2d<Length>,

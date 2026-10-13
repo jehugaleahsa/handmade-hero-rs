@@ -61,29 +61,26 @@ impl ApplicationPlugin {
         Self::initialize_audio_debugging(game_state, plugin_state);
 
         let world = plugin_state.world();
+        let player = plugin_state.player();
+        let new_coordinates = WorldCoordinate::new(plugin_state.world(), player.tile_map_key());
         let tile_size = world.tile_size();
         let x = f32::from(world.columns()) * tile_size / 2.0;
         let y = f32::from(world.rows()) * tile_size / 2.0;
-        let tile_map_coordinates = world.convert_to_tile_map_coordinate(x, y);
-        let new_coordinates = WorldCoordinate::new(
-            plugin_state.world(),
-            plugin_state.player().tile_map_key(),
-            tile_map_coordinates,
-        );
+        let new_coordinates = new_coordinates.shifted(x, y, tile_size);
         plugin_state.player_mut().set_coordinates(new_coordinates);
 
         // Load the world tile maps
         let world = plugin_state.world_mut();
 
-        let hub = world.add_tile_map(TileMapKey::from_x_y(0, 0));
+        let hub = world.add_tile_map(TileMapKey::at_x_y(0, 0));
         Self::load_hub_tile_map(hub);
-        let south = world.add_tile_map(TileMapKey::from_x_y(0, -1));
+        let south = world.add_tile_map(TileMapKey::at_x_y(0, -1));
         Self::load_south_tile_map(south);
-        let west = world.add_tile_map(TileMapKey::from_x_y(-1, 0));
+        let west = world.add_tile_map(TileMapKey::at_x_y(-1, 0));
         Self::load_west_tile_map(west);
-        let east = world.add_tile_map(TileMapKey::from_x_y(1, 0));
+        let east = world.add_tile_map(TileMapKey::at_x_y(1, 0));
         Self::load_east_tile_map(east);
-        let north = world.add_tile_map(TileMapKey::from_x_y(0, 1));
+        let north = world.add_tile_map(TileMapKey::at_x_y(0, 1));
         Self::load_north_tile_map(north);
     }
 
@@ -421,7 +418,7 @@ impl ApplicationPlugin {
                 let bottom = row_index * tile_size;
                 let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);
 
-                let tile_map_key = TileMapKey::from_x_y(tile_map_x, tile_map_y);
+                let tile_map_key = TileMapKey::at_x_y(tile_map_x, tile_map_y);
                 let color = Self::determine_tile_color(
                     world,
                     player_coordinate,
@@ -542,9 +539,9 @@ impl ApplicationPlugin {
         let (start_tile_map_y, start_tile_y) =
             Self::determine_start(tile_map_y, tile_y, world.rows());
 
-        let start_tile_map_key = TileMapKey::from_x_y(start_tile_map_x, start_tile_map_y);
-        let tile_map_coordinates = TileMapCoordinate::at_x_y(start_tile_x, start_tile_y);
-        WorldCoordinate::new(world, start_tile_map_key, tile_map_coordinates)
+        let start_tile_map_key = TileMapKey::at_x_y(start_tile_map_x, start_tile_map_y);
+        let tile_map_coordinate = TileMapCoordinate::at_x_y(start_tile_x, start_tile_y);
+        WorldCoordinate::new(world, start_tile_map_key).within_tile_map(tile_map_coordinate)
     }
 
     fn determine_start(tile_map: i16, tile: u8, max_tile: u8) -> (i16, u8) {
