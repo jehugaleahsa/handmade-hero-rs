@@ -23,16 +23,15 @@ impl Player {
     }
 
     #[must_use]
-    pub fn render_bounds(&self, world: &World) -> Rectangle<Length> {
-        let Dimensions { width, height } = Self::dimensions(world);
-        let (offset_x, offset_y) = self.coordinate.tile_offset().to_tuple();
-        let x = offset_x - width / 2.0;
-        Rectangle::new(offset_y, x, height, width)
+    pub fn render_bounds(tile_size: Length) -> Rectangle<Length> {
+        let Dimensions { width, height } = Self::dimensions(tile_size);
+        let x = Length::zero() - width / 2.0;
+        Rectangle::new(Length::zero(), x, height, width)
     }
 
     #[must_use]
-    pub fn collision_bound_deltas(world: &World) -> CollisionDeltas {
-        let Dimensions { width, height } = Self::dimensions(world);
+    pub fn collision_bound_deltas(tile_size: Length) -> CollisionDeltas {
+        let Dimensions { width, height } = Self::dimensions(tile_size);
         let left_delta = -0.5 * width;
         let right_delta = 0.5 * width;
         let bound_height = 0.125 * height;
@@ -44,8 +43,7 @@ impl Player {
         }
     }
 
-    fn dimensions(world: &World) -> Dimensions {
-        let tile_size = world.tile_size();
+    fn dimensions(tile_size: Length) -> Dimensions {
         let height = tile_size * 0.9f32;
         let width = tile_size * 0.75f32;
         Dimensions { width, height }

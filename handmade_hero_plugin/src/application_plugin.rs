@@ -369,7 +369,7 @@ impl ApplicationPlugin {
         let world = plugin_state.world();
         let old_coordinates = plugin_state.player().coordinate();
         let new_coordinates = old_coordinates.shifted(delta_x, delta_y, world.tile_size());
-        let collision_deltas = Player::collision_bound_deltas(world);
+        let collision_deltas = Player::collision_bound_deltas(world.tile_size());
         if world.is_traversable(&new_coordinates, collision_deltas) {
             return Some(new_coordinates);
         }
@@ -408,14 +408,14 @@ impl ApplicationPlugin {
         let tile_size = world.tile_size();
         let mut tile_map_y = start_coordinate.tile_map_y();
         let mut tile_y = start_coordinate.tile_y();
-        for row_index in 0..world.rows() {
+        for row_index in 0..=world.rows() {
             let mut tile_map_x = start_coordinate.tile_map_x();
             let mut tile_x = start_coordinate.tile_x();
-            for column_index in 0..world.columns() {
+            for column_index in 0..=world.columns() {
                 let row_index = f32::from(row_index);
                 let column_index = f32::from(column_index);
-                let left = column_index * tile_size;
-                let bottom = row_index * tile_size;
+                let left = column_index * tile_size - player_coordinate.tile_offset().x();
+                let bottom = row_index * tile_size - player_coordinate.tile_offset().y();
                 let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);
 
                 let tile_map_key = TileMapKey::at_x_y(tile_map_x, tile_map_y);
@@ -499,7 +499,7 @@ impl ApplicationPlugin {
             world.rows(),
         );
 
-        let player_bounds = player.render_bounds(world);
+        let player_bounds = Player::render_bounds(world.tile_size());
         let player_bounds = player_bounds.shifted(x_offset, y_offset);
         let player_bounds = viewport.to_buffer_rectangle(&player_bounds);
         Self::render_rectangle(
