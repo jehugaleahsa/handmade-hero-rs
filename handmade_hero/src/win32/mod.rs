@@ -1,6 +1,7 @@
 mod direct_sound;
 mod direct_sound_buffer;
 mod direct_sound_buffer_lock_guard;
+mod win32_accessibility_shortcuts;
 pub mod win32_application;
 mod win32_controller;
 mod win32_key_event;

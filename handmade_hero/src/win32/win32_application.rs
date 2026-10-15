@@ -1,5 +1,6 @@
 use super::direct_sound::DirectSound;
 use super::direct_sound_buffer::DirectSoundBuffer;
+use super::win32_accessibility_shortcuts::Win32AccessibilityShortcuts;
 use super::win32_controller::{Win32Controller, Win32ControllerState};
 use super::win32_sound_output::Win32SoundOutput;
 use super::win32_state::{Win32State, window_procedure};
@@ -70,6 +71,7 @@ pub struct Win32Application {
     monitors_changed: bool,
     display: DisplayState,
     mode_change: ModeChange,
+    accessibility_shortcuts: Win32AccessibilityShortcuts,
 }
 
 /// Whether the fullscreen monitor is in a display mode the game switched it to.
@@ -99,6 +101,7 @@ impl Win32Application {
             monitors_changed: false,
             display: DisplayState::new(),
             mode_change: ModeChange::None,
+            accessibility_shortcuts: Win32AccessibilityShortcuts::new(),
         }
     }
 
@@ -274,6 +277,13 @@ impl Win32Application {
         let Some(is_active) = state.take_activation() else {
             return;
         };
+        // The shortcuts only get in the way of the game, so every other application sees the
+        // player's own settings.
+        if is_active {
+            self.accessibility_shortcuts.suppress();
+        } else {
+            self.accessibility_shortcuts.restore();
+        }
         let DisplaySettings::Fullscreen {
             monitor_identifier,
             mode,
@@ -325,6 +335,7 @@ impl Win32Application {
         let _ = set_dpi_awareness();
         let state = Win32State::new();
         let result = self.run_game(&state, application_loader, width, height);
+        self.accessibility_shortcuts.restore();
         self.window.destroy();
         result
     }

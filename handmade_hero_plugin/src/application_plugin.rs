@@ -270,7 +270,11 @@ impl ApplicationPlugin {
             }
         }
         let frame_duration = game_state.frame_duration();
-        let max_speed = Length::new::<meter>(3.0) / Time::new::<second>(1.0);
+        let max_speed = if input_state.keyboard().is_shift_down() {
+            Length::new::<meter>(10.0) / Time::new::<second>(1.0)
+        } else {
+            Length::new::<meter>(3.0) / Time::new::<second>(1.0)
+        };
         let max_distance = frame_duration * max_speed;
         let delta_x = delta_x * max_distance;
         let delta_y = delta_y * max_distance;
@@ -308,10 +312,7 @@ impl ApplicationPlugin {
         } else if controller.right().ended_down() {
             1.0
         } else {
-            controller
-                .left_joystick()
-                .x_ratio()
-                .midpoint(controller.right_joystick().x_ratio())
+            controller.left_joystick().x_ratio()
         }
     }
 
@@ -323,10 +324,7 @@ impl ApplicationPlugin {
         } else if controller.down().ended_down() {
             -1.0
         } else {
-            controller
-                .left_joystick()
-                .y_ratio()
-                .midpoint(controller.right_joystick().y_ratio())
+            controller.left_joystick().y_ratio()
         }
     }
 
