@@ -25,7 +25,7 @@ impl Player {
     #[must_use]
     pub fn render_bounds(tile_size: Length) -> Rectangle<Length> {
         let Dimensions { width, height } = Self::dimensions(tile_size);
-        let x = Length::zero() - width / 2.0;
+        let x = -width / 2.0;
         Rectangle::new(Length::zero(), x, height, width)
     }
 

@@ -144,21 +144,25 @@ impl WorldCoordinate {
             tile_offset,
         } = axis;
 
-        // Carry whole tiles out of the offset so it lands back in [0, tile_size).
+        // Carry whole tiles out of the offset so it lands back in [-tile_size / 2, tile_size / 2),
+        // measured from the tile's center. Shifting by half a tile measures from the tile's low
+        // edge instead, which turns the carry into plain floor division.
         let tile_size_m = tile_size.get::<meter>();
+        let half_tile_size_m = tile_size_m / 2.0;
         let position = tile_offset + delta;
-        let position_m = position.get::<meter>();
-        let mut tile_delta = (position_m / tile_size_m).floor();
+        let position_m = position.get::<meter>() + half_tile_size_m;
+        let mut tile_delta_m = position_m.div_euclid(tile_size_m);
         let mut tile_offset_m = position_m.rem_euclid(tile_size_m);
         if tile_offset_m >= tile_size_m {
             // `f32::rem_euclid` is documented to round up to the divisor when `position` is
             // a tiny negative value. Snapping to the next tile keeps the pair consistent.
             tile_offset_m = 0.0;
-            tile_delta += 1.0;
+            tile_delta_m += 1.0;
         }
+        tile_offset_m -= half_tile_size_m;
         // The intermediate tile index can leave the range of a single tile map in either
         // direction, so the carry runs in `i32` and narrows back at the end.
-        let tile = i32::from(tile) + tile_delta as i32;
+        let tile = i32::from(tile) + tile_delta_m as i32;
 
         // Carry whole tile maps out of the tile index. Euclidean division is floor division
         // for a positive divisor, so the negative and positive cases share one expression.

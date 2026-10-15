@@ -64,8 +64,10 @@ impl ApplicationPlugin {
         let player = plugin_state.player();
         let new_coordinates = WorldCoordinate::new(plugin_state.world(), player.tile_map_key());
         let tile_size = world.tile_size();
-        let x = f32::from(world.columns()) * tile_size / 2.0;
-        let y = f32::from(world.rows()) * tile_size / 2.0;
+        // A new coordinate already sits at the center of its tile, so stepping a whole number
+        // of tiles lands on the center of the middle tile.
+        let x = f32::from(world.columns() / 2) * tile_size;
+        let y = f32::from(world.rows() / 2) * tile_size;
         let new_coordinates = new_coordinates.shifted(x, y, tile_size);
         plugin_state.player_mut().set_coordinates(new_coordinates);
 
@@ -403,19 +405,23 @@ impl ApplicationPlugin {
         // means once the player gets past the center, they will no longer stay in the center and
         // start moving toward the outer edge. This avoids rendering a bunch of emptiness.
         let world = plugin_state.world();
-        let player_coordinate = plugin_state.player().coordinate();
-
         let tile_size = world.tile_size();
+        let half_tile_size = tile_size / 2.0;
+        let player_coordinate = plugin_state.player().coordinate();
+        let (player_x_offset, player_y_offset) = player_coordinate.tile_offset().to_tuple();
+
         let mut tile_map_y = start_coordinate.tile_map_y();
         let mut tile_y = start_coordinate.tile_y();
         for row_index in 0..=world.rows() {
+            let row_index = f32::from(row_index);
+            let row_offset = row_index * tile_size;
             let mut tile_map_x = start_coordinate.tile_map_x();
             let mut tile_x = start_coordinate.tile_x();
             for column_index in 0..=world.columns() {
-                let row_index = f32::from(row_index);
                 let column_index = f32::from(column_index);
-                let left = column_index * tile_size - player_coordinate.tile_offset().x();
-                let bottom = row_index * tile_size - player_coordinate.tile_offset().y();
+                let column_offset = column_index * tile_size;
+                let left = column_offset - player_x_offset - half_tile_size;
+                let bottom = row_offset - player_y_offset - half_tile_size;
                 let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);
 
                 let tile_map_key = TileMapKey::at_x_y(tile_map_x, tile_map_y);
