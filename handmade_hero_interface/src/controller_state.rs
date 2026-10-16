@@ -11,9 +11,20 @@ pub struct ControllerState {
     left_trigger_ratio: f32,
     right_trigger_ratio: f32,
     enabled: bool,
+    keyboard: bool,
 }
 
 impl ControllerState {
+    #[inline]
+    #[must_use]
+    pub fn for_keyboard() -> Self {
+        Self {
+            enabled: true, // Keyboard is always enabled
+            keyboard: true,
+            ..Default::default()
+        }
+    }
+
     #[inline]
     #[must_use]
     pub fn enabled(&self) -> bool {
@@ -23,6 +34,13 @@ impl ControllerState {
     #[inline]
     pub fn set_enabled(&mut self, value: bool) {
         self.enabled = value;
+    }
+
+    /// Is the controller actually the keyboard
+    #[inline]
+    #[must_use]
+    pub fn keyboard(&self) -> bool {
+        self.keyboard
     }
 
     #[inline]
@@ -71,6 +89,30 @@ impl ControllerState {
     #[must_use]
     pub fn y_mut(&mut self) -> &mut ButtonState {
         self.button_mut(Button::Y)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn left_thumb(&self) -> &ButtonState {
+        self.button(Button::LeftThumb)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn left_thumb_mut(&mut self) -> &mut ButtonState {
+        self.button_mut(Button::LeftThumb)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn right_thumb(&self) -> &ButtonState {
+        self.button(Button::RightThumb)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn right_thumb_mut(&mut self) -> &mut ButtonState {
+        self.button_mut(Button::RightThumb)
     }
 
     #[inline]
@@ -261,6 +303,14 @@ mod tests {
         assert!(core::ptr::eq(controller.x(), controller.button(Button::X)));
         assert!(core::ptr::eq(controller.y(), controller.button(Button::Y)));
         assert!(core::ptr::eq(
+            controller.left_thumb(),
+            controller.button(Button::LeftThumb)
+        ));
+        assert!(core::ptr::eq(
+            controller.right_thumb(),
+            controller.button(Button::RightThumb)
+        ));
+        assert!(core::ptr::eq(
             controller.start(),
             controller.button(Button::Start)
         ));
@@ -312,6 +362,14 @@ mod tests {
         assert!(core::ptr::eq(
             controller.y_mut(),
             controller.button_mut(Button::Y)
+        ));
+        assert!(core::ptr::eq(
+            controller.left_thumb_mut(),
+            controller.button_mut(Button::LeftThumb)
+        ));
+        assert!(core::ptr::eq(
+            controller.right_thumb_mut(),
+            controller.button_mut(Button::RightThumb)
         ));
         assert!(core::ptr::eq(
             controller.start_mut(),

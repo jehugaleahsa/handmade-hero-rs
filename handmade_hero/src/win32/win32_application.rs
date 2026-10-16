@@ -630,6 +630,12 @@ impl Win32Application {
         controller.x_mut().track_down(win32_controller.is_x());
         controller.y_mut().track_down(win32_controller.is_y());
         controller
+            .left_thumb_mut()
+            .track_down(win32_controller.is_left_thumb());
+        controller
+            .right_thumb_mut()
+            .track_down(win32_controller.is_right_thumb());
+        controller
             .start_mut()
             .track_down(win32_controller.is_start());
         controller.back_mut().track_down(win32_controller.is_back());

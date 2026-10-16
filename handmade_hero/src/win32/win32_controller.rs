@@ -4,7 +4,8 @@ use windows::Win32::{
         XINPUT_GAMEPAD, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_B, XINPUT_GAMEPAD_BACK,
         XINPUT_GAMEPAD_BUTTON_FLAGS, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT,
         XINPUT_GAMEPAD_DPAD_RIGHT, XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_LEFT_SHOULDER,
-        XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE, XINPUT_GAMEPAD_RIGHT_SHOULDER,
+        XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE,
+        XINPUT_GAMEPAD_RIGHT_SHOULDER, XINPUT_GAMEPAD_RIGHT_THUMB,
         XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE, XINPUT_GAMEPAD_START,
         XINPUT_GAMEPAD_TRIGGER_THRESHOLD, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_Y, XINPUT_STATE,
         XInputGetState, XUSER_MAX_COUNT,
@@ -68,6 +69,18 @@ impl Win32Controller {
     #[must_use]
     pub fn is_y(&self) -> bool {
         self.is_pressed(XINPUT_GAMEPAD_Y)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_left_thumb(&self) -> bool {
+        self.is_pressed(XINPUT_GAMEPAD_LEFT_THUMB)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_right_thumb(&self) -> bool {
+        self.is_pressed(XINPUT_GAMEPAD_RIGHT_THUMB)
     }
 
     #[inline]

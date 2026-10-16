@@ -12,6 +12,7 @@ use uom::num_traits::Zero;
 pub struct Player {
     coordinate: WorldCoordinate,
     color: Color<f32>,
+    running: bool,
 }
 
 impl Player {
@@ -19,7 +20,11 @@ impl Player {
     pub fn new(world: &World, tile_map_key: TileMapKey) -> Self {
         let coordinate = WorldCoordinate::new(world, tile_map_key);
         let color = Color::from(Color::from_rgb(0xFF, 0xFF, 0x00));
-        Self { coordinate, color }
+        Self {
+            coordinate,
+            color,
+            running: false,
+        }
     }
 
     #[must_use]
@@ -70,5 +75,16 @@ impl Player {
     #[inline]
     pub fn set_coordinates(&mut self, coordinate: WorldCoordinate) {
         self.coordinate = coordinate;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn running(&self) -> bool {
+        self.running
+    }
+
+    #[inline]
+    pub fn toggle_running(&mut self) {
+        self.running = !self.running;
     }
 }

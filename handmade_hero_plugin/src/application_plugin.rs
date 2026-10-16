@@ -118,13 +118,24 @@ impl ApplicationPlugin {
         )
     }
 
-    fn calculate_delta_x_y(input_state: &InputState, game_state: &GameState) -> (Length, Length) {
-        let Some((delta_x, delta_y, keyboard)) = Self::calculate_input_delta_x_y(input_state)
+    fn calculate_delta_x_y(
+        input_state: &InputState,
+        game_state: &GameState,
+        plugin_state: &mut PluginGameState,
+    ) -> (Length, Length) {
+        let Some((delta_x, delta_y, controller)) = Self::calculate_input_delta_x_y(input_state)
         else {
             return (Length::zero(), Length::zero());
         };
+        // TODO - This is not a great way to determine which is the primary input. The user should be
+        // able to toggle running without actually moving!!! We need a way to determine the input up-front.
+        if controller.left_thumb().was_released() {
+            plugin_state.player_mut().toggle_running();
+        }
         let frame_duration = game_state.frame_duration();
-        let max_speed = if keyboard && input_state.keyboard().is_shift_down() {
+        let is_running = plugin_state.player().running()
+            || (controller.keyboard() && input_state.keyboard().is_shift_down());
+        let max_speed = if is_running {
             Length::new::<meter>(10.0) / Time::new::<second>(1.0)
         } else {
             Length::new::<meter>(3.0) / Time::new::<second>(1.0)
@@ -135,19 +146,19 @@ impl ApplicationPlugin {
         (delta_x, delta_y)
     }
 
-    fn calculate_input_delta_x_y(input_state: &InputState) -> Option<(f32, f32, bool)> {
-        let keyboard = input_state.keyboard();
-        let delta_x = Self::calculate_keyboard_delta_x(keyboard.as_controller());
-        let delta_y = Self::calculate_keyboard_delta_y(keyboard.as_controller());
+    fn calculate_input_delta_x_y(input_state: &InputState) -> Option<(f32, f32, &ControllerState)> {
+        let keyboard = input_state.keyboard().as_controller();
+        let delta_x = Self::calculate_keyboard_delta_x(keyboard);
+        let delta_y = Self::calculate_keyboard_delta_y(keyboard);
         if delta_x != 0.0 || delta_y != 0.0 {
-            return Some((delta_x, delta_y, true));
+            return Some((delta_x, delta_y, keyboard));
         }
         for controller in input_state.controllers() {
             if controller.enabled() {
                 let delta_x = Self::calculate_controller_delta_x(controller);
                 let delta_y = Self::calculate_controller_delta_y(controller);
                 if delta_x != 0.0 || delta_y != 0.0 {
-                    return Some((delta_x, delta_y, false));
+                    return Some((delta_x, delta_y, controller));
                 }
             }
         }
@@ -232,10 +243,10 @@ impl ApplicationPlugin {
 
     fn find_new_player_coordinates(
         game_state: &GameState,
-        plugin_state: &PluginGameState,
+        plugin_state: &mut PluginGameState,
         input_state: &InputState,
     ) -> Option<WorldCoordinate> {
-        let (delta_x, delta_y) = Self::calculate_delta_x_y(input_state, game_state);
+        let (delta_x, delta_y) = Self::calculate_delta_x_y(input_state, game_state, plugin_state);
         if delta_x.is_zero() && delta_y.is_zero() {
             return None;
         }

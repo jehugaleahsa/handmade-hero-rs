@@ -12,6 +12,8 @@ pub enum Button {
     Down,
     Left,
     Right,
+    LeftThumb,
+    RightThumb,
     Start,
     // Keep this the last variant; `COUNT` is derived from it.
     Back,
@@ -33,6 +35,8 @@ impl Button {
         Button::Down,
         Button::Left,
         Button::Right,
+        Button::LeftThumb,
+        Button::RightThumb,
         Button::Start,
         Button::Back,
     ];

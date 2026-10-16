@@ -27,9 +27,7 @@ impl KeyboardState {
     #[must_use]
     pub fn new() -> Self {
         let keys = smallvec![ButtonState::default(); Key::COUNT];
-        // A keyboard is always present, unlike a gamepad that may be unplugged.
-        let mut controller = ControllerState::default();
-        controller.set_enabled(true);
+        let controller = ControllerState::for_keyboard();
         Self { keys, controller }
     }
 
