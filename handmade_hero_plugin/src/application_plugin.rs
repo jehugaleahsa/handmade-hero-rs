@@ -281,24 +281,6 @@ impl ApplicationPlugin {
     ) -> Result<()> {
         let pixels = buffer.pixels_mut();
 
-        // When rendering the tile map, our goal is to keep the player relatively close to the
-        // center of the screen. We also want to transition between tile maps smoothly, without
-        // suddenly jumping the user to a completely new screen. The player can also see surrounding
-        // tile maps and, without the presence of walls, they should be oblivious when they transit
-        // from one tile map to the other. Each tile map has a key, which is an (X, Y) coordinate
-        // of its relative position to other tile maps.
-        //
-        // Having relative tile map coordinates allows us to pick a maximum number of tiles up
-        // and down, left and right, to render at one time. We determine the player's current tile
-        // and count up to see if we need to start in a tile map above us. Similarly, we look to the
-        // left to see if we need to start in a tile map to our left. If the player moves toward the
-        // bottom or right of the screen, we want to spill over to the bottom and right tile map in
-        // a similar fashion.
-        //
-        // It's possible a tile map will not have a neighbor to the left, right, top, or bottom.
-        // When this happens, we switch our strategy, rendering more of the current tile map. This
-        // means once the player gets past the center, they will no longer stay in the center and
-        // start moving toward the outer edge. This avoids rendering a bunch of emptiness.
         let world = plugin_state.world();
         let rows = world.rows();
         let columns = world.columns();
