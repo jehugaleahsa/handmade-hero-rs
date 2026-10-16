@@ -24,4 +24,12 @@ impl TileMapKey {
     pub fn y(self) -> i16 {
         self.y
     }
+
+    #[inline]
+    #[must_use]
+    pub fn shifted(self, delta_x: i16, delta_y: i16) -> Self {
+        let x = self.x.wrapping_add(delta_x);
+        let y = self.y.wrapping_add(delta_y);
+        Self::at_x_y(x, y)
+    }
 }

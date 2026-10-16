@@ -218,6 +218,8 @@ impl ApplicationPlugin {
         input_state: &InputState,
         buffer: &mut BackBuffer,
     ) {
+        Self::ensure_tile_maps(plugin_state);
+
         if let Some(new_coordinates) =
             Self::find_new_player_coordinates(game_state, plugin_state, input_state)
             && Self::is_traversable(plugin_state, &new_coordinates)
@@ -241,6 +243,14 @@ impl ApplicationPlugin {
         let _ = Self::render_mouse(input_state, &viewport, buffer);
     }
 
+    fn ensure_tile_maps(plugin_state: &mut PluginGameState) {
+        let tile_map_key = plugin_state.player().coordinate().tile_map_key();
+        let min_tile_map_key = tile_map_key.shifted(-1, -1);
+        let max_tile_map_key = tile_map_key.shifted(1, 1);
+        let world = plugin_state.world_mut();
+        world.ensure_tile_maps(min_tile_map_key, max_tile_map_key);
+    }
+
     fn find_new_player_coordinates(
         game_state: &GameState,
         plugin_state: &mut PluginGameState,
@@ -257,14 +267,14 @@ impl ApplicationPlugin {
         Some(new_coordinates)
     }
 
-    fn is_traversable(plugin_state: &mut PluginGameState, coordinates: &WorldCoordinate) -> bool {
-        let world = plugin_state.world_mut();
+    fn is_traversable(plugin_state: &PluginGameState, coordinates: &WorldCoordinate) -> bool {
+        let world = plugin_state.world();
         let collision_deltas = Player::collision_bound_deltas(world.tile_size());
         world.is_traversable(coordinates, collision_deltas)
     }
 
     fn render_tilemap(
-        plugin_state: &mut PluginGameState,
+        plugin_state: &PluginGameState,
         viewport: &Viewport,
         start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
@@ -312,7 +322,6 @@ impl ApplicationPlugin {
                 let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);
 
                 let tile_map_key = TileMapKey::at_x_y(tile_map_x, tile_map_y);
-                plugin_state.world_mut().add_tile_map(tile_map_key);
                 let color = Self::determine_tile_color(
                     plugin_state.world(),
                     &player_coordinate,
