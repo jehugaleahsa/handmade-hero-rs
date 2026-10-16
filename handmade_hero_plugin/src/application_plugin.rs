@@ -1,5 +1,4 @@
 use crate::player::Player;
-use crate::tile_map::TileMap;
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
 use crate::viewport::Viewport;
@@ -37,12 +36,6 @@ use uom::si::time::second;
 
 use crate::plugin_game_state::PluginGameState;
 
-/// `World::TILE_ROWS` / `TILE_COLUMNS` as array dimensions. Array lengths must be `usize`
-/// and `usize::from` cannot be called in const position, so the widening happens here once
-/// rather than at each hard-coded tile map.
-const TILE_ROWS: usize = World::TILE_ROWS as usize;
-const TILE_COLUMNS: usize = World::TILE_COLUMNS as usize;
-
 #[derive(Debug)]
 pub struct ApplicationPlugin {}
 
@@ -70,20 +63,6 @@ impl ApplicationPlugin {
         let y = f32::from(world.rows() / 2) * tile_size;
         let new_coordinates = new_coordinates.shifted(x, y, tile_size);
         plugin_state.player_mut().set_coordinates(new_coordinates);
-
-        // Load the world tile maps
-        let world = plugin_state.world_mut();
-
-        let hub = world.add_tile_map(TileMapKey::at_x_y(0, 0));
-        Self::load_hub_tile_map(hub);
-        let south = world.add_tile_map(TileMapKey::at_x_y(0, -1));
-        Self::load_south_tile_map(south);
-        let west = world.add_tile_map(TileMapKey::at_x_y(-1, 0));
-        Self::load_west_tile_map(west);
-        let east = world.add_tile_map(TileMapKey::at_x_y(1, 0));
-        Self::load_east_tile_map(east);
-        let north = world.add_tile_map(TileMapKey::at_x_y(0, 1));
-        Self::load_north_tile_map(north);
     }
 
     #[cfg(feature = "audio_debug")]
@@ -95,121 +74,6 @@ impl ApplicationPlugin {
         #[expect(clippy::cast_possible_truncation)]
         let max_cursor_count = (update_frequency / 2.0).round() as usize;
         audio.set_max_cursor_count(max_cursor_count);
-    }
-
-    fn load_south_tile_map(south: &mut TileMap) {
-        let source_south: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
-            [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        ];
-        Self::load_tile_map(
-            south,
-            source_south.as_flattened(),
-            World::TILE_ROWS,
-            World::TILE_COLUMNS,
-        );
-    }
-
-    fn load_hub_tile_map(hub: &mut TileMap) {
-        let source_hub: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
-            [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
-        ];
-        Self::load_tile_map(
-            hub,
-            source_hub.as_flattened(),
-            World::TILE_ROWS,
-            World::TILE_COLUMNS,
-        );
-    }
-
-    fn load_west_tile_map(west: &mut TileMap) {
-        let source_west: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        ];
-        Self::load_tile_map(
-            west,
-            source_west.as_flattened(),
-            World::TILE_ROWS,
-            World::TILE_COLUMNS,
-        );
-    }
-
-    fn load_east_tile_map(east: &mut TileMap) {
-        let source_east: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        ];
-        Self::load_tile_map(
-            east,
-            source_east.as_flattened(),
-            World::TILE_ROWS,
-            World::TILE_COLUMNS,
-        );
-    }
-
-    fn load_north_tile_map(north: &mut TileMap) {
-        let source_north: [[u32; TILE_COLUMNS]; TILE_ROWS] = [
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-            [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
-        ];
-        Self::load_tile_map(
-            north,
-            source_north.as_flattened(),
-            World::TILE_ROWS,
-            World::TILE_COLUMNS,
-        );
-    }
-
-    fn load_tile_map(destination: &mut TileMap, source: &[u32], row_count: u8, column_count: u8) {
-        // In our world coordinate system, the y-coordinates increase from the bottom up.
-        // But in memory, the y-coordinates increase from the top down. Therefore, when
-        // we copy our hard-coded tile map arrays, we flip the coordinate of each row.
-        let mut index = 0;
-        for row_index in 0..row_count {
-            for column_index in 0..column_count {
-                let value = source[index];
-                let destination_row_index = row_count - row_index - 1;
-                destination[(destination_row_index, column_index)] = value;
-                index += 1;
-            }
-        }
     }
 
     /// F11 switches between windowed and fullscreen on the monitor the window is on.
@@ -255,22 +119,12 @@ impl ApplicationPlugin {
     }
 
     fn calculate_delta_x_y(input_state: &InputState, game_state: &GameState) -> (Length, Length) {
-        let keyboard = input_state.keyboard();
-        let mut delta_x = Self::calculate_keyboard_delta_x(keyboard.as_controller());
-        let mut delta_y = Self::calculate_keyboard_delta_y(keyboard.as_controller());
-        if delta_x == 0.0 && delta_y == 0.0 {
-            for controller in input_state.controllers() {
-                if controller.enabled() {
-                    delta_x = Self::calculate_controller_delta_x(controller);
-                    delta_y = Self::calculate_controller_delta_y(controller);
-                    if delta_x != 0.0 || delta_y != 0.0 {
-                        break;
-                    }
-                }
-            }
-        }
+        let Some((delta_x, delta_y, keyboard)) = Self::calculate_input_delta_x_y(input_state)
+        else {
+            return (Length::zero(), Length::zero());
+        };
         let frame_duration = game_state.frame_duration();
-        let max_speed = if input_state.keyboard().is_shift_down() {
+        let max_speed = if keyboard && input_state.keyboard().is_shift_down() {
             Length::new::<meter>(10.0) / Time::new::<second>(1.0)
         } else {
             Length::new::<meter>(3.0) / Time::new::<second>(1.0)
@@ -279,6 +133,25 @@ impl ApplicationPlugin {
         let delta_x = delta_x * max_distance;
         let delta_y = delta_y * max_distance;
         (delta_x, delta_y)
+    }
+
+    fn calculate_input_delta_x_y(input_state: &InputState) -> Option<(f32, f32, bool)> {
+        let keyboard = input_state.keyboard();
+        let delta_x = Self::calculate_keyboard_delta_x(keyboard.as_controller());
+        let delta_y = Self::calculate_keyboard_delta_y(keyboard.as_controller());
+        if delta_x != 0.0 || delta_y != 0.0 {
+            return Some((delta_x, delta_y, true));
+        }
+        for controller in input_state.controllers() {
+            if controller.enabled() {
+                let delta_x = Self::calculate_controller_delta_x(controller);
+                let delta_y = Self::calculate_controller_delta_y(controller);
+                if delta_x != 0.0 || delta_y != 0.0 {
+                    return Some((delta_x, delta_y, false));
+                }
+            }
+        }
+        None
     }
 
     #[inline]
@@ -336,6 +209,7 @@ impl ApplicationPlugin {
     ) {
         if let Some(new_coordinates) =
             Self::find_new_player_coordinates(game_state, plugin_state, input_state)
+            && Self::is_traversable(plugin_state, &new_coordinates)
         {
             plugin_state.player_mut().set_coordinates(new_coordinates);
         }
@@ -369,15 +243,17 @@ impl ApplicationPlugin {
         let world = plugin_state.world();
         let old_coordinates = plugin_state.player().coordinate();
         let new_coordinates = old_coordinates.shifted(delta_x, delta_y, world.tile_size());
+        Some(new_coordinates)
+    }
+
+    fn is_traversable(plugin_state: &mut PluginGameState, coordinates: &WorldCoordinate) -> bool {
+        let world = plugin_state.world_mut();
         let collision_deltas = Player::collision_bound_deltas(world.tile_size());
-        if world.is_traversable(&new_coordinates, collision_deltas) {
-            return Some(new_coordinates);
-        }
-        None
+        world.is_traversable(coordinates, collision_deltas)
     }
 
     fn render_tilemap(
-        plugin_state: &PluginGameState,
+        plugin_state: &mut PluginGameState,
         viewport: &Viewport,
         start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
@@ -403,19 +279,21 @@ impl ApplicationPlugin {
         // means once the player gets past the center, they will no longer stay in the center and
         // start moving toward the outer edge. This avoids rendering a bunch of emptiness.
         let world = plugin_state.world();
+        let rows = world.rows();
+        let columns = world.columns();
         let tile_size = world.tile_size();
         let half_tile_size = tile_size / 2.0;
-        let player_coordinate = plugin_state.player().coordinate();
+        let player_coordinate = plugin_state.player().coordinate().clone();
         let (player_x_offset, player_y_offset) = player_coordinate.tile_offset().to_tuple();
 
         let mut tile_map_y = start_coordinate.tile_map_y();
         let mut tile_y = start_coordinate.tile_y();
-        for row_index in 0..=world.rows() {
+        for row_index in 0..=rows {
             let row_index = f32::from(row_index);
             let row_offset = row_index * tile_size;
             let mut tile_map_x = start_coordinate.tile_map_x();
             let mut tile_x = start_coordinate.tile_x();
-            for column_index in 0..=world.columns() {
+            for column_index in 0..=columns {
                 let column_index = f32::from(column_index);
                 let column_offset = column_index * tile_size;
                 let left = column_offset - player_x_offset - half_tile_size;
@@ -423,9 +301,10 @@ impl ApplicationPlugin {
                 let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);
 
                 let tile_map_key = TileMapKey::at_x_y(tile_map_x, tile_map_y);
+                plugin_state.world_mut().add_tile_map(tile_map_key);
                 let color = Self::determine_tile_color(
-                    world,
-                    player_coordinate,
+                    plugin_state.world(),
+                    &player_coordinate,
                     tile_map_key,
                     tile_x,
                     tile_y,
@@ -434,14 +313,14 @@ impl ApplicationPlugin {
                 Self::render_rectangle(viewport, &tile_rectangle, Color::from(color), pixels)?;
 
                 tile_x += 1;
-                if tile_x >= world.columns() {
+                if tile_x >= columns {
                     tile_map_x += 1;
                     tile_x = 0;
                 }
             }
 
             tile_y += 1;
-            if tile_y >= world.rows() {
+            if tile_y >= rows {
                 tile_map_y += 1;
                 tile_y = 0;
             }

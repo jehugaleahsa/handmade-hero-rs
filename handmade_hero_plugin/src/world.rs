@@ -50,20 +50,21 @@ impl World {
         self.tile_size
     }
 
-    #[must_use]
     pub fn add_tile_map(&mut self, id: TileMapKey) -> &mut TileMap {
-        let tile_map = TileMap::new(self.rows, self.columns);
         let entry = self.tile_maps.entry(id);
         match entry {
             Entry::Occupied(o) => o.into_mut(),
-            Entry::Vacant(v) => v.insert(tile_map),
+            Entry::Vacant(v) => {
+                let tile_map = TileMap::new(self.rows, self.columns);
+                v.insert(tile_map)
+            }
         }
     }
 
     /// Indicates whether all four corners of the collision box fall within a traversable tile.
     #[must_use]
     pub fn is_traversable(
-        &self,
+        &mut self,
         coordinate: &WorldCoordinate,
         collision_deltas: CollisionDeltas,
     ) -> bool {
@@ -90,10 +91,10 @@ impl World {
     }
 
     #[must_use]
-    fn is_traversable_coordinate(&self, coordinate: &WorldCoordinate) -> bool {
-        self.tile_maps
-            .get(&coordinate.tile_map_key())
-            .and_then(|m| m.get(coordinate.tile_y(), coordinate.tile_x()))
+    fn is_traversable_coordinate(&mut self, coordinate: &WorldCoordinate) -> bool {
+        let tile_map = self.add_tile_map(coordinate.tile_map_key());
+        tile_map
+            .get(coordinate.tile_y(), coordinate.tile_x())
             .is_some_and(|t| t == 0)
     }
 
