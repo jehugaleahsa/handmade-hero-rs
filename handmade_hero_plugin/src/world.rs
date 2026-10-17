@@ -105,7 +105,7 @@ impl World {
 
     pub fn ensure_tile_maps(&mut self, min: TileMapKey, max: TileMapKey) {
         for y in min.y()..=max.y() {
-            for x in min.x()..max.x() {
+            for x in min.x()..=max.x() {
                 let key = TileMapKey::at_x_y(x, y);
                 self.add_tile_map(key);
             }

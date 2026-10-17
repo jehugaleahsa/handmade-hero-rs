@@ -11,6 +11,7 @@ pub struct PluginGameState {
     player: Player,
     world: World,
     audio: PluginAudioState,
+    primary_controller_index: Option<usize>,
 }
 
 impl PluginGameState {
@@ -24,6 +25,7 @@ impl PluginGameState {
             player,
             world,
             audio: PluginAudioState::new(),
+            primary_controller_index: None,
         }
     }
 
@@ -63,6 +65,22 @@ impl PluginGameState {
     #[allow(dead_code)]
     pub fn audio_mut(&mut self) -> &mut PluginAudioState {
         &mut self.audio
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn primary_controller_index(&self) -> Option<usize> {
+        self.primary_controller_index
+    }
+
+    #[inline]
+    pub fn set_primary_controller_index(&mut self, index: usize) {
+        self.primary_controller_index = Some(index);
+    }
+
+    #[inline]
+    pub fn clear_primary_controller_index(&mut self) {
+        self.primary_controller_index = None;
     }
 }
 

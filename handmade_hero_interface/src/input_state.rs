@@ -45,6 +45,12 @@ impl InputState {
         &mut self.keyboard
     }
 
+    #[inline]
+    #[must_use]
+    pub fn controller_at(&self, index: usize) -> Option<&ControllerState> {
+        self.controllers.get(index)
+    }
+
     #[must_use]
     pub fn get_or_insert_controller_mut(&mut self, index: usize) -> &mut ControllerState {
         if index >= self.controllers.len() {
@@ -55,9 +61,8 @@ impl InputState {
     }
 
     #[inline]
-    #[must_use]
-    pub fn controllers(&self) -> &[ControllerState] {
-        &self.controllers
+    pub fn controllers(&self) -> impl Iterator<Item = &ControllerState> {
+        self.controllers.iter()
     }
 
     pub fn reset_counts(&mut self) {

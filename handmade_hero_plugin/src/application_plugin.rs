@@ -8,6 +8,7 @@ use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::back_buffer::BackBuffer;
+use handmade_hero_interface::button::Button;
 use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::color::Color;
 use handmade_hero_interface::controller_state::ControllerState;
@@ -123,15 +124,17 @@ impl ApplicationPlugin {
         game_state: &GameState,
         plugin_state: &mut PluginGameState,
     ) -> (Length, Length) {
-        let Some((delta_x, delta_y, controller)) = Self::calculate_input_delta_x_y(input_state)
+        let controller = plugin_state
+            .primary_controller_index()
+            .and_then(|i| input_state.controller_at(i));
+        if controller.is_some_and(|c| c.left_thumb().was_released()) {
+            plugin_state.player_mut().toggle_running();
+        }
+        let Some((delta_x, delta_y, controller)) =
+            Self::calculate_input_delta_x_y(input_state, controller)
         else {
             return (Length::zero(), Length::zero());
         };
-        // TODO - This is not a great way to determine which is the primary input. The user should be
-        // able to toggle running without actually moving!!! We need a way to determine the input up-front.
-        if controller.left_thumb().was_released() {
-            plugin_state.player_mut().toggle_running();
-        }
         let frame_duration = game_state.frame_duration();
         let is_running = plugin_state.player().running()
             || (controller.keyboard() && input_state.keyboard().is_shift_down());
@@ -146,21 +149,20 @@ impl ApplicationPlugin {
         (delta_x, delta_y)
     }
 
-    fn calculate_input_delta_x_y(input_state: &InputState) -> Option<(f32, f32, &ControllerState)> {
+    fn calculate_input_delta_x_y<'a>(
+        input_state: &'a InputState,
+        controller: Option<&'a ControllerState>,
+    ) -> Option<(f32, f32, &'a ControllerState)> {
         let keyboard = input_state.keyboard().as_controller();
         let delta_x = Self::calculate_keyboard_delta_x(keyboard);
         let delta_y = Self::calculate_keyboard_delta_y(keyboard);
         if delta_x != 0.0 || delta_y != 0.0 {
             return Some((delta_x, delta_y, keyboard));
         }
-        for controller in input_state.controllers() {
-            if controller.enabled() {
-                let delta_x = Self::calculate_controller_delta_x(controller);
-                let delta_y = Self::calculate_controller_delta_y(controller);
-                if delta_x != 0.0 || delta_y != 0.0 {
-                    return Some((delta_x, delta_y, controller));
-                }
-            }
+        if let Some(controller) = controller {
+            let delta_x = Self::calculate_controller_delta_x(controller);
+            let delta_y = Self::calculate_controller_delta_y(controller);
+            return Some((delta_x, delta_y, controller));
         }
         None
     }
@@ -218,6 +220,7 @@ impl ApplicationPlugin {
         input_state: &InputState,
         buffer: &mut BackBuffer,
     ) {
+        Self::detect_primary_controller(plugin_state, input_state);
         Self::ensure_tile_maps(plugin_state);
 
         if let Some(new_coordinates) =
@@ -241,6 +244,46 @@ impl ApplicationPlugin {
 
         #[cfg(feature = "mouse_debug")]
         let _ = Self::render_mouse(input_state, &viewport, buffer);
+    }
+
+    fn detect_primary_controller(plugin_state: &mut PluginGameState, input_state: &InputState) {
+        if let Some(primary_index) = plugin_state.primary_controller_index()
+            && let Some(primary_controller) = input_state.controller_at(primary_index)
+        {
+            if primary_controller.enabled() {
+                // The primary controller is already detected and enabled
+                return;
+            }
+            plugin_state.clear_primary_controller_index();
+        }
+        // NOTE: In the future, when we support multiple players, we won't want to allow players
+        // to "steal" another player's character when they get disconnected. Once a player gets
+        // assigned a slot, they are stuck to until their controller is disconnected.
+        for (index, controller) in input_state.controllers().enumerate() {
+            if controller.enabled() && Self::is_input_detected(controller) {
+                plugin_state.set_primary_controller_index(index);
+            }
+        }
+    }
+
+    /// For local development purposes, we detect inputs by checking for any sort of input.
+    fn is_input_detected(controller: &ControllerState) -> bool {
+        let button_pressed = Button::ALL
+            .iter()
+            .map(|b| controller.button(*b))
+            .any(|b| b.half_transition_count() > 0);
+        if button_pressed {
+            return true;
+        }
+        let left_joystick = controller.left_joystick();
+        if left_joystick.x_ratio() > 0.0 || left_joystick.y_ratio() > 0.0 {
+            return true;
+        }
+        let right_joystick = controller.right_joystick();
+        if right_joystick.x_ratio() > 0.0 || right_joystick.y_ratio() > 0.0 {
+            return true;
+        }
+        controller.left_trigger_ratio() > 0.0 || controller.right_trigger_ratio() > 0.0
     }
 
     fn ensure_tile_maps(plugin_state: &mut PluginGameState) {
@@ -601,7 +644,6 @@ impl ApplicationPlugin {
     fn write_sound_direct(
         game_state: &GameState,
         plugin_state: &mut PluginGameState,
-        input_state: &InputState,
         sound_buffer: &mut [StereoSample],
     ) {
         const C_HERTZ: f32 = 261.63;
@@ -611,17 +653,9 @@ impl ApplicationPlugin {
         let frequency = audio_state.frequency();
         let volume = audio_state.volume();
 
-        let multiplier = if let Some(controller) = input_state.controllers().first() {
-            let left_joystick = controller.left_joystick();
-            let right_joystick = controller.right_joystick();
-            let y_ratio = left_joystick.y_ratio().midpoint(right_joystick.y_ratio());
-            1.0 + y_ratio
-        } else {
-            1.0
-        };
         #[expect(clippy::cast_sign_loss)]
         #[expect(clippy::cast_possible_truncation)]
-        let tone = Frequency::new::<hertz>((C_HERTZ * multiplier) as u32);
+        let tone = Frequency::new::<hertz>(C_HERTZ as u32);
         let period = if tone == Frequency::zero() {
             0
         } else {
@@ -719,8 +753,8 @@ impl Application for ApplicationPlugin {
         let AudioContext {
             game_state,
             plugin_state,
-            input_state,
             mut sound_buffer,
+            ..
         } = context;
         let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() else {
             return;
@@ -728,7 +762,7 @@ impl Application for ApplicationPlugin {
         let Some(samples) = sound_buffer.as_samples_mut::<StereoSample>() else {
             return;
         };
-        Self::write_sound_direct(game_state, plugin_state, input_state, samples);
+        Self::write_sound_direct(game_state, plugin_state, samples);
 
         #[cfg(feature = "audio_debug")]
         Self::capture_audio_flip(game_state, plugin_state);
