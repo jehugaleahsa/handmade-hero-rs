@@ -338,75 +338,111 @@ impl ApplicationPlugin {
     }
 
     fn initialize_tile_map(world: &mut World, key: TileMapKey) {
-        let mut generator = rand::rng();
         let tile_map = world.get_tile_map(key).unwrap();
         let rows = tile_map.rows();
         let columns = tile_map.columns();
         debug_assert!(rows > 2);
         debug_assert!(columns > 2);
-        let middle_row = rows / 2;
-        let row_door_indexes = (middle_row - 1)..=(middle_row + 1);
-        let middle_column = columns / 2;
-        let column_door_indexes = (middle_column - 1)..=(middle_column + 1);
+
+        let mut generator = rand::rng();
+        let [top_door, bottom_door, left_door, right_door] =
+            Self::pick_doors(world, key, &mut generator);
 
         // Top and bottom
         let top = 0;
         let bottom = rows - 1;
-        let top_door = generator.random();
-        let bottom_door = generator.random();
-        let top_neighbor = world.get_tile_map(key.shifted(0, -1));
-        let top_neighbor_has_door = top_neighbor
-            .and_then(|n| n.get(bottom, middle_column))
-            .map(|t| t == 0);
-        let bottom_neighbor = world.get_tile_map(key.shifted(0, 1));
-        let bottom_neighbor_has_door = bottom_neighbor
-            .and_then(|n| n.get(top, middle_column))
-            .map(|t| t == 0);
+        let middle_column = columns / 2;
+        let column_door_indexes = (middle_column - 1)..=(middle_column + 1);
         for column in 0..columns {
-            let tile_type = u32::from(
-                !(column_door_indexes.contains(&column)
-                    && top_neighbor_has_door.unwrap_or(top_door)),
-            );
             if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(top, column) {
-                *value = tile_type;
+                *value = u32::from(!(column_door_indexes.contains(&column) && top_door));
             }
-
-            let tile_type = u32::from(
-                !(column_door_indexes.contains(&column)
-                    && bottom_neighbor_has_door.unwrap_or(bottom_door)),
-            );
             if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(bottom, column) {
-                *value = tile_type;
+                *value = u32::from(!(column_door_indexes.contains(&column) && bottom_door));
             }
         }
 
         // Left and right
         let left = 0;
         let right = columns - 1;
-        let left_door = generator.random();
-        let right_door = generator.random();
+        let middle_row = rows / 2;
+        let row_door_indexes = (middle_row - 1)..=(middle_row + 1);
+        for row in 1..bottom {
+            if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(row, left) {
+                *value = u32::from(!(row_door_indexes.contains(&row) && left_door));
+            }
+            if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(row, right) {
+                *value = u32::from(!(row_door_indexes.contains(&row) && right_door));
+            }
+        }
+    }
+
+    fn pick_doors(world: &World, key: TileMapKey, generator: &mut ThreadRng) -> [bool; 4] {
+        const TOP_INDEX: usize = 0;
+        const BOTTOM_INDEX: usize = 1;
+        const LEFT_INDEX: usize = 2;
+        const RIGHT_INDEX: usize = 3;
+        const DOOR_CHANCE: [f64; 4] = [0.5, 0.65, 0.8, 1.0];
+        let mut indexes = [0, 1, 2, 3];
+        indexes.shuffle(generator);
+        let mut doors = [false; 4];
+        let mut wall_count = 0;
+        for index in indexes {
+            let pick = || generator.random_bool(DOOR_CHANCE[wall_count]);
+            let is_door = match index {
+                TOP_INDEX => Self::top_door(world, key, pick),
+                BOTTOM_INDEX => Self::bottom_door(world, key, pick),
+                LEFT_INDEX => Self::left_door(world, key, pick),
+                RIGHT_INDEX => Self::right_door(world, key, pick),
+                _ => unreachable!(),
+            };
+            if is_door {
+                doors[index] = true;
+            } else {
+                wall_count += 1;
+            }
+        }
+        doors
+    }
+
+    fn top_door(world: &World, key: TileMapKey, generator: impl FnOnce() -> bool) -> bool {
+        let bottom = world.rows() - 1;
+        let middle_column = world.columns() / 2;
+        let top_neighbor = world.get_tile_map(key.shifted(0, -1));
+        let top_neighbor_has_door = top_neighbor
+            .and_then(|n| n.get(bottom, middle_column))
+            .map(|t| t == 0);
+        top_neighbor_has_door.unwrap_or_else(generator)
+    }
+
+    fn bottom_door(world: &World, key: TileMapKey, generator: impl FnOnce() -> bool) -> bool {
+        let top = 0;
+        let middle_column = world.columns() / 2;
+        let bottom_neighbor = world.get_tile_map(key.shifted(0, 1));
+        let bottom_neighbor_has_door = bottom_neighbor
+            .and_then(|n| n.get(top, middle_column))
+            .map(|t| t == 0);
+        bottom_neighbor_has_door.unwrap_or_else(generator)
+    }
+
+    fn left_door(world: &World, key: TileMapKey, generator: impl FnOnce() -> bool) -> bool {
+        let right = world.columns() - 1;
+        let middle_row = world.rows() / 2;
         let left_neighbor = world.get_tile_map(key.shifted(-1, 0));
         let left_neighbor_has_door = left_neighbor
             .and_then(|n| n.get(middle_row, right))
             .map(|t| t == 0);
+        left_neighbor_has_door.unwrap_or_else(generator)
+    }
+
+    fn right_door(world: &World, key: TileMapKey, generator: impl FnOnce() -> bool) -> bool {
+        let left = 0;
+        let middle_row = world.rows() / 2;
         let right_neighbor = world.get_tile_map(key.shifted(1, 0));
         let right_neighbor_has_door = right_neighbor
             .and_then(|n| n.get(middle_row, left))
             .map(|t| t == 0);
-        for row in 1..bottom {
-            let tile_type = u32::from(
-                !(row_door_indexes.contains(&row) && left_neighbor_has_door.unwrap_or(left_door)),
-            );
-            if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(row, left) {
-                *value = tile_type;
-            }
-            let tile_type = u32::from(
-                !(row_door_indexes.contains(&row) && right_neighbor_has_door.unwrap_or(right_door)),
-            );
-            if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(row, right) {
-                *value = tile_type;
-            }
-        }
+        right_neighbor_has_door.unwrap_or_else(generator)
     }
 
     /// The world position drawn at the center of the screen.
