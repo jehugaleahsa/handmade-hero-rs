@@ -221,9 +221,7 @@ impl ApplicationPlugin {
                 plugin_state.player_mut().toggle_running();
             }
 
-            let previous_zoom = plugin_state.zoom();
-            let zoom = controller.right_joystick().y_ratio();
-            let zoom = (previous_zoom + zoom).clamp(0.25, 2.0);
+            let zoom = Self::calculate_zoom(game_state, plugin_state.zoom(), controller);
             plugin_state.set_zoom(zoom);
         }
 
@@ -252,6 +250,27 @@ impl ApplicationPlugin {
 
         #[cfg(feature = "mouse_debug")]
         let _ = Self::render_mouse(input_state, &viewport, buffer);
+    }
+
+    /// Scales the zoom by the right joystick's vertical tilt.
+    ///
+    /// Zooming multiplies rather than adds, so each second the stick is held changes the zoom
+    /// by the same ratio at every level, and tilting the other way exactly undoes it.
+    #[must_use]
+    fn calculate_zoom(
+        game_state: &GameState,
+        previous_zoom: f32,
+        controller: &ControllerState,
+    ) -> f32 {
+        const MIN_ZOOM: f32 = 0.25;
+        const MAX_ZOOM: f32 = 2.0;
+        // A fully tilted stick doubles or halves the zoom this many times per second.
+        const DOUBLINGS_PER_SECOND: f32 = 1.0;
+
+        let tilt = controller.right_joystick().y_ratio();
+        let seconds = game_state.frame_duration().get::<second>();
+        let zoom = previous_zoom * (DOUBLINGS_PER_SECOND * tilt * seconds).exp2();
+        zoom.clamp(MIN_ZOOM, MAX_ZOOM)
     }
 
     fn detect_primary_controller<'a>(
