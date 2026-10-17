@@ -7,13 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
-#[derive(Debug)]
-pub enum AddResult<'a> {
-    Added(&'a mut TileMap),
-    #[allow(dead_code)]
-    Present(&'a mut TileMap),
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct World {
@@ -57,13 +50,13 @@ impl World {
         self.tile_size
     }
 
-    pub fn add_tile_map(&mut self, id: TileMapKey) -> AddResult<'_> {
+    pub fn add_tile_map(&mut self, id: TileMapKey) -> (&mut TileMap, bool) {
         let entry = self.tile_maps.entry(id);
         match entry {
-            Entry::Occupied(o) => AddResult::Present(o.into_mut()),
+            Entry::Occupied(o) => (o.into_mut(), false),
             Entry::Vacant(v) => {
                 let tile_map = TileMap::new(self.rows, self.columns);
-                AddResult::Added(v.insert(tile_map))
+                (v.insert(tile_map), true)
             }
         }
     }
@@ -110,17 +103,23 @@ impl World {
         self.tile_maps.get(&key)
     }
 
+    #[inline]
+    #[must_use]
+    pub fn get_tile_map_mut(&mut self, key: TileMapKey) -> Option<&mut TileMap> {
+        self.tile_maps.get_mut(&key)
+    }
+
     pub fn ensure_tile_maps(
         &mut self,
         min: TileMapKey,
         max: TileMapKey,
-        initializer: impl Fn(&mut TileMap) -> (),
+        initializer: impl Fn(&mut Self, TileMapKey),
     ) {
         for y in min.y()..=max.y() {
             for x in min.x()..=max.x() {
                 let key = TileMapKey::at_x_y(x, y);
-                if let AddResult::Added(tile_map) = self.add_tile_map(key) {
-                    initializer(tile_map)
+                if let (_, true) = self.add_tile_map(key) {
+                    initializer(self, key);
                 }
             }
         }
