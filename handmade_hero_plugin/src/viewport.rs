@@ -16,13 +16,19 @@ pub struct Viewport {
     pixels_per_meter: LinearNumberDensity,
     width_px: f32,
     height_px: f32,
+    zoom_factor: f32,
 }
 
 impl Viewport {
     /// Scales the world so the tile grid covers the whole buffer.
     #[must_use]
     #[expect(clippy::cast_precision_loss)]
-    pub fn fit(world: &World, resolution_width_px: usize, resolution_height_px: usize) -> Self {
+    pub fn fit(
+        world: &World,
+        resolution_width_px: usize,
+        resolution_height_px: usize,
+        zoom_factor: f32,
+    ) -> Self {
         let width_px = resolution_width_px as f32;
         let height_px = resolution_height_px as f32;
         let tile_width_px = width_px / f32::from(World::TILE_COLUMNS);
@@ -35,14 +41,17 @@ impl Viewport {
             pixels_per_meter,
             width_px,
             height_px,
+            zoom_factor,
         }
     }
 
     #[inline]
     #[must_use]
     pub fn bounds(&self) -> Dimensions {
-        let width = (self.width_px / self.pixels_per_meter).into();
-        let height = (self.height_px / self.pixels_per_meter).into();
+        let width: Length = (self.width_px / self.pixels_per_meter).into();
+        let width = width / self.zoom_factor;
+        let height: Length = (self.height_px / self.pixels_per_meter).into();
+        let height = height / self.zoom_factor;
         Dimensions { width, height }
     }
 
@@ -54,7 +63,7 @@ impl Viewport {
 
     #[must_use]
     pub fn to_pixels(self, length: Length) -> f32 {
-        (length * self.pixels_per_meter).get::<ratio>()
+        (length * self.pixels_per_meter * self.zoom_factor).get::<ratio>()
     }
 
     /// Converts a rectangle in world space, measured from the point drawn at the center of the

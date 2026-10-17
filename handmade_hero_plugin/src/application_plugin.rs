@@ -121,14 +121,9 @@ impl ApplicationPlugin {
     fn calculate_delta_x_y(
         input_state: &InputState,
         game_state: &GameState,
-        plugin_state: &mut PluginGameState,
+        plugin_state: &PluginGameState,
+        controller: Option<&ControllerState>,
     ) -> (Length, Length) {
-        let controller = plugin_state
-            .primary_controller_index()
-            .and_then(|i| input_state.controller_at(i));
-        if controller.is_some_and(|c| c.left_thumb().was_released()) {
-            plugin_state.player_mut().toggle_running();
-        }
         let Some((delta_x, delta_y, controller)) =
             Self::calculate_input_delta_x_y(input_state, controller)
         else {
@@ -219,12 +214,30 @@ impl ApplicationPlugin {
         input_state: &InputState,
         buffer: &mut BackBuffer,
     ) {
-        Self::detect_primary_controller(plugin_state, input_state);
-        let viewport = Viewport::fit(plugin_state.world(), buffer.width_px(), buffer.height_px());
+        let controller = Self::detect_primary_controller(plugin_state, input_state);
+
+        if let Some(controller) = controller {
+            if controller.left_thumb().was_released() {
+                plugin_state.player_mut().toggle_running();
+            }
+
+            let previous_zoom = plugin_state.zoom();
+            let zoom = controller.right_joystick().y_ratio();
+            let zoom = (previous_zoom + zoom).clamp(0.25, 2.0);
+            plugin_state.set_zoom(zoom);
+        }
+
+        let viewport = Viewport::fit(
+            plugin_state.world(),
+            buffer.width_px(),
+            buffer.height_px(),
+            plugin_state.zoom(),
+        );
+
         Self::ensure_tile_maps(plugin_state, &viewport);
 
         if let Some(new_coordinates) =
-            Self::find_new_player_coordinates(game_state, plugin_state, input_state)
+            Self::find_new_player_coordinates(game_state, plugin_state, input_state, controller)
             && Self::is_traversable(plugin_state, &new_coordinates)
         {
             plugin_state.player_mut().set_coordinates(new_coordinates);
@@ -241,15 +254,19 @@ impl ApplicationPlugin {
         let _ = Self::render_mouse(input_state, &viewport, buffer);
     }
 
-    fn detect_primary_controller(plugin_state: &mut PluginGameState, input_state: &InputState) {
+    fn detect_primary_controller<'a>(
+        plugin_state: &mut PluginGameState,
+        input_state: &'a InputState,
+    ) -> Option<&'a ControllerState> {
         if let Some(primary_index) = plugin_state.primary_controller_index()
             && let Some(primary_controller) = input_state.controller_at(primary_index)
         {
             if primary_controller.enabled() {
                 // The primary controller is already detected and enabled
-                return;
+                return Some(primary_controller);
             }
             plugin_state.clear_primary_controller_index();
+            return None;
         }
         // NOTE: In the future, when we support multiple players, we won't want to allow players
         // to "steal" another player's character when they get disconnected. Once a player gets
@@ -257,8 +274,10 @@ impl ApplicationPlugin {
         for (index, controller) in input_state.controllers().enumerate() {
             if controller.enabled() && Self::is_input_detected(controller) {
                 plugin_state.set_primary_controller_index(index);
+                return Some(controller);
             }
         }
+        None
     }
 
     /// For local development purposes, we detect inputs by checking for any sort of input.
@@ -271,14 +290,14 @@ impl ApplicationPlugin {
             return true;
         }
         let left_joystick = controller.left_joystick();
-        if left_joystick.x_ratio() > 0.0 || left_joystick.y_ratio() > 0.0 {
+        if left_joystick.x_ratio() != 0.0 || left_joystick.y_ratio() != 0.0 {
             return true;
         }
         let right_joystick = controller.right_joystick();
-        if right_joystick.x_ratio() > 0.0 || right_joystick.y_ratio() > 0.0 {
+        if right_joystick.x_ratio() != 0.0 || right_joystick.y_ratio() != 0.0 {
             return true;
         }
-        controller.left_trigger_ratio() > 0.0 || controller.right_trigger_ratio() > 0.0
+        controller.left_trigger_ratio() != 0.0 || controller.right_trigger_ratio() != 0.0
     }
 
     fn ensure_tile_maps(plugin_state: &mut PluginGameState, viewport: &Viewport) {
@@ -307,10 +326,12 @@ impl ApplicationPlugin {
 
     fn find_new_player_coordinates(
         game_state: &GameState,
-        plugin_state: &mut PluginGameState,
+        plugin_state: &PluginGameState,
         input_state: &InputState,
+        controller: Option<&ControllerState>,
     ) -> Option<WorldCoordinate> {
-        let (delta_x, delta_y) = Self::calculate_delta_x_y(input_state, game_state, plugin_state);
+        let (delta_x, delta_y) =
+            Self::calculate_delta_x_y(input_state, game_state, plugin_state, controller);
         if delta_x.is_zero() && delta_y.is_zero() {
             return None;
         }

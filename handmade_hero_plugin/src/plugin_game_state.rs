@@ -12,6 +12,7 @@ pub struct PluginGameState {
     world: World,
     audio: PluginAudioState,
     primary_controller_index: Option<usize>,
+    zoom: f32,
 }
 
 impl PluginGameState {
@@ -26,6 +27,7 @@ impl PluginGameState {
             world,
             audio: PluginAudioState::new(),
             primary_controller_index: None,
+            zoom: 1.0,
         }
     }
 
@@ -81,6 +83,17 @@ impl PluginGameState {
     #[inline]
     pub fn clear_primary_controller_index(&mut self) {
         self.primary_controller_index = None;
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn zoom(&self) -> f32 {
+        self.zoom
+    }
+
+    #[inline]
+    pub fn set_zoom(&mut self, value: f32) {
+        self.zoom = value;
     }
 }
 
