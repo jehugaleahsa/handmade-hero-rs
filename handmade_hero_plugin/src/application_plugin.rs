@@ -1,6 +1,5 @@
 use crate::dimensions::Dimensions;
 use crate::player::Player;
-use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
 use crate::viewport::Viewport;
 use crate::world::World;
@@ -28,7 +27,6 @@ use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::Length;
 use handmade_hero_interface::units::si::time::Time;
 use handmade_hero_interface::update_render_context::UpdateRenderContext;
-use std::cmp::Ordering;
 use std::f32;
 use uom::num::Zero;
 use uom::si::frequency::hertz;
@@ -232,13 +230,9 @@ impl ApplicationPlugin {
             plugin_state.player_mut().set_coordinates(new_coordinates);
         }
 
-        let player_coordinate = plugin_state.player().coordinate();
-        let start_coordinate =
-            Self::determine_start_coordinate(plugin_state.world(), player_coordinate);
+        let _ = Self::render_tilemap(plugin_state, &viewport, buffer);
 
-        let _ = Self::render_tilemap(plugin_state, &viewport, &start_coordinate, buffer);
-
-        let _ = Self::render_player(plugin_state, &viewport, &start_coordinate, buffer);
+        let _ = Self::render_player(plugin_state, &viewport, buffer);
 
         #[cfg(feature = "audio_debug")]
         let _ = Self::render_audio(game_state, plugin_state, &viewport, buffer);
@@ -288,9 +282,7 @@ impl ApplicationPlugin {
     }
 
     fn ensure_tile_maps(plugin_state: &mut PluginGameState, viewport: &Viewport) {
-        // NOTE: In the future, we won't want to center on the player. Instead, we'll want
-        // to center on the camera position.
-        let center = plugin_state.player().coordinate();
+        let center = Self::view_center(plugin_state);
         let Dimensions { width, height } = viewport.bounds();
         // We give ourselves an extra tile of margin on either side
         let tile_size = plugin_state.world().tile_size();
@@ -304,6 +296,13 @@ impl ApplicationPlugin {
             .tile_map_key();
         let world = plugin_state.world_mut();
         world.ensure_tile_maps(bottom_left, top_right);
+    }
+
+    /// The world position drawn at the center of the screen.
+    fn view_center(plugin_state: &PluginGameState) -> &WorldCoordinate {
+        // NOTE: In the future, we won't want to center on the player. Instead, we'll want
+        // to center on the camera position.
+        plugin_state.player().coordinate()
     }
 
     fn find_new_player_coordinates(
@@ -331,62 +330,46 @@ impl ApplicationPlugin {
     fn render_tilemap(
         plugin_state: &PluginGameState,
         viewport: &Viewport,
-        start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
         let pixels = buffer.pixels_mut();
 
         let world = plugin_state.world();
-        let rows = world.rows();
-        let columns = world.columns();
         let tile_size = world.tile_size();
-        let player_coordinate = plugin_state.player().coordinate().clone();
-        let (player_x_offset, player_y_offset) = player_coordinate.tile_offset().to_tuple();
-
-        // The player's offset within their tile can expose part of a tile past either edge of
-        // the screen, so the grid starts one tile early and runs one tile late.
-        let start_coordinate = start_coordinate.shifted(-tile_size, -tile_size, tile_size);
-        let mut tile_map_y = start_coordinate.tile_map_y();
-        let mut tile_y = start_coordinate.tile_y();
-        for row_index in 0..=rows {
-            let row_index = f32::from(row_index);
-            // Subtracting a tile undoes the early start, keeping the original start coordinate's
-            // tile flush with the screen's edge.
-            let row_offset = row_index * tile_size - tile_size;
-            let mut tile_map_x = start_coordinate.tile_map_x();
-            let mut tile_x = start_coordinate.tile_x();
-            for column_index in 0..=columns {
-                let column_index = f32::from(column_index);
-                let column_offset = column_index * tile_size - tile_size;
-                let left = column_offset - player_x_offset;
-                let bottom = row_offset - player_y_offset;
+        let half_tile_size = tile_size / 2.0;
+        let player_coordinate = plugin_state.player().coordinate();
+        let center = Self::view_center(plugin_state);
+        let (center_x_offset, center_y_offset) = center.tile_offset().to_tuple();
+        let Dimensions { width, height } = viewport.bounds();
+        let tiles_x = Self::tiles_to_edge(width / 2.0, tile_size);
+        let tiles_y = Self::tiles_to_edge(height / 2.0, tile_size);
+        for delta_y in -tiles_y..=tiles_y {
+            let delta_y = f32::from(delta_y) * tile_size;
+            for delta_x in -tiles_x..=tiles_x {
+                let delta_x = f32::from(delta_x) * tile_size;
+                let tile = center.shifted(delta_x, delta_y, tile_size);
+                let left = delta_x - center_x_offset - half_tile_size;
+                let bottom = delta_y - center_y_offset - half_tile_size;
                 let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);
-
-                let tile_map_key = TileMapKey::at_x_y(tile_map_x, tile_map_y);
-                let color = Self::determine_tile_color(
-                    plugin_state.world(),
-                    &player_coordinate,
-                    tile_map_key,
-                    tile_x,
-                    tile_y,
-                );
                 let tile_rectangle = viewport.to_buffer_rectangle(&tile_rectangle);
+                let color = Self::determine_tile_color(
+                    world,
+                    player_coordinate,
+                    tile.tile_map_key(),
+                    tile.tile_x(),
+                    tile.tile_y(),
+                );
                 Self::render_rectangle(viewport, &tile_rectangle, Color::from(color), pixels)?;
-
-                tile_x += 1;
-                if tile_x >= columns {
-                    tile_map_x += 1;
-                    tile_x = 0;
-                }
-            }
-
-            tile_y += 1;
-            if tile_y >= rows {
-                tile_map_y += 1;
-                tile_y = 0;
             }
         }
         Ok(())
+    }
+
+    /// Counts the tiles, beyond the center, needed to reach a screen edge `distance`
+    /// from the center.
+    #[expect(clippy::cast_possible_truncation)]
+    fn tiles_to_edge(distance: Length, tile_size: Length) -> i16 {
+        (distance / tile_size).get::<ratio>().ceil() as i16
     }
 
     fn determine_tile_color(
@@ -418,37 +401,12 @@ impl ApplicationPlugin {
     fn render_player(
         plugin_state: &PluginGameState,
         viewport: &Viewport,
-        start_coordinate: &WorldCoordinate,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
         let pixels = buffer.pixels_mut();
-
         let world = plugin_state.world();
         let player = plugin_state.player();
-        let player_coordinate = player.coordinate();
-        let x_offset = Self::determine_player_offset(
-            start_coordinate.tile_map_x(),
-            start_coordinate.tile_x(),
-            player_coordinate.tile_map_x(),
-            player_coordinate.tile_x(),
-            world.tile_size(),
-            world.columns(),
-        );
-        let y_offset = Self::determine_player_offset(
-            start_coordinate.tile_map_y(),
-            start_coordinate.tile_y(),
-            player_coordinate.tile_map_y(),
-            player_coordinate.tile_y(),
-            world.tile_size(),
-            world.rows(),
-        );
-
-        // The offsets reach the low edge of the player's tile, but the player stands at the
-        // tile's center.
-        let half_tile_size = world.tile_size() / 2.0;
         let player_bounds = Player::render_bounds(world.tile_size());
-        let player_bounds =
-            player_bounds.shifted(x_offset + half_tile_size, y_offset + half_tile_size);
         let player_bounds = viewport.to_buffer_rectangle(&player_bounds);
         Self::render_rectangle(
             viewport,
@@ -456,49 +414,6 @@ impl ApplicationPlugin {
             Color::from(player.color()),
             pixels,
         )
-    }
-
-    fn determine_player_offset(
-        start_tile_map: i16,
-        start_tile: u8,
-        tile_map: i16,
-        tile: u8,
-        tile_size: Length,
-        max_tile: u8,
-    ) -> Length {
-        let tile_map_diff = f32::from(tile_map) - f32::from(start_tile_map);
-        let tile_map_diff = tile_map_diff * f32::from(max_tile) * tile_size;
-        let tile_diff = f32::from(tile) - f32::from(start_tile);
-        let tile_diff = tile_diff * tile_size;
-        tile_map_diff + tile_diff
-    }
-
-    fn determine_start_coordinate(
-        world: &World,
-        player_coordinate: &WorldCoordinate,
-    ) -> WorldCoordinate {
-        let tile_map_x = player_coordinate.tile_map_x();
-        let tile_x = player_coordinate.tile_x();
-        let (start_tile_map_x, start_tile_x) =
-            Self::determine_start(tile_map_x, tile_x, world.columns());
-
-        let tile_map_y = player_coordinate.tile_map_y();
-        let tile_y = player_coordinate.tile_y();
-        let (start_tile_map_y, start_tile_y) =
-            Self::determine_start(tile_map_y, tile_y, world.rows());
-
-        let start_tile_map_key = TileMapKey::at_x_y(start_tile_map_x, start_tile_map_y);
-        let tile_map_coordinate = TileMapCoordinate::at_x_y(start_tile_x, start_tile_y);
-        WorldCoordinate::new(world, start_tile_map_key).within_tile_map(tile_map_coordinate)
-    }
-
-    fn determine_start(tile_map: i16, tile: u8, max_tile: u8) -> (i16, u8) {
-        let middle = max_tile / 2;
-        match tile.cmp(&middle) {
-            Ordering::Less => (tile_map - 1, max_tile - (middle - tile)),
-            Ordering::Greater => (tile_map, tile - middle),
-            Ordering::Equal => (tile_map, 0),
-        }
     }
 
     fn render_rectangle(

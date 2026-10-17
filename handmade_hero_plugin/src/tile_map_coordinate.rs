@@ -10,17 +10,6 @@ pub struct TileMapCoordinate {
 impl TileMapCoordinate {
     #[inline]
     #[must_use]
-    pub fn at_x_y(x: u8, y: u8) -> Self {
-        let offset = Point2d::from_x_y(x, y);
-        let tile_offset = Point2d::default();
-        Self {
-            offset,
-            tile_offset,
-        }
-    }
-
-    #[inline]
-    #[must_use]
     pub fn at_x_y_offset(x: u8, y: u8, tile_offset: Point2d<Length>) -> Self {
         let offset = Point2d::from_x_y(x, y);
         Self {

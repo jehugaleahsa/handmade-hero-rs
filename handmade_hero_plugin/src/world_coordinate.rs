@@ -47,31 +47,8 @@ impl WorldCoordinate {
 
     #[inline]
     #[must_use]
-    pub fn within_tile_map(self, tile_map_coordinate: TileMapCoordinate) -> Self {
-        Self::new_internal(
-            self.tile_map_key,
-            tile_map_coordinate,
-            self.rows,
-            self.columns,
-        )
-    }
-
-    #[inline]
-    #[must_use]
     pub fn tile_map_key(&self) -> TileMapKey {
         self.tile_map_key
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn tile_map_x(&self) -> i16 {
-        self.tile_map_key.x()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn tile_map_y(&self) -> i16 {
-        self.tile_map_key.y()
     }
 
     #[inline]
