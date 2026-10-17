@@ -1,5 +1,6 @@
 use crate::dimensions::Dimensions;
 use crate::player::Player;
+use crate::tile_map::TileMap;
 use crate::tile_map_key::TileMapKey;
 use crate::viewport::Viewport;
 use crate::world::World;
@@ -333,7 +334,35 @@ impl ApplicationPlugin {
             .shifted(margin_width, margin_height, tile_size)
             .tile_map_key();
         let world = plugin_state.world_mut();
-        world.ensure_tile_maps(bottom_left, top_right);
+        world.ensure_tile_maps(bottom_left, top_right, Self::initialize_tile_map);
+    }
+
+    fn initialize_tile_map(tile_map: &mut TileMap) {
+        let middle_row = tile_map.rows() / 2;
+        debug_assert_ne!(middle_row, 0);
+        let middle_row_door_indexes = (middle_row - 1)..=(middle_row + 1);
+        let middle_column = tile_map.columns() / 2;
+        debug_assert_ne!(middle_column, 0);
+        let middle_column_door_indexes = (middle_column - 1)..=(middle_column + 1);
+        for row in 0..tile_map.rows() {
+            for column in 0..tile_map.columns() {
+                if row == 0
+                    || column == 0
+                    || row == tile_map.rows() - 1
+                    || column == tile_map.columns() - 1
+                {
+                    if let Some(value) = tile_map.get_mut(row, column) {
+                        if middle_row_door_indexes.contains(&row)
+                            || middle_column_door_indexes.contains(&column)
+                        {
+                            *value = 0;
+                        } else {
+                            *value = 1;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// The world position drawn at the center of the screen.

@@ -4,6 +4,7 @@ use std::ops::{Index, IndexMut};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TileMap {
     tiles: Vec<u32>,
+    rows: u8,
     columns: u8,
 }
 
@@ -12,7 +13,23 @@ impl TileMap {
     #[must_use]
     pub fn new(rows: u8, columns: u8) -> Self {
         let tiles = vec![0; usize::from(rows) * usize::from(columns)];
-        Self { tiles, columns }
+        Self {
+            tiles,
+            rows,
+            columns,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn rows(&self) -> u8 {
+        self.rows
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn columns(&self) -> u8 {
+        self.columns
     }
 
     #[inline]
@@ -20,6 +37,13 @@ impl TileMap {
     pub fn get(&self, row: u8, column: u8) -> Option<u32> {
         let offset = self.offset_of(row, column);
         self.tiles.get(offset).copied()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn get_mut(&mut self, row: u8, column: u8) -> Option<&mut u32> {
+        let offset = self.offset_of(row, column);
+        self.tiles.get_mut(offset)
     }
 
     #[inline]
