@@ -1,3 +1,4 @@
+use crate::dimensions::Dimensions;
 use crate::player::Player;
 use crate::tile_map_coordinate::TileMapCoordinate;
 use crate::tile_map_key::TileMapKey;
@@ -221,7 +222,8 @@ impl ApplicationPlugin {
         buffer: &mut BackBuffer,
     ) {
         Self::detect_primary_controller(plugin_state, input_state);
-        Self::ensure_tile_maps(plugin_state);
+        let viewport = Viewport::fit(plugin_state.world(), buffer.width_px(), buffer.height_px());
+        Self::ensure_tile_maps(plugin_state, &viewport);
 
         if let Some(new_coordinates) =
             Self::find_new_player_coordinates(game_state, plugin_state, input_state)
@@ -230,10 +232,9 @@ impl ApplicationPlugin {
             plugin_state.player_mut().set_coordinates(new_coordinates);
         }
 
-        let world = plugin_state.world();
         let player_coordinate = plugin_state.player().coordinate();
-        let start_coordinate = Self::determine_start_coordinate(world, player_coordinate);
-        let viewport = Viewport::fit(world, buffer.width_px(), buffer.height_px());
+        let start_coordinate =
+            Self::determine_start_coordinate(plugin_state.world(), player_coordinate);
 
         let _ = Self::render_tilemap(plugin_state, &viewport, &start_coordinate, buffer);
 
@@ -286,12 +287,22 @@ impl ApplicationPlugin {
         controller.left_trigger_ratio() > 0.0 || controller.right_trigger_ratio() > 0.0
     }
 
-    fn ensure_tile_maps(plugin_state: &mut PluginGameState) {
-        let tile_map_key = plugin_state.player().coordinate().tile_map_key();
-        let min_tile_map_key = tile_map_key.shifted(-1, -1);
-        let max_tile_map_key = tile_map_key.shifted(1, 1);
+    fn ensure_tile_maps(plugin_state: &mut PluginGameState, viewport: &Viewport) {
+        // NOTE: In the future, we won't want to center on the player. Instead, we'll want
+        // to center on the camera position.
+        let center = plugin_state.player().coordinate();
+        let Dimensions { width, height } = viewport.bounds();
+        let tile_size = plugin_state.world().tile_size();
+        let margin_width = (width / 2.0) + tile_size;
+        let margin_height = (height / 2.0) + tile_size;
+        let bottom_left = center
+            .shifted(-margin_width, -margin_height, tile_size)
+            .tile_map_key();
+        let top_right = center
+            .shifted(margin_width, margin_height, tile_size)
+            .tile_map_key();
         let world = plugin_state.world_mut();
-        world.ensure_tile_maps(min_tile_map_key, max_tile_map_key);
+        world.ensure_tile_maps(bottom_left, top_right);
     }
 
     fn find_new_player_coordinates(
@@ -487,7 +498,7 @@ impl ApplicationPlugin {
         color: Color<u8>,
         pixels: &mut [Color<u8>],
     ) -> Result<()> {
-        let window_bounds = viewport.bounds();
+        let window_bounds = viewport.bounds_px();
         let rectangle = rectangle.bound_to(&window_bounds);
         let rectangle = rectangle.round_to_usize()?;
         if rectangle.width() == 0 {
@@ -522,7 +533,7 @@ impl ApplicationPlugin {
         let Some(buffer_length) = game_state.audio().buffer_length() else {
             return Ok(());
         };
-        let window_bounds = viewport.bounds();
+        let window_bounds = viewport.bounds_px();
         let padding_x = 50.0;
         let padding_y = 50.0;
         let height = 100.0;

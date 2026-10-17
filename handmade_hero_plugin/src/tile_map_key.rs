@@ -27,6 +27,7 @@ impl TileMapKey {
 
     #[inline]
     #[must_use]
+    #[allow(dead_code)]
     pub fn shifted(self, delta_x: i16, delta_y: i16) -> Self {
         let x = self.x.wrapping_add(delta_x);
         let y = self.y.wrapping_add(delta_y);

@@ -1,3 +1,4 @@
+use crate::dimensions::Dimensions;
 use crate::world::World;
 use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::units::si::length::Length;
@@ -46,9 +47,17 @@ impl Viewport {
         }
     }
 
+    #[inline]
+    #[must_use]
+    pub fn bounds(&self) -> Dimensions {
+        let width = (self.width_px / self.pixels_per_meter).into();
+        let height = (self.height_px / self.pixels_per_meter).into();
+        Dimensions { width, height }
+    }
+
     /// The whole back buffer, in pixels.
     #[must_use]
-    pub fn bounds(&self) -> Rectangle<f32> {
+    pub fn bounds_px(&self) -> Rectangle<f32> {
         Rectangle::new(0.0, 0.0, self.height_px, self.width_px)
     }
 
