@@ -292,6 +292,7 @@ impl ApplicationPlugin {
         // to center on the camera position.
         let center = plugin_state.player().coordinate();
         let Dimensions { width, height } = viewport.bounds();
+        // We give ourselves an extra tile of margin on either side
         let tile_size = plugin_state.world().tile_size();
         let margin_width = (width / 2.0) + tile_size;
         let margin_height = (height / 2.0) + tile_size;
@@ -339,22 +340,26 @@ impl ApplicationPlugin {
         let rows = world.rows();
         let columns = world.columns();
         let tile_size = world.tile_size();
-        let half_tile_size = tile_size / 2.0;
         let player_coordinate = plugin_state.player().coordinate().clone();
         let (player_x_offset, player_y_offset) = player_coordinate.tile_offset().to_tuple();
 
+        // The player's offset within their tile can expose part of a tile past either edge of
+        // the screen, so the grid starts one tile early and runs one tile late.
+        let start_coordinate = start_coordinate.shifted(-tile_size, -tile_size, tile_size);
         let mut tile_map_y = start_coordinate.tile_map_y();
         let mut tile_y = start_coordinate.tile_y();
         for row_index in 0..=rows {
             let row_index = f32::from(row_index);
-            let row_offset = row_index * tile_size;
+            // Subtracting a tile undoes the early start, keeping the original start coordinate's
+            // tile flush with the screen's edge.
+            let row_offset = row_index * tile_size - tile_size;
             let mut tile_map_x = start_coordinate.tile_map_x();
             let mut tile_x = start_coordinate.tile_x();
             for column_index in 0..=columns {
                 let column_index = f32::from(column_index);
-                let column_offset = column_index * tile_size;
-                let left = column_offset - player_x_offset - half_tile_size;
-                let bottom = row_offset - player_y_offset - half_tile_size;
+                let column_offset = column_index * tile_size - tile_size;
+                let left = column_offset - player_x_offset;
+                let bottom = row_offset - player_y_offset;
                 let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);
 
                 let tile_map_key = TileMapKey::at_x_y(tile_map_x, tile_map_y);
@@ -438,8 +443,12 @@ impl ApplicationPlugin {
             world.rows(),
         );
 
+        // The offsets reach the low edge of the player's tile, but the player stands at the
+        // tile's center.
+        let half_tile_size = world.tile_size() / 2.0;
         let player_bounds = Player::render_bounds(world.tile_size());
-        let player_bounds = player_bounds.shifted(x_offset, y_offset);
+        let player_bounds =
+            player_bounds.shifted(x_offset + half_tile_size, y_offset + half_tile_size);
         let player_bounds = viewport.to_buffer_rectangle(&player_bounds);
         Self::render_rectangle(
             viewport,
