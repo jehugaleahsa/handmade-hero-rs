@@ -1,12 +1,12 @@
 mod application_plugin;
+mod chunk;
+mod chunk_coordinate;
+mod chunk_key;
 mod collision_deltas;
 mod dimensions;
 mod player;
 mod plugin_audio_state;
 mod plugin_game_state;
-mod tile_map;
-mod tile_map_coordinate;
-mod tile_map_key;
 mod tile_type;
 mod viewport;
 mod world;

@@ -1,6 +1,6 @@
+use crate::chunk_key::ChunkKey;
 use crate::dimensions::Dimensions;
 use crate::player::Player;
-use crate::tile_map_key::TileMapKey;
 use crate::tile_type::TileType;
 use crate::viewport::Viewport;
 use crate::world::World;
@@ -57,7 +57,7 @@ impl ApplicationPlugin {
 
         let world = plugin_state.world();
         let player = plugin_state.player();
-        let new_coordinates = WorldCoordinate::new(plugin_state.world(), player.tile_map_key());
+        let new_coordinates = WorldCoordinate::new(plugin_state.world(), player.chunk_key());
         let tile_size = world.tile_size();
         // A new coordinate already sits at the center of its tile, so stepping a whole number
         // of tiles lands on the center of the middle tile.
@@ -234,7 +234,7 @@ impl ApplicationPlugin {
             plugin_state.zoom(),
         );
 
-        Self::ensure_tile_maps(plugin_state, &viewport);
+        Self::ensure_chunks(plugin_state, &viewport);
 
         if let Some(new_coordinates) =
             Self::find_new_player_coordinates(game_state, plugin_state, input_state, controller)
@@ -321,7 +321,7 @@ impl ApplicationPlugin {
         controller.left_trigger_ratio() != 0.0 || controller.right_trigger_ratio() != 0.0
     }
 
-    fn ensure_tile_maps(plugin_state: &mut PluginGameState, viewport: &Viewport) {
+    fn ensure_chunks(plugin_state: &mut PluginGameState, viewport: &Viewport) {
         let center = Self::view_center(plugin_state);
         let Dimensions { width, height } = viewport.bounds();
         // We give ourselves an extra tile of margin on either side
@@ -330,18 +330,18 @@ impl ApplicationPlugin {
         let margin_height = (height / 2.0) + tile_size;
         let bottom_left = center
             .shifted(-margin_width, -margin_height, tile_size)
-            .tile_map_key();
+            .chunk_key();
         let top_right = center
             .shifted(margin_width, margin_height, tile_size)
-            .tile_map_key();
+            .chunk_key();
         let world = plugin_state.world_mut();
-        world.ensure_tile_maps(bottom_left, top_right, Self::initialize_tile_map);
+        world.ensure_chunks(bottom_left, top_right, Self::initialize_chunk);
     }
 
-    fn initialize_tile_map(world: &mut World, key: TileMapKey) {
-        let tile_map = world.get_tile_map(key).unwrap();
-        let rows = tile_map.rows();
-        let columns = tile_map.columns();
+    fn initialize_chunk(world: &mut World, key: ChunkKey) {
+        let chunk = world.get_chunk(key).unwrap();
+        let rows = chunk.rows();
+        let columns = chunk.columns();
         debug_assert!(rows > 2);
         debug_assert!(columns > 2);
 
@@ -355,13 +355,17 @@ impl ApplicationPlugin {
         let middle_column = columns / 2;
         let column_door_indexes = (middle_column - 1)..=(middle_column + 1);
         for column in 0..columns {
-            if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(top, column) {
-                if !(column_door_indexes.contains(&column) && top_door) {
+            if let Some(value) = world.get_chunk_mut(key).unwrap().get_mut(top, column) {
+                if column_door_indexes.contains(&column) && top_door {
+                    *value = TileType::Door;
+                } else {
                     *value = TileType::Wall;
                 }
             }
-            if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(bottom, column) {
-                if !(column_door_indexes.contains(&column) && bottom_door) {
+            if let Some(value) = world.get_chunk_mut(key).unwrap().get_mut(bottom, column) {
+                if column_door_indexes.contains(&column) && bottom_door {
+                    *value = TileType::Door;
+                } else {
                     *value = TileType::Wall;
                 }
             }
@@ -373,20 +377,24 @@ impl ApplicationPlugin {
         let middle_row = rows / 2;
         let row_door_indexes = (middle_row - 1)..=(middle_row + 1);
         for row in 1..bottom {
-            if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(row, left) {
-                if !(row_door_indexes.contains(&row) && left_door) {
+            if let Some(value) = world.get_chunk_mut(key).unwrap().get_mut(row, left) {
+                if row_door_indexes.contains(&row) && left_door {
+                    *value = TileType::Door;
+                } else {
                     *value = TileType::Wall;
                 }
             }
-            if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(row, right) {
-                if !(row_door_indexes.contains(&row) && right_door) {
+            if let Some(value) = world.get_chunk_mut(key).unwrap().get_mut(row, right) {
+                if row_door_indexes.contains(&row) && right_door {
+                    *value = TileType::Door;
+                } else {
                     *value = TileType::Wall;
                 }
             }
         }
     }
 
-    fn pick_doors(world: &World, key: TileMapKey, generator: &mut ThreadRng) -> [bool; 4] {
+    fn pick_doors(world: &World, key: ChunkKey, generator: &mut ThreadRng) -> [bool; 4] {
         const TOP_INDEX: usize = 0;
         const BOTTOM_INDEX: usize = 1;
         const LEFT_INDEX: usize = 2;
@@ -414,43 +422,43 @@ impl ApplicationPlugin {
         doors
     }
 
-    fn top_door(world: &World, key: TileMapKey, generator: impl FnOnce() -> bool) -> bool {
+    fn top_door(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
         let bottom = world.rows() - 1;
         let middle_column = world.columns() / 2;
-        let top_neighbor = world.get_tile_map(key.shifted(0, -1));
+        let top_neighbor = world.get_chunk(key.shifted(0, -1));
         let top_neighbor_has_door = top_neighbor
             .and_then(|n| n.get(bottom, middle_column))
-            .map(|t| t == TileType::Floor);
+            .map(|t| t == TileType::Door);
         top_neighbor_has_door.unwrap_or_else(generator)
     }
 
-    fn bottom_door(world: &World, key: TileMapKey, generator: impl FnOnce() -> bool) -> bool {
+    fn bottom_door(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
         let top = 0;
         let middle_column = world.columns() / 2;
-        let bottom_neighbor = world.get_tile_map(key.shifted(0, 1));
+        let bottom_neighbor = world.get_chunk(key.shifted(0, 1));
         let bottom_neighbor_has_door = bottom_neighbor
             .and_then(|n| n.get(top, middle_column))
-            .map(|t| t == TileType::Floor);
+            .map(|t| t == TileType::Door);
         bottom_neighbor_has_door.unwrap_or_else(generator)
     }
 
-    fn left_door(world: &World, key: TileMapKey, generator: impl FnOnce() -> bool) -> bool {
+    fn left_door(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
         let right = world.columns() - 1;
         let middle_row = world.rows() / 2;
-        let left_neighbor = world.get_tile_map(key.shifted(-1, 0));
+        let left_neighbor = world.get_chunk(key.shifted(-1, 0));
         let left_neighbor_has_door = left_neighbor
             .and_then(|n| n.get(middle_row, right))
-            .map(|t| t == TileType::Floor);
+            .map(|t| t == TileType::Door);
         left_neighbor_has_door.unwrap_or_else(generator)
     }
 
-    fn right_door(world: &World, key: TileMapKey, generator: impl FnOnce() -> bool) -> bool {
+    fn right_door(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
         let left = 0;
         let middle_row = world.rows() / 2;
-        let right_neighbor = world.get_tile_map(key.shifted(1, 0));
+        let right_neighbor = world.get_chunk(key.shifted(1, 0));
         let right_neighbor_has_door = right_neighbor
             .and_then(|n| n.get(middle_row, left))
-            .map(|t| t == TileType::Floor);
+            .map(|t| t == TileType::Door);
         right_neighbor_has_door.unwrap_or_else(generator)
     }
 
@@ -513,7 +521,7 @@ impl ApplicationPlugin {
                 let color = Self::determine_tile_color(
                     world,
                     player_coordinate,
-                    tile.tile_map_key(),
+                    tile.chunk_key(),
                     tile.tile_x(),
                     tile.tile_y(),
                 );
@@ -533,21 +541,21 @@ impl ApplicationPlugin {
     fn determine_tile_color(
         world: &World,
         player_coordinate: &WorldCoordinate,
-        tile_map_key: TileMapKey,
+        chunk_key: ChunkKey,
         tile_x: u8,
         tile_y: u8,
     ) -> Color<f32> {
-        let tile = world
-            .get_tile_map(tile_map_key)
-            .map(|tm| tm[(tile_y, tile_x)]);
+        let tile = world.get_chunk(chunk_key).map(|c| c[(tile_y, tile_x)]);
         if let Some(tile) = tile {
-            if tile_map_key == player_coordinate.tile_map_key()
+            if chunk_key == player_coordinate.chunk_key()
                 && tile_y == player_coordinate.tile_y()
                 && tile_x == player_coordinate.tile_x()
             {
                 return Color::from(Color::from_rgb(0x00, 0x00, 0x00));
             } else if tile == TileType::Floor {
                 return Color::from(Color::from_rgb(0xCC, 0xCC, 0xCC));
+            } else if tile == TileType::Door {
+                return Color::from(Color::from_rgb(0xBB, 0xBB, 0xBB));
             } else if tile == TileType::Wall {
                 return Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF));
             }

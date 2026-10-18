@@ -4,13 +4,13 @@ use std::ops::{Index, IndexMut};
 use crate::tile_type::TileType;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TileMap {
+pub struct Chunk {
     tiles: Vec<TileType>,
     rows: u8,
     columns: u8,
 }
 
-impl TileMap {
+impl Chunk {
     #[inline]
     #[must_use]
     pub fn new(rows: u8, columns: u8) -> Self {
@@ -55,7 +55,7 @@ impl TileMap {
     }
 }
 
-impl Index<(u8, u8)> for TileMap {
+impl Index<(u8, u8)> for Chunk {
     type Output = TileType;
 
     #[inline]
@@ -66,7 +66,7 @@ impl Index<(u8, u8)> for TileMap {
     }
 }
 
-impl IndexMut<(u8, u8)> for TileMap {
+impl IndexMut<(u8, u8)> for Chunk {
     #[inline]
     fn index_mut(&mut self, index: (u8, u8)) -> &mut Self::Output {
         let (row, column) = index;

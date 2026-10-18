@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub enum TileType {
     #[default]
     Floor,
+    Door,
     Wall,
     Stairs,
 }
@@ -11,7 +12,7 @@ pub enum TileType {
 impl TileType {
     pub fn is_traversable(self) -> bool {
         match self {
-            Self::Floor | Self::Stairs => true,
+            Self::Floor | Self::Door | Self::Stairs => true,
             Self::Wall => false,
         }
     }

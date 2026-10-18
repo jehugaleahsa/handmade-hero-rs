@@ -1,6 +1,6 @@
+use crate::chunk_key::ChunkKey;
 use crate::collision_deltas::CollisionDeltas;
 use crate::dimensions::Dimensions;
-use crate::tile_map_key::TileMapKey;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::units::si::length::Length;
@@ -17,8 +17,8 @@ pub struct Player {
 
 impl Player {
     #[must_use]
-    pub fn new(world: &World, tile_map_key: TileMapKey) -> Self {
-        let coordinate = WorldCoordinate::new(world, tile_map_key);
+    pub fn new(world: &World, chunk_key: ChunkKey) -> Self {
+        let coordinate = WorldCoordinate::new(world, chunk_key);
         let color = Color::from(Color::from_rgb(0xFF, 0xFF, 0x00));
         Self {
             coordinate,
@@ -62,8 +62,8 @@ impl Player {
 
     #[inline]
     #[must_use]
-    pub fn tile_map_key(&self) -> TileMapKey {
-        self.coordinate.tile_map_key()
+    pub fn chunk_key(&self) -> ChunkKey {
+        self.coordinate.chunk_key()
     }
 
     #[inline]

@@ -1,6 +1,6 @@
+use crate::chunk_key::ChunkKey;
 use crate::player::Player;
 use crate::plugin_audio_state::PluginAudioState;
-use crate::tile_map_key::TileMapKey;
 use crate::world::World;
 use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
@@ -20,8 +20,8 @@ impl PluginGameState {
     pub fn new() -> Self {
         let tile_size = Length::new::<meter>(1.4);
         let world = World::new(World::TILE_ROWS, World::TILE_COLUMNS, tile_size);
-        let current_tile_map_key = TileMapKey::at_x_y(0, 0);
-        let player = Player::new(&world, current_tile_map_key);
+        let current_chunk_key = ChunkKey::at_x_y(0, 0);
+        let player = Player::new(&world, current_chunk_key);
         Self {
             player,
             world,

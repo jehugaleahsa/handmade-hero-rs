@@ -2,12 +2,12 @@ use handmade_hero_interface::{point_2d::Point2d, units::si::length::Length};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Deserialize, Serialize, Copy, Clone)]
-pub struct TileMapCoordinate {
+pub struct ChunkCoordinate {
     offset: Point2d<u8>,
     tile_offset: Point2d<Length>,
 }
 
-impl TileMapCoordinate {
+impl ChunkCoordinate {
     #[inline]
     #[must_use]
     pub fn at_x_y_offset(x: u8, y: u8, tile_offset: Point2d<Length>) -> Self {

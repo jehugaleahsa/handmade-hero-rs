@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
-pub struct TileMapKey {
+pub struct ChunkKey {
     x: i16,
     y: i16,
 }
 
-impl TileMapKey {
+impl ChunkKey {
     #[inline]
     #[must_use]
     pub fn at_x_y(x: i16, y: i16) -> Self {

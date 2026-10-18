@@ -1,6 +1,6 @@
+use crate::chunk::Chunk;
+use crate::chunk_key::ChunkKey;
 use crate::collision_deltas::CollisionDeltas;
-use crate::tile_map::TileMap;
-use crate::tile_map_key::TileMapKey;
 use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use std::collections::hash_map::Entry;
 #[derive(Debug, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct World {
-    tile_maps: HashMap<TileMapKey, TileMap>,
+    chunks: HashMap<ChunkKey, Chunk>,
     tile_size: Length,
     rows: u8,
     columns: u8,
@@ -23,9 +23,9 @@ impl World {
     #[inline]
     #[must_use]
     pub fn new(rows: u8, columns: u8, tile_size: Length) -> Self {
-        let tile_maps = HashMap::new();
+        let chunks = HashMap::new();
         Self {
-            tile_maps,
+            chunks,
             tile_size,
             rows,
             columns,
@@ -50,13 +50,13 @@ impl World {
         self.tile_size
     }
 
-    pub fn add_tile_map(&mut self, id: TileMapKey) -> (&mut TileMap, bool) {
-        let entry = self.tile_maps.entry(id);
+    pub fn add_chunk(&mut self, key: ChunkKey) -> (&mut Chunk, bool) {
+        let entry = self.chunks.entry(key);
         match entry {
             Entry::Occupied(o) => (o.into_mut(), false),
             Entry::Vacant(v) => {
-                let tile_map = TileMap::new(self.rows, self.columns);
-                (v.insert(tile_map), true)
+                let chunk = Chunk::new(self.rows, self.columns);
+                (v.insert(chunk), true)
             }
         }
     }
@@ -92,33 +92,33 @@ impl World {
 
     #[must_use]
     fn is_traversable_coordinate(&self, coordinate: &WorldCoordinate) -> bool {
-        self.get_tile_map(coordinate.tile_map_key())
+        self.get_chunk(coordinate.chunk_key())
             .and_then(|m| m.get(coordinate.tile_y(), coordinate.tile_x()))
             .is_some_and(|t| t.is_traversable())
     }
 
     #[inline]
     #[must_use]
-    pub fn get_tile_map(&self, key: TileMapKey) -> Option<&TileMap> {
-        self.tile_maps.get(&key)
+    pub fn get_chunk(&self, key: ChunkKey) -> Option<&Chunk> {
+        self.chunks.get(&key)
     }
 
     #[inline]
     #[must_use]
-    pub fn get_tile_map_mut(&mut self, key: TileMapKey) -> Option<&mut TileMap> {
-        self.tile_maps.get_mut(&key)
+    pub fn get_chunk_mut(&mut self, key: ChunkKey) -> Option<&mut Chunk> {
+        self.chunks.get_mut(&key)
     }
 
-    pub fn ensure_tile_maps(
+    pub fn ensure_chunks(
         &mut self,
-        min: TileMapKey,
-        max: TileMapKey,
-        initializer: impl Fn(&mut Self, TileMapKey),
+        min: ChunkKey,
+        max: ChunkKey,
+        initializer: impl Fn(&mut Self, ChunkKey),
     ) {
         for y in min.y()..=max.y() {
             for x in min.x()..=max.x() {
-                let key = TileMapKey::at_x_y(x, y);
-                if let (_, true) = self.add_tile_map(key) {
+                let key = ChunkKey::at_x_y(x, y);
+                if let (_, true) = self.add_chunk(key) {
                     initializer(self, key);
                 }
             }
