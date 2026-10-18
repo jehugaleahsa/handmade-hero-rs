@@ -123,14 +123,16 @@ impl WorldCoordinate {
         let half_tile_size_m = tile_size_m / 2.0;
         let position = tile_offset + delta;
         let position_m = position.get::<meter>() + half_tile_size_m;
-        let mut tile_delta_m = position_m.div_euclid(tile_size_m);
         let mut tile_offset_m = position_m.rem_euclid(tile_size_m);
         if tile_offset_m >= tile_size_m {
             // `f32::rem_euclid` is documented to round up to the divisor when `position` is
-            // a tiny negative value. Snapping to the next tile keeps the pair consistent.
+            // a tiny negative value. Zero is the same point measured from the next tile.
             tile_offset_m = 0.0;
-            tile_delta_m += 1.0;
         }
+        // Derive the tile count from the remainder rather than dividing separately, so the pair
+        // always adds back up to `position`. `f32::div_euclid` divides first, which can round the
+        // quotient up to the next whole number while the remainder stays just under a full tile.
+        let tile_delta_m = ((position_m - tile_offset_m) / tile_size_m).round();
         tile_offset_m -= half_tile_size_m;
         // The intermediate tile index can leave the range of a single chunk in either
         // direction, so the carry runs in `i32` and narrows back at the end.
@@ -170,5 +172,33 @@ impl WorldCoordinate {
     pub fn elevated(&self, delta_z: i16) -> WorldCoordinate {
         let chunk_key = self.chunk_key.shifted(0, 0, delta_z);
         Self::new_internal(chunk_key, self.chunk_coordinate, self.rows, self.columns)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::chunk_coordinate::ChunkCoordinate;
+    use crate::chunk_key::ChunkKey;
+    use crate::world_coordinate::WorldCoordinate;
+    use handmade_hero_interface::point_2d::Point2d;
+    use handmade_hero_interface::units::si::length::Length;
+    use uom::num_traits::Zero;
+    use uom::si::length::meter;
+
+    #[test]
+    fn test_shifted_offset_just_under_half_a_tile_lands_on_the_right_tile() {
+        // An offset this close to half a tile used to make `f32::div_euclid` round the tile
+        // count up while the remainder stayed just under a full tile, landing a tile too far.
+        let tile_size = Length::new::<meter>(1.4);
+        let tile_offset = Point2d::from_x_y(Length::zero(), Length::new::<meter>(0.699_999_27));
+        let chunk_coordinate = ChunkCoordinate::at_x_y_offset(8, 2, tile_offset);
+        let key = ChunkKey::at_x_y_z(0, 0, 0);
+        let coordinate = WorldCoordinate::new_internal(key, chunk_coordinate, 9, 17);
+
+        let shifted = coordinate.shifted(Length::zero(), tile_size * 5.0, tile_size);
+
+        assert_eq!(shifted.chunk_key(), key);
+        assert_eq!(shifted.tile_x(), 8);
+        assert_eq!(shifted.tile_y(), 7);
     }
 }
