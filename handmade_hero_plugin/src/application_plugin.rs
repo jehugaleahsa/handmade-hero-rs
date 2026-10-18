@@ -42,6 +42,10 @@ use crate::plugin_game_state::PluginGameState;
 pub struct ApplicationPlugin {}
 
 impl ApplicationPlugin {
+    // For now, assume stairs are always on the same tile
+    const STAIRS_X: u8 = 3;
+    const STAIRS_Y: u8 = 3;
+
     #[unsafe(no_mangle)]
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
@@ -178,11 +182,11 @@ impl ApplicationPlugin {
     #[must_use]
     fn calculate_input_delta(positive: ButtonState, negative: ButtonState) -> f32 {
         if positive.ended_down() {
-            if negative.ended_down() { 0f32 } else { 1f32 }
+            if negative.ended_down() { 0.0 } else { 1.0 }
         } else if negative.ended_down() {
-            -1f32
+            -1.0
         } else {
-            0f32
+            0.0
         }
     }
 
@@ -346,6 +350,18 @@ impl ApplicationPlugin {
         debug_assert!(columns > 2);
 
         let mut generator = rand::rng();
+
+        let has_stairs = Self::has_stairs(world, key, || generator.random());
+        if has_stairs {
+            if let Some(value) = world
+                .get_chunk_mut(key)
+                .unwrap()
+                .get_mut(Self::STAIRS_X, Self::STAIRS_Y)
+            {
+                *value = TileType::Stairs;
+            }
+        }
+
         let [top_door, bottom_door, left_door, right_door] =
             Self::pick_doors(world, key, &mut generator);
 
@@ -422,10 +438,28 @@ impl ApplicationPlugin {
         doors
     }
 
+    fn has_stairs(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
+        // For now, we will only support two floors. If we're on the top floor, we see if
+        // the bottom floor already has stairs and mirror that. Reversed for the bottom floor.
+        // If this chunk is generated first, we randomly decide if there are stairs or not.
+        let z_delta = if key.z() == 0 {
+            1
+        } else if key.z() == 1 {
+            -1
+        } else {
+            unreachable!("There should only ever be two floors");
+        };
+        let neighbor = world.get_chunk(key.shifted(0, 0, z_delta));
+        let neighbor_has_stairs = neighbor
+            .and_then(|n| n.get(Self::STAIRS_X, Self::STAIRS_Y))
+            .map(|t| t == TileType::Stairs);
+        neighbor_has_stairs.unwrap_or_else(generator)
+    }
+
     fn top_door(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
         let bottom = world.rows() - 1;
         let middle_column = world.columns() / 2;
-        let top_neighbor = world.get_chunk(key.shifted(0, -1));
+        let top_neighbor = world.get_chunk(key.shifted(0, -1, 0));
         let top_neighbor_has_door = top_neighbor
             .and_then(|n| n.get(bottom, middle_column))
             .map(|t| t == TileType::Door);
@@ -435,7 +469,7 @@ impl ApplicationPlugin {
     fn bottom_door(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
         let top = 0;
         let middle_column = world.columns() / 2;
-        let bottom_neighbor = world.get_chunk(key.shifted(0, 1));
+        let bottom_neighbor = world.get_chunk(key.shifted(0, 1, 0));
         let bottom_neighbor_has_door = bottom_neighbor
             .and_then(|n| n.get(top, middle_column))
             .map(|t| t == TileType::Door);
@@ -445,7 +479,7 @@ impl ApplicationPlugin {
     fn left_door(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
         let right = world.columns() - 1;
         let middle_row = world.rows() / 2;
-        let left_neighbor = world.get_chunk(key.shifted(-1, 0));
+        let left_neighbor = world.get_chunk(key.shifted(-1, 0, 0));
         let left_neighbor_has_door = left_neighbor
             .and_then(|n| n.get(middle_row, right))
             .map(|t| t == TileType::Door);
@@ -455,7 +489,7 @@ impl ApplicationPlugin {
     fn right_door(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
         let left = 0;
         let middle_row = world.rows() / 2;
-        let right_neighbor = world.get_chunk(key.shifted(1, 0));
+        let right_neighbor = world.get_chunk(key.shifted(1, 0, 0));
         let right_neighbor_has_door = right_neighbor
             .and_then(|n| n.get(middle_row, left))
             .map(|t| t == TileType::Door);
@@ -558,6 +592,8 @@ impl ApplicationPlugin {
                 return Color::from(Color::from_rgb(0xBB, 0xBB, 0xBB));
             } else if tile == TileType::Wall {
                 return Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF));
+            } else if tile == TileType::Stairs {
+                return Color::from(Color::from_rgb(0xAA, 0xAA, 0xAA));
             }
         }
         // Fallback color

@@ -4,13 +4,20 @@ use serde::{Deserialize, Serialize};
 pub struct ChunkKey {
     x: i16,
     y: i16,
+    z: i16,
 }
 
 impl ChunkKey {
     #[inline]
     #[must_use]
     pub fn at_x_y(x: i16, y: i16) -> Self {
-        Self { x, y }
+        Self::at_x_y_z(x, y, 0)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn at_x_y_z(x: i16, y: i16, z: i16) -> Self {
+        Self { x, y, z }
     }
 
     #[inline]
@@ -27,10 +34,17 @@ impl ChunkKey {
 
     #[inline]
     #[must_use]
+    pub fn z(self) -> i16 {
+        self.z
+    }
+
+    #[inline]
+    #[must_use]
     #[allow(dead_code)]
-    pub fn shifted(self, delta_x: i16, delta_y: i16) -> Self {
+    pub fn shifted(self, delta_x: i16, delta_y: i16, delta_z: i16) -> Self {
         let x = self.x.wrapping_add(delta_x);
         let y = self.y.wrapping_add(delta_y);
-        Self::at_x_y(x, y)
+        let z = self.z.wrapping_add(delta_z);
+        Self::at_x_y_z(x, y, z)
     }
 }
