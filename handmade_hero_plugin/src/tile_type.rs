@@ -6,14 +6,19 @@ pub enum TileType {
     Floor,
     Door,
     Wall,
-    Stairs,
+    UpStairs,
+    DownStairs,
 }
 
 impl TileType {
     pub fn is_traversable(self) -> bool {
         match self {
-            Self::Floor | Self::Door | Self::Stairs => true,
+            Self::Floor | Self::Door | Self::UpStairs | Self::DownStairs => true,
             Self::Wall => false,
         }
+    }
+
+    pub fn is_stairs(self) -> bool {
+        matches!(self, Self::UpStairs | Self::DownStairs)
     }
 }

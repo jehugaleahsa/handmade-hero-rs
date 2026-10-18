@@ -1,6 +1,7 @@
 use crate::chunk::Chunk;
 use crate::chunk_key::ChunkKey;
 use crate::collision_deltas::CollisionDeltas;
+use crate::tile_type::TileType;
 use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
@@ -94,7 +95,7 @@ impl World {
     fn is_traversable_coordinate(&self, coordinate: &WorldCoordinate) -> bool {
         self.get_chunk(coordinate.chunk_key())
             .and_then(|m| m.get(coordinate.tile_y(), coordinate.tile_x()))
-            .is_some_and(|t| t.is_traversable())
+            .is_some_and(TileType::is_traversable)
     }
 
     #[inline]
@@ -115,9 +116,11 @@ impl World {
         max: ChunkKey,
         initializer: impl Fn(&mut Self, ChunkKey),
     ) {
+        debug_assert_eq!(min.z(), max.z());
+        let z = min.z();
         for y in min.y()..=max.y() {
             for x in min.x()..=max.x() {
-                let key = ChunkKey::at_x_y(x, y);
+                let key = ChunkKey::at_x_y_z(x, y, z);
                 if let (_, true) = self.add_chunk(key) {
                     initializer(self, key);
                 }

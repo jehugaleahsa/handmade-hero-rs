@@ -244,6 +244,22 @@ impl ApplicationPlugin {
             Self::find_new_player_coordinates(game_state, plugin_state, input_state, controller)
             && Self::is_traversable(plugin_state, &new_coordinates)
         {
+            let player_coordinate = plugin_state.player().coordinate();
+            let new_coordinates = if let Some(stairs) =
+                Self::find_stairs(plugin_state.world(), &new_coordinates)
+                && !player_coordinate.is_same_tile(&new_coordinates, false)
+            {
+                let player_z = player_coordinate.chunk_key().z();
+                if player_z == 0 && stairs == TileType::UpStairs {
+                    new_coordinates.elevated(1)
+                } else if player_z == 1 && stairs == TileType::DownStairs {
+                    new_coordinates.elevated(-1)
+                } else {
+                    new_coordinates
+                }
+            } else {
+                new_coordinates
+            };
             plugin_state.player_mut().set_coordinates(new_coordinates);
         }
 
@@ -340,6 +356,14 @@ impl ApplicationPlugin {
             .chunk_key();
         let world = plugin_state.world_mut();
         world.ensure_chunks(bottom_left, top_right, Self::initialize_chunk);
+
+        // For now, let's just also create tiles on both floors
+        let player_z = plugin_state.player().coordinate().chunk_key().z();
+        let z_delta = Self::find_delta_z(player_z);
+        let bottom_left = bottom_left.shifted(0, 0, z_delta);
+        let top_right = top_right.shifted(0, 0, z_delta);
+        let world = plugin_state.world_mut();
+        world.ensure_chunks(bottom_left, top_right, Self::initialize_chunk);
     }
 
     fn initialize_chunk(world: &mut World, key: ChunkKey) {
@@ -352,14 +376,17 @@ impl ApplicationPlugin {
         let mut generator = rand::rng();
 
         let has_stairs = Self::has_stairs(world, key, || generator.random());
-        if has_stairs {
-            if let Some(value) = world
+        if has_stairs
+            && let Some(value) = world
                 .get_chunk_mut(key)
                 .unwrap()
                 .get_mut(Self::STAIRS_X, Self::STAIRS_Y)
-            {
-                *value = TileType::Stairs;
-            }
+        {
+            *value = if key.z() == 0 {
+                TileType::UpStairs
+            } else {
+                TileType::DownStairs
+            };
         }
 
         let [top_door, bottom_door, left_door, right_door] =
@@ -439,21 +466,25 @@ impl ApplicationPlugin {
     }
 
     fn has_stairs(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
-        // For now, we will only support two floors. If we're on the top floor, we see if
-        // the bottom floor already has stairs and mirror that. Reversed for the bottom floor.
-        // If this chunk is generated first, we randomly decide if there are stairs or not.
-        let z_delta = if key.z() == 0 {
-            1
-        } else if key.z() == 1 {
-            -1
-        } else {
-            unreachable!("There should only ever be two floors");
-        };
+        let z_delta = Self::find_delta_z(key.z());
         let neighbor = world.get_chunk(key.shifted(0, 0, z_delta));
         let neighbor_has_stairs = neighbor
             .and_then(|n| n.get(Self::STAIRS_X, Self::STAIRS_Y))
-            .map(|t| t == TileType::Stairs);
+            .map(TileType::is_stairs);
         neighbor_has_stairs.unwrap_or_else(generator)
+    }
+
+    fn find_delta_z(current: i16) -> i16 {
+        // For now, we will only support two floors. If we're on the top floor, we see if
+        // the bottom floor already has stairs and mirror that. Reversed for the bottom floor.
+        // If this chunk is generated first, we randomly decide if there are stairs or not.
+        if current == 0 {
+            1
+        } else if current == 1 {
+            -1
+        } else {
+            unreachable!("There should only ever be two floors");
+        }
     }
 
     fn top_door(world: &World, key: ChunkKey, generator: impl FnOnce() -> bool) -> bool {
@@ -527,6 +558,13 @@ impl ApplicationPlugin {
         world.is_traversable(coordinates, collision_deltas)
     }
 
+    fn find_stairs(world: &World, coordinates: &WorldCoordinate) -> Option<TileType> {
+        world
+            .get_chunk(coordinates.chunk_key())
+            .and_then(|c| c.get(coordinates.tile_y(), coordinates.tile_x()))
+            .filter(|t| t.is_stairs())
+    }
+
     fn render_chunk(
         plugin_state: &PluginGameState,
         viewport: &Viewport,
@@ -592,7 +630,7 @@ impl ApplicationPlugin {
                 return Color::from(Color::from_rgb(0xBB, 0xBB, 0xBB));
             } else if tile == TileType::Wall {
                 return Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF));
-            } else if tile == TileType::Stairs {
+            } else if tile.is_stairs() {
                 return Color::from(Color::from_rgb(0xAA, 0xAA, 0xAA));
             }
         }

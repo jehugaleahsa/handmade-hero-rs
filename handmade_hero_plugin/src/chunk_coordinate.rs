@@ -35,4 +35,10 @@ impl ChunkCoordinate {
     pub fn tile_offset(&self) -> Point2d<Length> {
         self.tile_offset
     }
+
+    #[inline]
+    #[must_use]
+    pub fn is_same_tile(&self, other: &ChunkCoordinate) -> bool {
+        self.offset == other.offset
+    }
 }

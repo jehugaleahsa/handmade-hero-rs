@@ -20,7 +20,7 @@ impl PluginGameState {
     pub fn new() -> Self {
         let tile_size = Length::new::<meter>(1.4);
         let world = World::new(World::TILE_ROWS, World::TILE_COLUMNS, tile_size);
-        let current_chunk_key = ChunkKey::at_x_y(0, 0);
+        let current_chunk_key = ChunkKey::at_x_y_z(0, 0, 0);
         let player = Player::new(&world, current_chunk_key);
         Self {
             player,

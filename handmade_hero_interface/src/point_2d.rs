@@ -49,3 +49,14 @@ where
         }
     }
 }
+
+impl<T> PartialEq for Point2d<T>
+where
+    T: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.x == other.x && self.y == other.y
+    }
+}
+
+impl<T> Eq for Point2d<T> where T: Eq {}

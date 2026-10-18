@@ -95,7 +95,7 @@ impl WorldCoordinate {
             tile_offset: tile_offset_y,
         } = Self::shifted_axis(y_shift, delta_y, tile_size, self.rows);
 
-        let new_chunk_key = ChunkKey::at_x_y(chunk_x, chunk_y);
+        let new_chunk_key = ChunkKey::at_x_y_z(chunk_x, chunk_y, self.chunk_key.z());
         let new_tile_offset = Point2d::from_x_y(tile_offset_x, tile_offset_y);
         let new_tile_coordinate = ChunkCoordinate::at_x_y_offset(tile_x, tile_y, new_tile_offset);
         WorldCoordinate::new_internal(new_chunk_key, new_tile_coordinate, self.rows, self.columns)
@@ -148,5 +148,27 @@ impl WorldCoordinate {
             tile: tile as u8,
             tile_offset,
         }
+    }
+
+    /// Indicates whether this and the other world coordinate locate the
+    /// same tile in the same chunk, ignoring the inner-tile offset.
+    #[inline]
+    #[must_use]
+    pub fn is_same_tile(&self, other: &WorldCoordinate, include_z: bool) -> bool {
+        if include_z {
+            self.chunk_key == other.chunk_key
+                && self.chunk_coordinate.is_same_tile(&other.chunk_coordinate)
+        } else {
+            self.chunk_key.x() == other.chunk_key.x()
+                && self.chunk_key.y() == other.chunk_key.y()
+                && self.chunk_coordinate.is_same_tile(&other.chunk_coordinate)
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn elevated(&self, delta_z: i16) -> WorldCoordinate {
+        let chunk_key = self.chunk_key.shifted(0, 0, delta_z);
+        Self::new_internal(chunk_key, self.chunk_coordinate, self.rows, self.columns)
     }
 }
