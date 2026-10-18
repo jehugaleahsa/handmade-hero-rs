@@ -247,7 +247,7 @@ impl ApplicationPlugin {
             let player_coordinate = plugin_state.player().coordinate();
             let new_coordinates = if let Some(stairs) =
                 Self::find_stairs(plugin_state.world(), &new_coordinates)
-                && !player_coordinate.is_same_tile(&new_coordinates, false)
+                && !player_coordinate.is_same_tile(&new_coordinates)
             {
                 let player_z = player_coordinate.chunk_key().z();
                 if player_z == 0 && stairs == TileType::UpStairs {

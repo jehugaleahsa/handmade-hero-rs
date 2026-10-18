@@ -156,15 +156,9 @@ impl WorldCoordinate {
     /// same tile in the same chunk, ignoring the inner-tile offset.
     #[inline]
     #[must_use]
-    pub fn is_same_tile(&self, other: &WorldCoordinate, include_z: bool) -> bool {
-        if include_z {
-            self.chunk_key == other.chunk_key
-                && self.chunk_coordinate.is_same_tile(&other.chunk_coordinate)
-        } else {
-            self.chunk_key.x() == other.chunk_key.x()
-                && self.chunk_key.y() == other.chunk_key.y()
-                && self.chunk_coordinate.is_same_tile(&other.chunk_coordinate)
-        }
+    pub fn is_same_tile(&self, other: &WorldCoordinate) -> bool {
+        self.chunk_key == other.chunk_key
+            && self.chunk_coordinate.is_same_tile(&other.chunk_coordinate)
     }
 
     #[inline]
