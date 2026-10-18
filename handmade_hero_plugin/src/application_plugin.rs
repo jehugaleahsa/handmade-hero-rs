@@ -1,6 +1,7 @@
 use crate::dimensions::Dimensions;
 use crate::player::Player;
 use crate::tile_map_key::TileMapKey;
+use crate::tile_type::TileType;
 use crate::viewport::Viewport;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
@@ -242,7 +243,7 @@ impl ApplicationPlugin {
             plugin_state.player_mut().set_coordinates(new_coordinates);
         }
 
-        let _ = Self::render_tilemap(plugin_state, &viewport, buffer);
+        let _ = Self::render_chunk(plugin_state, &viewport, buffer);
 
         let _ = Self::render_player(plugin_state, &viewport, buffer);
 
@@ -355,10 +356,14 @@ impl ApplicationPlugin {
         let column_door_indexes = (middle_column - 1)..=(middle_column + 1);
         for column in 0..columns {
             if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(top, column) {
-                *value = u32::from(!(column_door_indexes.contains(&column) && top_door));
+                if !(column_door_indexes.contains(&column) && top_door) {
+                    *value = TileType::Wall;
+                }
             }
             if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(bottom, column) {
-                *value = u32::from(!(column_door_indexes.contains(&column) && bottom_door));
+                if !(column_door_indexes.contains(&column) && bottom_door) {
+                    *value = TileType::Wall;
+                }
             }
         }
 
@@ -369,10 +374,14 @@ impl ApplicationPlugin {
         let row_door_indexes = (middle_row - 1)..=(middle_row + 1);
         for row in 1..bottom {
             if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(row, left) {
-                *value = u32::from(!(row_door_indexes.contains(&row) && left_door));
+                if !(row_door_indexes.contains(&row) && left_door) {
+                    *value = TileType::Wall;
+                }
             }
             if let Some(value) = world.get_tile_map_mut(key).unwrap().get_mut(row, right) {
-                *value = u32::from(!(row_door_indexes.contains(&row) && right_door));
+                if !(row_door_indexes.contains(&row) && right_door) {
+                    *value = TileType::Wall;
+                }
             }
         }
     }
@@ -411,7 +420,7 @@ impl ApplicationPlugin {
         let top_neighbor = world.get_tile_map(key.shifted(0, -1));
         let top_neighbor_has_door = top_neighbor
             .and_then(|n| n.get(bottom, middle_column))
-            .map(|t| t == 0);
+            .map(|t| t == TileType::Floor);
         top_neighbor_has_door.unwrap_or_else(generator)
     }
 
@@ -421,7 +430,7 @@ impl ApplicationPlugin {
         let bottom_neighbor = world.get_tile_map(key.shifted(0, 1));
         let bottom_neighbor_has_door = bottom_neighbor
             .and_then(|n| n.get(top, middle_column))
-            .map(|t| t == 0);
+            .map(|t| t == TileType::Floor);
         bottom_neighbor_has_door.unwrap_or_else(generator)
     }
 
@@ -431,7 +440,7 @@ impl ApplicationPlugin {
         let left_neighbor = world.get_tile_map(key.shifted(-1, 0));
         let left_neighbor_has_door = left_neighbor
             .and_then(|n| n.get(middle_row, right))
-            .map(|t| t == 0);
+            .map(|t| t == TileType::Floor);
         left_neighbor_has_door.unwrap_or_else(generator)
     }
 
@@ -441,7 +450,7 @@ impl ApplicationPlugin {
         let right_neighbor = world.get_tile_map(key.shifted(1, 0));
         let right_neighbor_has_door = right_neighbor
             .and_then(|n| n.get(middle_row, left))
-            .map(|t| t == 0);
+            .map(|t| t == TileType::Floor);
         right_neighbor_has_door.unwrap_or_else(generator)
     }
 
@@ -476,7 +485,7 @@ impl ApplicationPlugin {
         world.is_traversable(coordinates, collision_deltas)
     }
 
-    fn render_tilemap(
+    fn render_chunk(
         plugin_state: &PluginGameState,
         viewport: &Viewport,
         buffer: &mut BackBuffer,
@@ -536,15 +545,15 @@ impl ApplicationPlugin {
                 && tile_y == player_coordinate.tile_y()
                 && tile_x == player_coordinate.tile_x()
             {
-                Color::from(Color::from_rgb(0x00, 0x00, 0x00)) // black
-            } else if tile == 0 {
-                Color::from(Color::from_rgb(0xCC, 0xCC, 0xCC)) // grey
-            } else {
-                Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF)) // white
+                return Color::from(Color::from_rgb(0x00, 0x00, 0x00));
+            } else if tile == TileType::Floor {
+                return Color::from(Color::from_rgb(0xCC, 0xCC, 0xCC));
+            } else if tile == TileType::Wall {
+                return Color::from(Color::from_rgb(0xFF, 0xFF, 0xFF));
             }
-        } else {
-            Color::from(Color::from_rgb(0x00, 0x00, 0x00)) // black
         }
+        // Fallback color
+        Color::from(Color::from_rgb(0xCC, 0x00, 0xCC))
     }
 
     fn render_player(

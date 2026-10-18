@@ -94,7 +94,7 @@ impl World {
     fn is_traversable_coordinate(&self, coordinate: &WorldCoordinate) -> bool {
         self.get_tile_map(coordinate.tile_map_key())
             .and_then(|m| m.get(coordinate.tile_y(), coordinate.tile_x()))
-            .is_some_and(|t| t == 0)
+            .is_some_and(|t| t.is_traversable())
     }
 
     #[inline]

@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::ops::{Index, IndexMut};
 
+use crate::tile_type::TileType;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TileMap {
-    tiles: Vec<u32>,
+    tiles: Vec<TileType>,
     rows: u8,
     columns: u8,
 }
@@ -12,7 +14,7 @@ impl TileMap {
     #[inline]
     #[must_use]
     pub fn new(rows: u8, columns: u8) -> Self {
-        let tiles = vec![0; usize::from(rows) * usize::from(columns)];
+        let tiles = vec![TileType::default(); usize::from(rows) * usize::from(columns)];
         Self {
             tiles,
             rows,
@@ -34,14 +36,14 @@ impl TileMap {
 
     #[inline]
     #[must_use]
-    pub fn get(&self, row: u8, column: u8) -> Option<u32> {
+    pub fn get(&self, row: u8, column: u8) -> Option<TileType> {
         let offset = self.offset_of(row, column);
         self.tiles.get(offset).copied()
     }
 
     #[inline]
     #[must_use]
-    pub fn get_mut(&mut self, row: u8, column: u8) -> Option<&mut u32> {
+    pub fn get_mut(&mut self, row: u8, column: u8) -> Option<&mut TileType> {
         let offset = self.offset_of(row, column);
         self.tiles.get_mut(offset)
     }
@@ -54,7 +56,7 @@ impl TileMap {
 }
 
 impl Index<(u8, u8)> for TileMap {
-    type Output = u32;
+    type Output = TileType;
 
     #[inline]
     fn index(&self, index: (u8, u8)) -> &Self::Output {
