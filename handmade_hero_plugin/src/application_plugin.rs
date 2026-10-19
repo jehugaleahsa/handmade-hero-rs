@@ -760,6 +760,14 @@ impl ApplicationPlugin {
             let bottom = (player_bounds.bottom() + player_bounds.height() / 2.0) as usize;
             let left = player_bounds.left() as usize;
             Self::copy_buffer(image, buffer, left, bottom);
+        } else {
+            let pixels = buffer.pixels_mut();
+            Self::render_rectangle(
+                viewport,
+                &player_bounds,
+                Color::from_rgb(0xFF, 0xFF, 0x00),
+                pixels,
+            )?;
         }
         Ok(())
     }
