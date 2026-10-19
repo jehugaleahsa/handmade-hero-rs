@@ -1,6 +1,7 @@
 mod application_loader;
 mod playback_recorder;
 mod plugin_state_snapshot;
+mod rust_io;
 
 #[cfg(target_os = "windows")]
 mod win32;
@@ -12,7 +13,7 @@ use std::process::ExitCode;
 
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 
-use crate::application_loader::ApplicationLoader;
+use crate::{application_loader::ApplicationLoader, rust_io::RustIo};
 
 fn main() -> ExitCode {
     let Ok(exe_directory) = exe_directory() else {
@@ -20,20 +21,23 @@ fn main() -> ExitCode {
     };
 
     let mut loader = ApplicationLoader::new(&exe_directory);
+    let asset_root = exe_directory.join("..").join("..").join("assets");
+    let io = RustIo::new(asset_root);
 
     #[cfg(target_os = "windows")]
-    run_windows(&exe_directory, &mut loader).unwrap_or(ExitCode::FAILURE)
+    run_windows(&exe_directory, &mut loader, &io).unwrap_or(ExitCode::FAILURE)
 }
 
 #[cfg(target_os = "windows")]
 fn run_windows(
     exe_directory: &Path,
     application_loader: &mut ApplicationLoader,
+    io: &RustIo,
 ) -> Result<ExitCode> {
     use win32::win32_application::Win32Application;
 
     let mut windows_application = Win32Application::new(exe_directory);
-    windows_application.run(application_loader, 1920, 1080)
+    windows_application.run(application_loader, io, 1920, 1080)
 }
 
 /// The directory the executable lives in. The plugin is loaded from here and recordings are

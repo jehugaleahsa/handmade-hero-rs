@@ -27,9 +27,9 @@ pub trait Application {
         deserializer: &mut dyn erased_serde::Deserializer<'_>,
     ) -> Result<Box<dyn PluginState>>;
 
-    fn initialize(&self, context: InitializeContext<'_>);
+    fn initialize(&mut self, context: InitializeContext<'_>);
 
-    fn update_render(&self, context: UpdateRenderContext<'_>);
+    fn update_render(&mut self, context: UpdateRenderContext<'_>);
 
-    fn write_sound(&self, context: AudioContext<'_>);
+    fn write_sound(&mut self, context: AudioContext<'_>);
 }

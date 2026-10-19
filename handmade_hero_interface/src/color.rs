@@ -9,7 +9,29 @@ pub struct Color<T> {
     alpha: T,
 }
 
+impl<T> Color<T>
+where
+    T: Default,
+{
+    #[must_use]
+    #[inline]
+    pub fn from_rgb(red: T, green: T, blue: T) -> Self {
+        Self::from_rgba(red, green, blue, T::default())
+    }
+}
+
 impl<T> Color<T> {
+    #[must_use]
+    #[inline]
+    pub fn from_rgba(red: T, green: T, blue: T, alpha: T) -> Self {
+        Self {
+            blue,
+            green,
+            red,
+            alpha,
+        }
+    }
+
     #[inline]
     #[must_use]
     pub fn red(self) -> T {
@@ -32,25 +54,6 @@ impl<T> Color<T> {
     #[must_use]
     pub fn alpha(self) -> T {
         self.alpha
-    }
-}
-
-impl Color<u8> {
-    #[must_use]
-    #[inline]
-    pub fn from_rgb(red: u8, green: u8, blue: u8) -> Self {
-        Self::from_rgba(red, green, blue, 0)
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn from_rgba(red: u8, green: u8, blue: u8, alpha: u8) -> Self {
-        Self {
-            blue,
-            green,
-            red,
-            alpha,
-        }
     }
 }
 

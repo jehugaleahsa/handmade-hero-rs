@@ -18,6 +18,7 @@ use handmade_hero_interface::display_settings::DisplaySettings;
 use handmade_hero_interface::game_state::GameState;
 use handmade_hero_interface::initialize_context::InitializeContext;
 use handmade_hero_interface::input_state::InputState;
+use handmade_hero_interface::io::Io;
 use handmade_hero_interface::key::Key;
 use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::monitor_mode::MonitorMode;
@@ -28,8 +29,10 @@ use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::Length;
 use handmade_hero_interface::units::si::time::Time;
 use handmade_hero_interface::update_render_context::UpdateRenderContext;
+use image::{ImageReader, Rgba32FImage};
 use rand::prelude::*;
 use std::f32;
+use std::io::Cursor;
 use uom::num::Zero;
 use uom::si::frequency::hertz;
 use uom::si::length::meter;
@@ -39,7 +42,9 @@ use uom::si::time::second;
 use crate::plugin_game_state::PluginGameState;
 
 #[derive(Debug)]
-pub struct ApplicationPlugin {}
+pub struct ApplicationPlugin {
+    player_image: Option<Rgba32FImage>,
+}
 
 impl ApplicationPlugin {
     // For now, assume stairs are always on the same tile
@@ -49,12 +54,14 @@ impl ApplicationPlugin {
     #[unsafe(no_mangle)]
     #[must_use]
     pub extern "Rust" fn create_application() -> Box<dyn Application> {
-        Box::new(Self {})
+        Box::new(Self { player_image: None })
     }
 
     fn initialize_direct(
+        &mut self,
         #[allow(unused_variables)] game_state: &GameState,
         plugin_state: &mut PluginGameState,
+        io: &dyn Io,
     ) {
         #[cfg(feature = "audio_debug")]
         Self::initialize_audio_debugging(game_state, plugin_state);
@@ -69,6 +76,14 @@ impl ApplicationPlugin {
         let y = f32::from(world.rows() / 2) * tile_size;
         let new_coordinates = new_coordinates.shifted(x, y, tile_size);
         plugin_state.player_mut().set_coordinates(new_coordinates);
+
+        if let Ok(player_sprite_bytes) = io.read_file_contents("player.bmp") {
+            let mut reader = ImageReader::new(Cursor::new(player_sprite_bytes));
+            reader.set_format(image::ImageFormat::Bmp);
+            if let Ok(image) = reader.decode() {
+                self.player_image = Some(image.into_rgba32f());
+            }
+        }
     }
 
     #[cfg(feature = "audio_debug")]
@@ -215,6 +230,7 @@ impl ApplicationPlugin {
     }
 
     fn update_render_direct(
+        &self,
         game_state: &GameState,
         plugin_state: &mut PluginGameState,
         input_state: &InputState,
@@ -264,6 +280,8 @@ impl ApplicationPlugin {
         }
 
         let _ = Self::render_chunk(plugin_state, &viewport, buffer);
+
+        let _ = self.render_image(buffer);
 
         let _ = Self::render_player(plugin_state, &viewport, buffer);
 
@@ -638,6 +656,27 @@ impl ApplicationPlugin {
         Color::from(Color::from_rgb(0xCC, 0x00, 0xCC))
     }
 
+    fn render_image(&self, buffer: &mut BackBuffer) -> Result<()> {
+        let Some(ref image) = self.player_image else {
+            return Ok(());
+        };
+        let width = buffer.width_px() as u32;
+        let height = buffer.height_px() as u32;
+        let pixels = buffer.pixels_mut();
+        for (x, y, pixel) in image.enumerate_pixels() {
+            if x < width && y < height {
+                let [red, green, blue, alpha] = pixel.0;
+                if alpha > 0.0 {
+                    let color = Color::from_rgba(red, green, blue, alpha);
+                    let position = y * width + x;
+                    let position = position as usize;
+                    pixels[position] = Color::from(color);
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn render_player(
         plugin_state: &PluginGameState,
         viewport: &Viewport,
@@ -898,18 +937,19 @@ impl Application for ApplicationPlugin {
         Ok(Box::new(plugin_state))
     }
 
-    fn initialize(&self, context: InitializeContext<'_>) {
+    fn initialize(&mut self, context: InitializeContext<'_>) {
         let InitializeContext {
             game_state,
             plugin_state,
+            io,
             ..
         } = context;
         if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
-            Self::initialize_direct(game_state, plugin_state);
+            self.initialize_direct(game_state, plugin_state, io);
         }
     }
 
-    fn update_render(&self, context: UpdateRenderContext<'_>) {
+    fn update_render(&mut self, context: UpdateRenderContext<'_>) {
         let UpdateRenderContext {
             game_state,
             plugin_state,
@@ -920,11 +960,11 @@ impl Application for ApplicationPlugin {
         } = context;
         Self::process_display_hotkey(input_state, &mut display);
         if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
-            Self::update_render_direct(game_state, plugin_state, input_state, buffer);
+            self.update_render_direct(game_state, plugin_state, input_state, buffer);
         }
     }
 
-    fn write_sound(&self, context: AudioContext<'_>) {
+    fn write_sound(&mut self, context: AudioContext<'_>) {
         let AudioContext {
             game_state,
             plugin_state,

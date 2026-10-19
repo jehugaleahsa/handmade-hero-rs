@@ -79,9 +79,9 @@ mod tests {
             Ok(Box::new(state))
         }
 
-        fn initialize(&self, _: InitializeContext<'_>) {}
-        fn update_render(&self, _: UpdateRenderContext<'_>) {}
-        fn write_sound(&self, _: AudioContext<'_>) {}
+        fn initialize(&mut self, _: InitializeContext<'_>) {}
+        fn update_render(&mut self, _: UpdateRenderContext<'_>) {}
+        fn write_sound(&mut self, _: AudioContext<'_>) {}
     }
 
     /// A plugin whose game state has a different shape, as after a hot reload changed it.
@@ -122,9 +122,9 @@ mod tests {
             Ok(Box::new(state))
         }
 
-        fn initialize(&self, _: InitializeContext<'_>) {}
-        fn update_render(&self, _: UpdateRenderContext<'_>) {}
-        fn write_sound(&self, _: AudioContext<'_>) {}
+        fn initialize(&mut self, _: InitializeContext<'_>) {}
+        fn update_render(&mut self, _: UpdateRenderContext<'_>) {}
+        fn write_sound(&mut self, _: AudioContext<'_>) {}
     }
 
     fn populated_state() -> FakeGameState {

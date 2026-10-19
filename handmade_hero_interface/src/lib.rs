@@ -14,6 +14,7 @@ pub mod display_state;
 pub mod game_state;
 pub mod initialize_context;
 pub mod input_state;
+pub mod io;
 pub mod joystick_state;
 pub mod key;
 pub mod key_mapping;

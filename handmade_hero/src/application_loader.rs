@@ -11,7 +11,6 @@ use libloading::{Library, Symbol, library_filename};
 use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Debug, Formatter};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::time::SystemTime;
 
 pub struct ApplicationStub {
@@ -55,17 +54,17 @@ impl Application for ApplicationStub {
     }
 
     #[inline]
-    fn initialize(&self, context: InitializeContext<'_>) {
+    fn initialize(&mut self, context: InitializeContext<'_>) {
         self.application.initialize(context);
     }
 
     #[inline]
-    fn update_render(&self, context: UpdateRenderContext<'_>) {
+    fn update_render(&mut self, context: UpdateRenderContext<'_>) {
         self.application.update_render(context);
     }
 
     #[inline]
-    fn write_sound(&self, context: AudioContext<'_>) {
+    fn write_sound(&mut self, context: AudioContext<'_>) {
         self.application.write_sound(context);
     }
 }
@@ -87,16 +86,16 @@ pub struct ApplicationLoader {
     plugin_directory: PathBuf,
     next_counter: usize,
     last_modified: Option<SystemTime>,
-    stub: Option<Rc<ApplicationStub>>,
+    stub: Option<ApplicationStub>,
 }
 
 #[derive(Debug)]
-pub enum LoadedApplication {
+pub enum LoadedApplication<'a> {
     /// The plugin is running with its plugin state intact, either because nothing changed or
     /// because the state was carried across a reload.
-    Running(Rc<ApplicationStub>),
+    Running(&'a mut ApplicationStub),
     /// The plugin was just loaded and has no plugin state. The caller must start a fresh game.
-    Fresh(Rc<ApplicationStub>),
+    Fresh(&'a mut ApplicationStub),
 }
 
 impl ApplicationLoader {
@@ -123,7 +122,7 @@ impl ApplicationLoader {
     pub fn load(
         &mut self,
         plugin_state: &mut Option<Box<dyn PluginState>>,
-    ) -> Result<LoadedApplication> {
+    ) -> Result<LoadedApplication<'_>> {
         let snapshot = if self.is_outdated()? {
             // `take` moves the state out of the slot and into the closure, so it drops at the
             // end of the closure while its drop glue is still mapped into memory.
@@ -136,12 +135,12 @@ impl ApplicationLoader {
             None
         };
 
-        if let Some(ref stub) = self.stub {
-            return Ok(LoadedApplication::Running(Rc::clone(stub)));
+        if let Some(ref mut stub) = self.stub {
+            return Ok(LoadedApplication::Running(stub));
         }
 
         let application = self.load_library()?;
-        *plugin_state = snapshot.and_then(|s| s.restore(application.as_ref()).ok());
+        *plugin_state = snapshot.and_then(|s| s.restore(application).ok());
         match plugin_state {
             Some(_) => Ok(LoadedApplication::Running(application)),
             None => Ok(LoadedApplication::Fresh(application)),
@@ -170,15 +169,13 @@ impl ApplicationLoader {
     }
 
     /// Copies the plugin from disk and loads the copy.
-    fn load_library(&mut self) -> Result<Rc<ApplicationStub>> {
+    fn load_library(&mut self) -> Result<&mut ApplicationStub> {
         let last_modified = self.plugin_last_modified()?;
         let running_name = self.copy_plugin_library()?;
         self.last_modified = Some(last_modified);
 
-        let stub = Self::load_stub(&running_name);
-        let stub = Rc::new(stub);
-        self.stub = Some(Rc::clone(&stub));
-        Ok(stub)
+        self.stub = Some(Self::load_stub(&running_name));
+        Ok(self.stub.as_mut().unwrap())
     }
 
     fn load_stub(running_name: &Path) -> ApplicationStub {

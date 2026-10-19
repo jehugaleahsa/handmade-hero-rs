@@ -7,6 +7,7 @@ use super::win32_state::{Win32State, window_procedure};
 use super::win32_window::Win32Window;
 use crate::application_loader::{ApplicationLoader, ApplicationStub, LoadedApplication};
 use crate::playback_recorder::PlaybackRecorder;
+use crate::rust_io::RustIo;
 use crate::win32::win32_monitor::{
     Win32Monitor, find_monitors, restore_display_mode, set_display_mode, set_dpi_awareness,
 };
@@ -33,7 +34,6 @@ use handmade_hero_interface::update_render_context::UpdateRenderContext;
 use std::ffi::c_void;
 use std::path::Path;
 use std::process::ExitCode;
-use std::rc::Rc;
 use std::time::Duration;
 use uom::num::Zero;
 use uom::si::f32::{Ratio, Time};
@@ -329,12 +329,13 @@ impl Win32Application {
     pub fn run(
         &mut self,
         application_loader: &mut ApplicationLoader,
+        io: &RustIo,
         width: u16,
         height: u16,
     ) -> Result<ExitCode> {
         let _ = set_dpi_awareness();
         let state = Win32State::new();
-        let result = self.run_game(&state, application_loader, width, height);
+        let result = self.run_game(&state, application_loader, io, width, height);
         self.accessibility_shortcuts.restore();
         self.window.destroy();
         result
@@ -344,10 +345,11 @@ impl Win32Application {
         &mut self,
         state: &Win32State,
         application_loader: &mut ApplicationLoader,
+        io: &RustIo,
         width: u16,
         height: u16,
     ) -> Result<ExitCode> {
-        self.start_application(state, application_loader, width, height)?;
+        self.start_application(state, application_loader, io, width, height)?;
 
         let direct_sound = DirectSound::initialize(self.window.handle()).ok();
         // The format the device was last asked to open, whether or not it succeeded.
@@ -373,13 +375,13 @@ impl Win32Application {
             self.process_activation(state);
             self.process_display_request();
 
-            let application = self.load_application(application_loader)?;
+            let application = self.load_application(application_loader, io)?;
             if self.monitors_changed {
-                self.handle_monitor_change(application.as_ref(), sound_output.as_mut());
+                self.handle_monitor_change(application, sound_output.as_mut());
             }
 
-            self.process_recording(state, application.as_ref());
-            self.process_input_and_render(application.as_ref());
+            self.process_recording(state, application);
+            self.process_input_and_render(application, io);
 
             let desired_format = self.state.audio().format();
             if desired_format != requested_format {
@@ -391,7 +393,7 @@ impl Win32Application {
             }
 
             if let Some(ref mut sound_output) = sound_output {
-                self.fill_sound_buffer(application.as_ref(), sound_output, &counter);
+                self.fill_sound_buffer(application, sound_output, &counter);
             }
 
             self.wait_for_framerate(&mut counter);
@@ -477,6 +479,7 @@ impl Win32Application {
         &mut self,
         state: &Win32State,
         loader: &mut ApplicationLoader,
+        io: &RustIo,
         width: u16,
         height: u16,
     ) -> Result<()> {
@@ -489,21 +492,25 @@ impl Win32Application {
         self.create_window(state, &application.name(), width, height)?;
 
         self.monitors = find_monitors(self.window.handle());
-        let frame_duration = self.find_frame_duration(&application);
+        let frame_duration = self.find_frame_duration(application);
         self.state.set_frame_duration(frame_duration);
 
-        self.initialize_application(application.as_ref());
+        self.initialize_application(application, io);
         Ok(())
     }
 
     /// Returns the plugin for this frame. The loader handles hot reloading and carrying the game
     /// state across it.
-    fn load_application(&mut self, loader: &mut ApplicationLoader) -> Result<Rc<ApplicationStub>> {
+    fn load_application<'a>(
+        &mut self,
+        loader: &'a mut ApplicationLoader,
+        io: &RustIo,
+    ) -> Result<&'a mut ApplicationStub> {
         let loaded_application = loader.load(&mut self.plugin_state)?;
         match loaded_application {
             LoadedApplication::Running(application) => Ok(application),
             LoadedApplication::Fresh(application) => {
-                self.initialize_application(application.as_ref());
+                self.initialize_application(application, io);
                 Ok(application)
             }
         }
@@ -542,12 +549,13 @@ impl Win32Application {
     }
 
     /// Starts a brand new game with the given plugin.
-    fn initialize_application(&mut self, application: &ApplicationStub) {
+    fn initialize_application(&mut self, application: &mut ApplicationStub, io: &RustIo) {
         let plugin = self.plugin_state.insert(application.create_plugin_state());
         let initialize_context = InitializeContext {
             game_state: &mut self.state,
             plugin_state: plugin.as_mut(),
             back_buffer: &mut self.back_buffer,
+            io,
         };
         application.initialize(initialize_context);
     }
@@ -588,7 +596,7 @@ impl Win32Application {
         }
     }
 
-    fn process_input_and_render(&mut self, application: &ApplicationStub) {
+    fn process_input_and_render(&mut self, application: &mut ApplicationStub, io: &RustIo) {
         let Some(plugin) = self.plugin_state.as_deref_mut() else {
             return;
         };
@@ -606,6 +614,7 @@ impl Win32Application {
             input_state: &self.input,
             buffer: &mut self.back_buffer,
             display: Display::new(&list_monitors, &mut self.display),
+            io,
         };
         application.update_render(context);
     }
@@ -683,7 +692,7 @@ impl Win32Application {
 
     fn fill_sound_buffer(
         &mut self,
-        application: &ApplicationStub,
+        application: &mut ApplicationStub,
         sound_output: &mut Win32SoundOutput<'_>,
         performance_counter: &PerformanceCounter,
     ) {
@@ -838,7 +847,7 @@ impl Win32Application {
     /// Has the game fill the next `write_size` bytes of audio and returns them.
     fn write_sound(
         &mut self,
-        application: &ApplicationStub,
+        application: &mut ApplicationStub,
         write_size: Information,
         buffer_length: Information,
     ) -> Option<&[u8]> {
