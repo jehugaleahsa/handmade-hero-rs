@@ -86,23 +86,26 @@ impl From<Color<u8>> for u32 {
 impl From<Color<f32>> for Color<u8> {
     #[inline]
     fn from(value: Color<f32>) -> Self {
-        Color::from_rgba(
-            Color::convert_to_u8(value.red),
-            Color::convert_to_u8(value.green),
-            Color::convert_to_u8(value.blue),
-            Color::convert_to_u8(value.alpha),
-        )
+        let red = Color::convert_to_u8(value.red);
+        let green = Color::convert_to_u8(value.green);
+        let blue = Color::convert_to_u8(value.blue);
+        let alpha = Color::convert_to_u8(value.alpha);
+        Color::from_rgba(red, green, blue, alpha)
     }
 }
 
 impl From<Color<u8>> for Color<f32> {
     #[inline]
     fn from(value: Color<u8>) -> Self {
+        let red = Self::convert_to_f32(value.red());
+        let green = Self::convert_to_f32(value.green());
+        let blue = Self::convert_to_f32(value.blue());
+        let alpha = Self::convert_to_f32(value.alpha());
         Self {
-            red: Self::convert_to_f32(value.red()),
-            green: Self::convert_to_f32(value.green()),
-            blue: Self::convert_to_f32(value.blue()),
-            alpha: Self::convert_to_f32(value.alpha()),
+            red,
+            green,
+            blue,
+            alpha,
         }
     }
 }

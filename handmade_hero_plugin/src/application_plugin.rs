@@ -29,7 +29,7 @@ use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::Length;
 use handmade_hero_interface::units::si::time::Time;
 use handmade_hero_interface::update_render_context::UpdateRenderContext;
-use image::{ImageReader, Rgba32FImage};
+use image::ImageReader;
 use rand::prelude::*;
 use std::f32;
 use std::io::Cursor;
@@ -43,7 +43,7 @@ use crate::plugin_game_state::PluginGameState;
 
 #[derive(Debug)]
 pub struct ApplicationPlugin {
-    player_image: Option<Rgba32FImage>,
+    player_image: Option<BackBuffer>,
 }
 
 impl ApplicationPlugin {
@@ -77,13 +77,7 @@ impl ApplicationPlugin {
         let new_coordinates = new_coordinates.shifted(x, y, tile_size);
         plugin_state.player_mut().set_coordinates(new_coordinates);
 
-        if let Ok(player_sprite_bytes) = io.read_file_contents("player.bmp") {
-            let mut reader = ImageReader::new(Cursor::new(player_sprite_bytes));
-            reader.set_format(image::ImageFormat::Bmp);
-            if let Ok(image) = reader.decode() {
-                self.player_image = Some(image.into_rgba32f());
-            }
-        }
+        self.player_image = Self::load_image(io, "player.bmp");
     }
 
     #[cfg(feature = "audio_debug")]
@@ -95,6 +89,37 @@ impl ApplicationPlugin {
         #[expect(clippy::cast_possible_truncation)]
         let max_cursor_count = (update_frequency / 2.0).round() as usize;
         audio.set_max_cursor_count(max_cursor_count);
+    }
+
+    fn load_image(io: &dyn Io, path: &str) -> Option<BackBuffer> {
+        let Ok(image_bytes) = io.read_file_contents(path) else {
+            return None;
+        };
+        let mut reader = ImageReader::new(Cursor::new(image_bytes));
+        reader.set_format(image::ImageFormat::Bmp);
+        let Ok(image) = reader.decode() else {
+            return None;
+        };
+        let Ok(image_width) = usize::try_from(image.width()) else {
+            return None;
+        };
+        let Ok(image_height) = usize::try_from(image.height()) else {
+            return None;
+        };
+        let image_pixels = image.into_rgba32f();
+        let mut image_buffer = BackBuffer::default();
+        let Ok(_) = image_buffer.resize(image_width, image_height) else {
+            return None;
+        };
+        let buffer_pixels = image_buffer.pixels_mut();
+        let mut position = 0;
+        for pixel in image_pixels.pixels() {
+            let [red, green, blue, alpha] = pixel.0;
+            let color = Color::from_rgba(red, green, blue, alpha);
+            buffer_pixels[position] = Color::from(color);
+            position += 1;
+        }
+        Some(image_buffer)
     }
 
     /// F11 switches between windowed and fullscreen on the monitor the window is on.
@@ -281,9 +306,7 @@ impl ApplicationPlugin {
 
         let _ = Self::render_chunk(plugin_state, &viewport, buffer);
 
-        let _ = self.render_image(buffer);
-
-        let _ = Self::render_player(plugin_state, &viewport, buffer);
+        let _ = self.render_player(plugin_state, &viewport, buffer);
 
         #[cfg(feature = "audio_debug")]
         let _ = Self::render_audio(game_state, plugin_state, &viewport, buffer);
@@ -656,43 +679,89 @@ impl ApplicationPlugin {
         Color::from(Color::from_rgb(0xCC, 0x00, 0xCC))
     }
 
-    fn render_image(&self, buffer: &mut BackBuffer) -> Result<()> {
-        let Some(ref image) = self.player_image else {
-            return Ok(());
-        };
-        let width = buffer.width_px() as u32;
-        let height = buffer.height_px() as u32;
-        let pixels = buffer.pixels_mut();
-        for (x, y, pixel) in image.enumerate_pixels() {
-            if x < width && y < height {
-                let [red, green, blue, alpha] = pixel.0;
-                if alpha > 0.0 {
-                    let color = Color::from_rgba(red, green, blue, alpha);
-                    let position = y * width + x;
-                    let position = position as usize;
-                    pixels[position] = Color::from(color);
+    #[allow(dead_code)]
+    fn copy_buffer_repeating(
+        image: &BackBuffer,
+        buffer: &mut BackBuffer,
+        repeat_x: bool,
+        repeat_y: bool,
+    ) -> Result<()> {
+        let source_height = image.height_px();
+        let source_width = image.width_px();
+        let destination_height = buffer.height_px();
+        let destination_width = buffer.width_px();
+        let mut start_y = 0;
+        while start_y < destination_height {
+            let mut start_x = 0;
+            while start_x < destination_width {
+                Self::copy_buffer(image, buffer, start_x, start_y);
+                if repeat_x {
+                    start_x += source_width;
+                } else {
+                    break;
                 }
+            }
+            if repeat_y {
+                start_y += source_height;
+            } else {
+                break;
             }
         }
         Ok(())
     }
 
+    fn copy_buffer(
+        source: &BackBuffer,
+        destination: &mut BackBuffer,
+        x_offset: usize,
+        y_offset: usize,
+    ) {
+        let source_height = source.height_px();
+        let source_width = source.width_px();
+        let source_pixels = source.pixels();
+        let destination_width = destination.width_px();
+        let destination_pixels = destination.pixels_mut();
+        let mut source_row_offset = 0;
+        let mut destination_row_offset = y_offset * destination_width;
+        for _ in 0..source_height {
+            let mut source_column_offset = source_row_offset;
+            let mut destination_column_offset = destination_row_offset + x_offset;
+            let mut destination_column = x_offset;
+            if destination_column_offset >= destination_pixels.len() {
+                return;
+            }
+            for _ in 0..source_width {
+                if destination_column >= destination_width {
+                    break;
+                }
+                let pixel = source_pixels[source_column_offset];
+                if pixel.alpha() > 0 {
+                    destination_pixels[destination_column_offset] = pixel;
+                }
+                source_column_offset += 1;
+                destination_column_offset += 1;
+                destination_column += 1;
+            }
+            source_row_offset += source_width;
+            destination_row_offset += destination_width;
+        }
+    }
+
     fn render_player(
+        &self,
         plugin_state: &PluginGameState,
         viewport: &Viewport,
         buffer: &mut BackBuffer,
     ) -> Result<()> {
-        let pixels = buffer.pixels_mut();
         let world = plugin_state.world();
-        let player = plugin_state.player();
         let player_bounds = Player::render_bounds(world.tile_size());
         let player_bounds = viewport.to_buffer_rectangle(&player_bounds);
-        Self::render_rectangle(
-            viewport,
-            &player_bounds,
-            Color::from(player.color()),
-            pixels,
-        )
+        if let Some(ref image) = self.player_image {
+            let bottom = (player_bounds.bottom() + player_bounds.height() / 2.0) as usize;
+            let left = player_bounds.left() as usize;
+            Self::copy_buffer(image, buffer, left, bottom);
+        }
+        Ok(())
     }
 
     fn render_rectangle(
