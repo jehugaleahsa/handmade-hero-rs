@@ -622,11 +622,11 @@ impl ApplicationPlugin {
         let Dimensions { width, height } = viewport.bounds();
         let tiles_x = Self::tiles_to_edge(width / 2.0, tile_size);
         let tiles_y = Self::tiles_to_edge(height / 2.0, tile_size);
-        for delta_y in -tiles_y..=tiles_y {
-            let delta_y = f32::from(delta_y) * tile_size;
-            for delta_x in -tiles_x..=tiles_x {
-                let delta_x = f32::from(delta_x) * tile_size;
-                let tile = center.shifted(delta_x, delta_y, tile_size);
+        for tiles_up in -tiles_y..=tiles_y {
+            let delta_y = f32::from(tiles_up) * tile_size;
+            for tiles_right in -tiles_x..=tiles_x {
+                let delta_x = f32::from(tiles_right) * tile_size;
+                let tile = center.shifted_tiles(tiles_right, tiles_up);
                 let left = delta_x - center_x_offset - half_tile_size;
                 let bottom = delta_y - center_y_offset - half_tile_size;
                 let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);

@@ -103,7 +103,6 @@ impl WorldCoordinate {
 
     #[must_use]
     #[expect(clippy::cast_possible_truncation)]
-    #[expect(clippy::cast_sign_loss)]
     fn shifted_axis(
         axis: ShiftedCoordinate,
         delta: Length,
@@ -134,22 +133,57 @@ impl WorldCoordinate {
         // quotient up to the next whole number while the remainder stays just under a full tile.
         let tile_delta_m = ((position_m - tile_offset_m) / tile_size_m).round();
         tile_offset_m -= half_tile_size_m;
-        // The intermediate tile index can leave the range of a single chunk in either
-        // direction, so the carry runs in `i32` and narrows back at the end.
-        let tile = i32::from(tile) + tile_delta_m as i32;
-
-        // Carry whole chunks out of the tile index. Euclidean division is floor division
-        // for a positive divisor, so the negative and positive cases share one expression.
-        let max_tiles = i32::from(max_tiles);
-        let chunk = i32::from(chunk) + tile.div_euclid(max_tiles);
-        let tile = tile.rem_euclid(max_tiles);
+        let (chunk, tile) = Self::carry_tiles(chunk, tile, tile_delta_m as i32, max_tiles);
         let tile_offset = Length::new::<meter>(tile_offset_m);
 
         ShiftedCoordinate {
-            chunk: chunk as i16,
-            tile: tile as u8,
+            chunk,
+            tile,
             tile_offset,
         }
+    }
+
+    /// Moves by whole tiles, keeping the offset within the tile.
+    ///
+    /// Unlike [`Self::shifted`], no floating-point math is involved, so a point sitting exactly
+    /// on a tile edge stays on the same side of it. Shifting by a multiple of the tile size can
+    /// round that point into the neighboring tile instead.
+    #[must_use]
+    pub fn shifted_tiles(&self, delta_x: i16, delta_y: i16) -> WorldCoordinate {
+        let (chunk_x, tile_x) = Self::carry_tiles(
+            self.chunk_key.x(),
+            self.tile_x(),
+            i32::from(delta_x),
+            self.columns,
+        );
+        let (chunk_y, tile_y) = Self::carry_tiles(
+            self.chunk_key.y(),
+            self.tile_y(),
+            i32::from(delta_y),
+            self.rows,
+        );
+
+        let new_chunk_key = ChunkKey::at_x_y_z(chunk_x, chunk_y, self.chunk_key.z());
+        let new_tile_coordinate =
+            ChunkCoordinate::at_x_y_offset(tile_x, tile_y, self.tile_offset());
+        WorldCoordinate::new_internal(new_chunk_key, new_tile_coordinate, self.rows, self.columns)
+    }
+
+    /// Adds `tile_delta` to a tile index, carrying whole chunks out of the result.
+    #[must_use]
+    #[expect(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_sign_loss)]
+    fn carry_tiles(chunk: i16, tile: u8, tile_delta: i32, max_tiles: u8) -> (i16, u8) {
+        // The intermediate tile index can leave the range of a single chunk in either
+        // direction, so the carry runs in `i32` and narrows back at the end.
+        let tile = i32::from(tile) + tile_delta;
+
+        // Euclidean division is floor division for a positive divisor, so the negative and
+        // positive cases share one expression.
+        let max_tiles = i32::from(max_tiles);
+        let chunk = i32::from(chunk) + tile.div_euclid(max_tiles);
+        let tile = tile.rem_euclid(max_tiles);
+        (chunk as i16, tile as u8)
     }
 
     /// Indicates whether this and the other world coordinate locate the
@@ -194,5 +228,37 @@ mod tests {
         assert_eq!(shifted.chunk_key(), key);
         assert_eq!(shifted.tile_x(), 8);
         assert_eq!(shifted.tile_y(), 7);
+    }
+
+    #[test]
+    fn test_shifted_tiles_keeps_a_point_on_a_tile_edge_on_the_same_side() {
+        // Shifting this point by three tiles' worth of meters rounds it just below the edge of
+        // the destination tile, into the tile underneath. Stepping whole tiles must not.
+        let tile_size = Length::new::<meter>(1.4);
+        let tile_offset = Point2d::from_x_y(Length::zero(), -tile_size / 2.0);
+        let chunk_coordinate = ChunkCoordinate::at_x_y_offset(8, 5, tile_offset);
+        let key = ChunkKey::at_x_y_z(0, 0, 0);
+        let coordinate = WorldCoordinate::new_internal(key, chunk_coordinate, 9, 17);
+
+        let shifted = coordinate.shifted_tiles(0, 3);
+
+        assert_eq!(shifted.chunk_key(), key);
+        assert_eq!(shifted.tile_x(), 8);
+        assert_eq!(shifted.tile_y(), 8);
+        assert_eq!(shifted.tile_offset(), tile_offset);
+    }
+
+    #[test]
+    fn test_shifted_tiles_carries_into_neighboring_chunks() {
+        let tile_offset = Point2d::from_x_y(Length::zero(), Length::zero());
+        let chunk_coordinate = ChunkCoordinate::at_x_y_offset(1, 7, tile_offset);
+        let key = ChunkKey::at_x_y_z(0, 0, 0);
+        let coordinate = WorldCoordinate::new_internal(key, chunk_coordinate, 9, 17);
+
+        let shifted = coordinate.shifted_tiles(-3, 4);
+
+        assert_eq!(shifted.chunk_key(), ChunkKey::at_x_y_z(-1, 1, 0));
+        assert_eq!(shifted.tile_x(), 15);
+        assert_eq!(shifted.tile_y(), 2);
     }
 }
