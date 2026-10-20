@@ -102,9 +102,9 @@ impl From<Color<u8>> for Color<f32> {
         let blue = Self::convert_to_f32(value.blue());
         let alpha = Self::convert_to_f32(value.alpha());
         Self {
-            red,
-            green,
             blue,
+            green,
+            red,
             alpha,
         }
     }

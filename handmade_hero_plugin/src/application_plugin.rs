@@ -108,16 +108,14 @@ impl ApplicationPlugin {
         };
         let image_pixels = image.into_rgba32f();
         let mut image_buffer = BackBuffer::default();
-        let Ok(_) = image_buffer.resize(image_width, image_height) else {
+        let Ok(()) = image_buffer.resize(image_width, image_height) else {
             return None;
         };
         let buffer_pixels = image_buffer.pixels_mut();
-        let mut position = 0;
-        for pixel in image_pixels.pixels() {
+        for (position, pixel) in image_pixels.pixels().enumerate() {
             let [red, green, blue, alpha] = pixel.0;
             let color = Color::from_rgba(red, green, blue, alpha);
             buffer_pixels[position] = Color::from(color);
-            position += 1;
         }
         Some(image_buffer)
     }
@@ -685,7 +683,7 @@ impl ApplicationPlugin {
         buffer: &mut BackBuffer,
         repeat_x: bool,
         repeat_y: bool,
-    ) -> Result<()> {
+    ) {
         let source_height = image.height_px();
         let source_width = image.width_px();
         let destination_height = buffer.height_px();
@@ -707,7 +705,6 @@ impl ApplicationPlugin {
                 break;
             }
         }
-        Ok(())
     }
 
     fn copy_buffer(
@@ -716,32 +713,47 @@ impl ApplicationPlugin {
         x_offset: usize,
         y_offset: usize,
     ) {
-        let source_height = source.height_px();
         let source_width = source.width_px();
-        let source_pixels = source.pixels();
         let destination_width = destination.width_px();
+        let source_width_end = source_width + x_offset;
+        let clipped_source_width = if source_width_end > destination_width {
+            let overflow = source_width_end - destination_width;
+            source_width - overflow
+        } else {
+            source_width
+        };
+        if clipped_source_width == 0 {
+            return;
+        }
+
+        let source_height = source.height_px();
+        let destination_height = destination.height_px();
+        let source_height_end = source_height + y_offset;
+        let clipped_source_height = if source_height_end > destination_height {
+            let overflow = source_height_end - destination_height;
+            source_height - overflow
+        } else {
+            source_height
+        };
+        if clipped_source_height == 0 {
+            return;
+        }
+
+        let source_pixels = source.pixels();
         let destination_pixels = destination.pixels_mut();
         let mut source_row_offset = 0;
-        let mut destination_row_offset = y_offset * destination_width;
-        for _ in 0..source_height {
-            let mut source_column_offset = source_row_offset;
-            let mut destination_column_offset = destination_row_offset + x_offset;
-            let mut destination_column = x_offset;
-            if destination_column_offset >= destination_pixels.len() {
-                return;
-            }
-            for _ in 0..source_width {
-                if destination_column >= destination_width {
-                    break;
-                }
+        let mut destination_row_offset = y_offset * destination_width + x_offset;
+        for _ in 0..clipped_source_height {
+            for (source_column_offset, destination_column_offset) in (source_row_offset..)
+                .take(clipped_source_width)
+                .zip(destination_row_offset..)
+            {
                 let pixel = source_pixels[source_column_offset];
                 if pixel.alpha() > 0 {
                     destination_pixels[destination_column_offset] = pixel;
                 }
-                source_column_offset += 1;
-                destination_column_offset += 1;
-                destination_column += 1;
             }
+            // Not clipped widths!
             source_row_offset += source_width;
             destination_row_offset += destination_width;
         }
@@ -757,7 +769,9 @@ impl ApplicationPlugin {
         let player_bounds = Player::render_bounds(world.tile_size());
         let player_bounds = viewport.to_buffer_rectangle(&player_bounds);
         if let Some(ref image) = self.player_image {
+            #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let bottom = (player_bounds.bottom() + player_bounds.height() / 2.0) as usize;
+            #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let left = player_bounds.left() as usize;
             Self::copy_buffer(image, buffer, left, bottom);
         } else {
