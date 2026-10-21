@@ -677,88 +677,6 @@ impl ApplicationPlugin {
         Color::from(Color::from_rgb(0xCC, 0x00, 0xCC))
     }
 
-    #[allow(dead_code)]
-    fn copy_buffer_repeating(
-        image: &BackBuffer,
-        buffer: &mut BackBuffer,
-        repeat_x: bool,
-        repeat_y: bool,
-    ) {
-        let source_height = image.height_px();
-        let source_width = image.width_px();
-        let destination_height = buffer.height_px();
-        let destination_width = buffer.width_px();
-        let mut start_y = 0;
-        while start_y < destination_height {
-            let mut start_x = 0;
-            while start_x < destination_width {
-                Self::copy_buffer(image, buffer, start_x, start_y);
-                if repeat_x {
-                    start_x += source_width;
-                } else {
-                    break;
-                }
-            }
-            if repeat_y {
-                start_y += source_height;
-            } else {
-                break;
-            }
-        }
-    }
-
-    fn copy_buffer(
-        source: &BackBuffer,
-        destination: &mut BackBuffer,
-        x_offset: usize,
-        y_offset: usize,
-    ) {
-        let source_width = source.width_px();
-        let destination_width = destination.width_px();
-        let source_width_end = source_width + x_offset;
-        let clipped_source_width = if source_width_end > destination_width {
-            let overflow = source_width_end - destination_width;
-            source_width - overflow
-        } else {
-            source_width
-        };
-        if clipped_source_width == 0 {
-            return;
-        }
-
-        let source_height = source.height_px();
-        let destination_height = destination.height_px();
-        let source_height_end = source_height + y_offset;
-        let clipped_source_height = if source_height_end > destination_height {
-            let overflow = source_height_end - destination_height;
-            source_height - overflow
-        } else {
-            source_height
-        };
-        if clipped_source_height == 0 {
-            return;
-        }
-
-        let source_pixels = source.pixels();
-        let destination_pixels = destination.pixels_mut();
-        let mut source_row_offset = 0;
-        let mut destination_row_offset = y_offset * destination_width + x_offset;
-        for _ in 0..clipped_source_height {
-            for (source_column_offset, destination_column_offset) in (source_row_offset..)
-                .take(clipped_source_width)
-                .zip(destination_row_offset..)
-            {
-                let pixel = source_pixels[source_column_offset];
-                if pixel.alpha() > 0 {
-                    destination_pixels[destination_column_offset] = pixel;
-                }
-            }
-            // Not clipped widths!
-            source_row_offset += source_width;
-            destination_row_offset += destination_width;
-        }
-    }
-
     fn render_player(
         &self,
         plugin_state: &PluginGameState,
@@ -773,7 +691,7 @@ impl ApplicationPlugin {
             let bottom = (player_bounds.bottom() + player_bounds.height() / 2.0) as usize;
             #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             let left = player_bounds.left() as usize;
-            Self::copy_buffer(image, buffer, left, bottom);
+            buffer.copy_from_buffer(image, left, bottom);
         } else {
             let pixels = buffer.pixels_mut();
             Self::render_rectangle(

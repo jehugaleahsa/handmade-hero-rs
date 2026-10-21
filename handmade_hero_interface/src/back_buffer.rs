@@ -58,4 +58,76 @@ impl BackBuffer {
     pub fn pixels_mut(&mut self) -> &mut [Color<u8>] {
         self.pixels.as_mut_slice()
     }
+
+    #[allow(dead_code)]
+    pub fn copy_from_buffer_repeating(
+        &mut self,
+        source: &BackBuffer,
+        repeat_x: bool,
+        repeat_y: bool,
+    ) {
+        let source_height = source.height_px();
+        let source_width = source.width_px();
+        let destination_height = self.height_px();
+        let destination_width = self.width_px();
+        let mut start_y = 0;
+        while start_y < destination_height {
+            let mut start_x = 0;
+            while start_x < destination_width {
+                self.copy_from_buffer(source, start_x, start_y);
+                if repeat_x {
+                    start_x += source_width;
+                } else {
+                    break;
+                }
+            }
+            if repeat_y {
+                start_y += source_height;
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn copy_from_buffer(&mut self, source: &BackBuffer, x_offset: usize, y_offset: usize) {
+        let source_width = source.width_px();
+        let destination_width = self.width_px();
+        let clipped_source_width = Self::clipped(source_width, x_offset, destination_width);
+        if clipped_source_width == 0 {
+            return;
+        }
+
+        let source_height = source.height_px();
+        let destination_height = self.height_px();
+        let clipped_source_height = Self::clipped(source_height, y_offset, destination_height);
+
+        let source_pixels = source.pixels();
+        let destination_pixels = self.pixels_mut();
+        let mut source_row_offset = 0;
+        let mut destination_row_offset = y_offset * destination_width + x_offset;
+        for _ in 0..clipped_source_height {
+            for (source_column_offset, destination_column_offset) in (source_row_offset..)
+                .take(clipped_source_width)
+                .zip(destination_row_offset..)
+            {
+                let pixel = source_pixels[source_column_offset];
+                if pixel.alpha() > 0 {
+                    destination_pixels[destination_column_offset] = pixel;
+                }
+            }
+            // Not clipped widths!
+            source_row_offset += source_width;
+            destination_row_offset += destination_width;
+        }
+    }
+
+    fn clipped(start: usize, offset: usize, max: usize) -> usize {
+        let end = start + offset;
+        if end > max {
+            let overflow = end - max;
+            start.saturating_sub(overflow)
+        } else {
+            start
+        }
+    }
 }
