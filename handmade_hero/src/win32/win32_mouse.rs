@@ -52,7 +52,7 @@ impl Win32Mouse {
     }
 
     pub fn x_button_mut(&mut self, w_param: WPARAM) -> Option<&mut ButtonState> {
-        let x_button = (w_param.0 >> 16) & 0xFF_FF;
+        let x_button = (w_param.0 >> 16) & usize::from(u16::MAX);
         if x_button == usize::from(XBUTTON1) {
             Some(self.state.x1_mut())
         } else if x_button == usize::from(XBUTTON2) {
@@ -111,7 +111,7 @@ impl Win32Mouse {
     #[inline]
     #[must_use]
     fn to_scroll_delta(w_param: WPARAM) -> i32 {
-        let high_order = i16::try_from((w_param.0 >> 16) & 0xFF_FF).unwrap_or(0);
+        let high_order = i16::try_from((w_param.0 >> 16) & usize::from(u16::MAX)).unwrap_or(0);
         i32::from(high_order)
     }
 }

@@ -303,7 +303,7 @@ impl Win32Window {
 
     pub fn set_transparency(window: HWND, is_active: bool) -> Win32Result<()> {
         // We make the window slightly transparent when not active to assist with debugging
-        let alpha = if is_active { 0xFF } else { 0x90 };
+        let alpha = if is_active { u8::MAX } else { 0x90 };
         unsafe {
             SetLayeredWindowAttributes(window, COLORREF::default(), alpha, LWA_ALPHA)?;
         }

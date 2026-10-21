@@ -140,6 +140,7 @@ impl BackBuffer {
     }
 
     #[inline]
+    #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     fn blend_channel(a: u8, b: u8, t: f32) -> u8 {
         let blended = (1.0 - t) * f32::from(b) + t * f32::from(a);
         blended as u8

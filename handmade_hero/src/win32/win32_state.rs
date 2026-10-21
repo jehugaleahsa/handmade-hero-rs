@@ -168,7 +168,7 @@ impl Win32State {
         // keep the game the same number of physical pixels on every monitor, so we ask for the
         // current client area plus a frame drawn at the new DPI.
         #[expect(clippy::cast_possible_truncation)]
-        let dpi = (w_param.0 & 0xFFFF) as u32;
+        let dpi = (w_param.0 & usize::from(u16::MAX)) as u32;
         let Ok(size) = Win32Window::window_size_for_dpi(window, dpi) else {
             // Returning FALSE lets Windows scale the window by the DPI ratio instead.
             return LRESULT(0);

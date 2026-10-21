@@ -47,7 +47,7 @@ impl Win32KeyEvent {
     #[inline]
     #[must_use]
     pub fn scan_code(&self) -> u32 {
-        let scan_code_mask = 0xFF << 16;
+        let scan_code_mask = isize::from(u8::MAX) << 16;
         #[expect(clippy::cast_possible_truncation)]
         #[expect(clippy::cast_sign_loss)]
         let scan_code = ((self.l_param.0 & scan_code_mask) >> 16) as u32;
