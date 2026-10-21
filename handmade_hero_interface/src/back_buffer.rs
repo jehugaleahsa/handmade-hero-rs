@@ -110,10 +110,10 @@ impl BackBuffer {
                 .take(clipped_source_width)
                 .zip(destination_row_offset..)
             {
-                let pixel = source_pixels[source_column_offset];
-                if pixel.alpha() > 0 {
-                    destination_pixels[destination_column_offset] = pixel;
-                }
+                let source_pixel = source_pixels[source_column_offset];
+                let destination_pixel = destination_pixels[destination_column_offset];
+                let blended_pixel = Self::blend_pixel(source_pixel, destination_pixel);
+                destination_pixels[destination_column_offset] = blended_pixel;
             }
             // Not clipped widths!
             source_row_offset += source_width;
@@ -129,5 +129,19 @@ impl BackBuffer {
         } else {
             start
         }
+    }
+
+    fn blend_pixel(a: Color<u8>, b: Color<u8>) -> Color<u8> {
+        let alpha = f32::from(a.alpha()) / f32::from(u8::MAX);
+        let red = Self::blend_channel(a.red(), b.red(), alpha);
+        let green = Self::blend_channel(a.green(), b.green(), alpha);
+        let blue = Self::blend_channel(a.blue(), b.blue(), alpha);
+        Color::from_rgba(red, green, blue, u8::MAX)
+    }
+
+    #[inline]
+    fn blend_channel(a: u8, b: u8, t: f32) -> u8 {
+        let blended = (1.0 - t) * f32::from(b) + t * f32::from(a);
+        blended as u8
     }
 }
