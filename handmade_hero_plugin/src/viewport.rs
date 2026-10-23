@@ -48,10 +48,8 @@ impl Viewport {
     #[inline]
     #[must_use]
     pub fn bounds(&self) -> Dimensions {
-        let width: Length = (self.width_px / self.pixels_per_meter).into();
-        let width = width / self.zoom_factor;
-        let height: Length = (self.height_px / self.pixels_per_meter).into();
-        let height = height / self.zoom_factor;
+        let width = self.to_meters(self.width_px);
+        let height = self.to_meters(self.height_px);
         Dimensions { width, height }
     }
 
@@ -64,6 +62,12 @@ impl Viewport {
     #[must_use]
     pub fn to_pixels(self, length: Length) -> f32 {
         (length * self.pixels_per_meter * self.zoom_factor).get::<ratio>()
+    }
+
+    #[must_use]
+    pub fn to_meters(self, length_px: f32) -> Length {
+        let length = length_px / self.pixels_per_meter;
+        (length / self.zoom_factor).into()
     }
 
     /// Converts a rectangle in world space, measured from the point drawn at the center of the

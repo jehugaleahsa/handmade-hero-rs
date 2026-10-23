@@ -1,5 +1,6 @@
 use crate::chunk_key::ChunkKey;
 use crate::dimensions::Dimensions;
+use crate::image::Image;
 use crate::player::Player;
 use crate::tile_type::TileType;
 use crate::viewport::Viewport;
@@ -43,7 +44,7 @@ use crate::plugin_game_state::PluginGameState;
 
 #[derive(Debug)]
 pub struct ApplicationPlugin {
-    player_image: Option<BackBuffer>,
+    player_image: Option<Image>,
 }
 
 impl ApplicationPlugin {
@@ -91,7 +92,7 @@ impl ApplicationPlugin {
         audio.set_max_cursor_count(max_cursor_count);
     }
 
-    fn load_image(io: &dyn Io, path: &str) -> Option<BackBuffer> {
+    fn load_image(io: &dyn Io, path: &str) -> Option<Image> {
         let Ok(image_bytes) = io.read_file_contents(path) else {
             return None;
         };
@@ -117,7 +118,12 @@ impl ApplicationPlugin {
             let color = Color::from_rgba(red, green, blue, alpha);
             buffer_pixels[position] = Color::from(color);
         }
-        Some(image_buffer)
+        // For now, assume the image is cropped, such that the bottom center
+        // is the bottom center of the image.
+        let align_x = 0;
+        let align_y = 21;
+        let image = Image::new(image_buffer, align_x, align_y);
+        Some(image)
     }
 
     /// F11 switches between windowed and fullscreen on the monitor the window is on.
@@ -304,7 +310,7 @@ impl ApplicationPlugin {
 
         let _ = Self::render_chunk(plugin_state, &viewport, buffer);
 
-        let _ = self.render_player(plugin_state, &viewport, buffer);
+        self.render_player(&viewport, buffer);
 
         #[cfg(feature = "audio_debug")]
         let _ = Self::render_audio(game_state, plugin_state, &viewport, buffer);
@@ -677,31 +683,28 @@ impl ApplicationPlugin {
         Color::from(Color::from_rgb(0xCC, 0x00, 0xCC))
     }
 
-    fn render_player(
-        &self,
-        plugin_state: &PluginGameState,
-        viewport: &Viewport,
-        buffer: &mut BackBuffer,
-    ) -> Result<()> {
-        let world = plugin_state.world();
-        let player_bounds = Player::render_bounds(world.tile_size());
-        let player_bounds = viewport.to_buffer_rectangle(&player_bounds);
-        if let Some(ref image) = self.player_image {
-            #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            let bottom = (player_bounds.bottom() + player_bounds.height() / 2.0) as usize;
-            #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            let left = player_bounds.left() as usize;
-            buffer.copy_from_buffer(image, left, bottom);
-        } else {
-            let pixels = buffer.pixels_mut();
-            Self::render_rectangle(
-                viewport,
-                &player_bounds,
-                Color::from_rgb(0xFF, 0xFF, 0x00),
-                pixels,
-            )?;
-        }
-        Ok(())
+    fn render_player(&self, viewport: &Viewport, buffer: &mut BackBuffer) {
+        let Some(ref image) = self.player_image else {
+            return;
+        };
+        #[expect(clippy::cast_precision_loss)]
+        let left = -viewport.to_meters(image.buffer().width_px() as f32) / 2.0
+            - viewport.to_meters(image.align_x() as f32);
+        #[expect(clippy::cast_precision_loss)]
+        let bottom = -(viewport.to_meters(image.buffer().height_px() as f32) / 2.0
+            - viewport.to_meters(image.align_y() as f32));
+        #[expect(clippy::cast_precision_loss)]
+        let height = viewport.to_meters(image.buffer().height_px() as f32);
+        #[expect(clippy::cast_precision_loss)]
+        let width = viewport.to_meters(image.buffer().width_px() as f32);
+        let rectangle = Rectangle::new(bottom, left, height, width);
+        let rectangle = viewport.to_buffer_rectangle(&rectangle);
+        #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        buffer.copy_from_buffer(
+            image.buffer(),
+            rectangle.left() as usize,
+            rectangle.bottom() as usize,
+        );
     }
 
     fn render_rectangle(

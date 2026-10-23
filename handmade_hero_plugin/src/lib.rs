@@ -4,6 +4,7 @@ mod chunk_coordinate;
 mod chunk_key;
 mod collision_deltas;
 mod dimensions;
+mod image;
 mod player;
 mod plugin_audio_state;
 mod plugin_game_state;

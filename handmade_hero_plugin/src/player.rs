@@ -3,7 +3,6 @@ use crate::collision_deltas::CollisionDeltas;
 use crate::dimensions::Dimensions;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
-use handmade_hero_interface::rectangle::Rectangle;
 use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
 use uom::num_traits::Zero;
@@ -22,13 +21,6 @@ impl Player {
             coordinate,
             running: false,
         }
-    }
-
-    #[must_use]
-    pub fn render_bounds(tile_size: Length) -> Rectangle<Length> {
-        let Dimensions { width, height } = Self::dimensions(tile_size);
-        let x = -width / 2.0;
-        Rectangle::new(Length::zero(), x, height, width)
     }
 
     #[must_use]
