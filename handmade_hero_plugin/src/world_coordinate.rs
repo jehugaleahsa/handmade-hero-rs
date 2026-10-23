@@ -70,8 +70,19 @@ impl WorldCoordinate {
     }
 
     #[must_use]
-    pub fn shifted(&self, delta_x: Length, delta_y: Length, tile_size: Length) -> WorldCoordinate {
-        let (tile_offset_x, tile_offset_y) = self.tile_offset().to_tuple();
+    pub fn shifted(&self, delta_x: Length, delta_y: Length, tile_size: Length) -> Self {
+        self.shifted_at_offset(delta_x, delta_y, self.tile_offset(), tile_size)
+    }
+
+    #[must_use]
+    fn shifted_at_offset(
+        &self,
+        delta_x: Length,
+        delta_y: Length,
+        tile_offset: Point2d<Length>,
+        tile_size: Length,
+    ) -> Self {
+        let (tile_offset_x, tile_offset_y) = tile_offset.to_tuple();
 
         let x_shift = ShiftedCoordinate {
             chunk: self.chunk_key.x(),
@@ -98,7 +109,7 @@ impl WorldCoordinate {
         let new_chunk_key = ChunkKey::at_x_y_z(chunk_x, chunk_y, self.chunk_key.z());
         let new_tile_offset = Point2d::from_x_y(tile_offset_x, tile_offset_y);
         let new_tile_coordinate = ChunkCoordinate::at_x_y_offset(tile_x, tile_y, new_tile_offset);
-        WorldCoordinate::new_internal(new_chunk_key, new_tile_coordinate, self.rows, self.columns)
+        Self::new_internal(new_chunk_key, new_tile_coordinate, self.rows, self.columns)
     }
 
     #[must_use]
@@ -149,7 +160,7 @@ impl WorldCoordinate {
     /// on a tile edge stays on the same side of it. Shifting by a multiple of the tile size can
     /// round that point into the neighboring tile instead.
     #[must_use]
-    pub fn shifted_tiles(&self, delta_x: i16, delta_y: i16) -> WorldCoordinate {
+    pub fn shifted_tiles(&self, delta_x: i16, delta_y: i16) -> Self {
         let (chunk_x, tile_x) = Self::carry_tiles(
             self.chunk_key.x(),
             self.tile_x(),
@@ -166,7 +177,7 @@ impl WorldCoordinate {
         let new_chunk_key = ChunkKey::at_x_y_z(chunk_x, chunk_y, self.chunk_key.z());
         let new_tile_coordinate =
             ChunkCoordinate::at_x_y_offset(tile_x, tile_y, self.tile_offset());
-        WorldCoordinate::new_internal(new_chunk_key, new_tile_coordinate, self.rows, self.columns)
+        Self::new_internal(new_chunk_key, new_tile_coordinate, self.rows, self.columns)
     }
 
     /// Adds `tile_delta` to a tile index, carrying whole chunks out of the result.
@@ -190,16 +201,44 @@ impl WorldCoordinate {
     /// same tile in the same chunk, ignoring the inner-tile offset.
     #[inline]
     #[must_use]
-    pub fn is_same_tile(&self, other: &WorldCoordinate) -> bool {
+    pub fn is_same_tile(&self, other: &Self) -> bool {
         self.chunk_key == other.chunk_key
             && self.chunk_coordinate.is_same_tile(&other.chunk_coordinate)
     }
 
     #[inline]
     #[must_use]
-    pub fn elevated(&self, delta_z: i16) -> WorldCoordinate {
+    pub fn elevated(&self, delta_z: i16) -> Self {
         let chunk_key = self.chunk_key.shifted(0, 0, delta_z);
         Self::new_internal(chunk_key, self.chunk_coordinate, self.rows, self.columns)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn centered(&self) -> Self {
+        let x = self.columns / 2;
+        let y = self.rows / 2;
+        let chunk_key = self.chunk_key;
+        let chunk_coordinate = ChunkCoordinate::at_x_y_offset(x, y, Point2d::default());
+        WorldCoordinate::new_internal(chunk_key, chunk_coordinate, self.rows, self.columns)
+    }
+
+    // The distance between two coordinates in the same chunk
+    #[inline]
+    #[must_use]
+    pub fn distance_to(&self, other: &Self, tile_size: Length) -> (Length, Length) {
+        debug_assert_eq!(self.chunk_key, other.chunk_key);
+        let delta_x = (f32::from(self.chunk_coordinate.x())
+            - f32::from(other.chunk_coordinate.x()))
+            * tile_size;
+        let delta_y = (f32::from(self.chunk_coordinate.y())
+            - f32::from(other.chunk_coordinate.y()))
+            * tile_size;
+        let (current_offset_x, current_offset_y) = self.chunk_coordinate.tile_offset().to_tuple();
+        let (other_offset_x, other_offset_y) = other.chunk_coordinate.tile_offset().to_tuple();
+        let delta_x = delta_x + (current_offset_x - other_offset_x);
+        let delta_y = delta_y + (current_offset_y - other_offset_y);
+        (delta_x, delta_y)
     }
 }
 

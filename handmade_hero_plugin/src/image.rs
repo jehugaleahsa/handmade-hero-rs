@@ -3,18 +3,18 @@ use handmade_hero_interface::back_buffer::BackBuffer;
 #[derive(Debug)]
 pub struct Image {
     buffer: BackBuffer,
-    align_x: usize,
-    align_y: usize,
+    x_offset_px: Option<isize>,
+    y_offset_px: Option<isize>,
 }
 
 impl Image {
     #[inline]
     #[must_use]
-    pub fn new(buffer: BackBuffer, align_x: usize, align_y: usize) -> Self {
+    pub fn new(buffer: BackBuffer, x_offset_px: Option<isize>, y_offset_px: Option<isize>) -> Self {
         Self {
             buffer,
-            align_x,
-            align_y,
+            x_offset_px,
+            y_offset_px,
         }
     }
 
@@ -26,13 +26,13 @@ impl Image {
 
     #[inline]
     #[must_use]
-    pub fn align_x(&self) -> usize {
-        self.align_x
+    pub fn x_offset_px(&self) -> Option<isize> {
+        self.x_offset_px
     }
 
     #[inline]
     #[must_use]
-    pub fn align_y(&self) -> usize {
-        self.align_y
+    pub fn y_offset_px(&self) -> Option<isize> {
+        self.y_offset_px
     }
 }

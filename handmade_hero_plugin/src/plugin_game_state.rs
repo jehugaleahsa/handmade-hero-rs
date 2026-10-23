@@ -2,6 +2,7 @@ use crate::chunk_key::ChunkKey;
 use crate::player::Player;
 use crate::plugin_audio_state::PluginAudioState;
 use crate::world::World;
+use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
 use uom::si::length::meter;
@@ -9,6 +10,7 @@ use uom::si::length::meter;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PluginGameState {
     player: Player,
+    camera_coordinate: WorldCoordinate,
     world: World,
     audio: PluginAudioState,
     primary_controller_index: Option<usize>,
@@ -22,8 +24,10 @@ impl PluginGameState {
         let world = World::new(World::TILE_ROWS, World::TILE_COLUMNS, tile_size);
         let current_chunk_key = ChunkKey::at_x_y_z(0, 0, 0);
         let player = Player::new(&world, current_chunk_key);
+        let camera_coordinate = player.coordinate().clone();
         Self {
             player,
+            camera_coordinate,
             world,
             audio: PluginAudioState::new(),
             primary_controller_index: None,
@@ -41,6 +45,18 @@ impl PluginGameState {
     #[must_use]
     pub fn player_mut(&mut self) -> &mut Player {
         &mut self.player
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn camera_coordinate(&self) -> &WorldCoordinate {
+        &self.camera_coordinate
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn camera_coordinate_mut(&mut self) -> &mut WorldCoordinate {
+        &mut self.camera_coordinate
     }
 
     #[inline]

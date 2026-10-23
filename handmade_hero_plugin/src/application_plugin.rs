@@ -25,7 +25,9 @@ use handmade_hero_interface::monitor::Monitor;
 use handmade_hero_interface::monitor_mode::MonitorMode;
 use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::rectangle::Rectangle;
+#[allow(unused)]
 use handmade_hero_interface::stereo_sample::StereoSample;
+#[allow(unused)]
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::Length;
 use handmade_hero_interface::units::si::time::Time;
@@ -69,13 +71,9 @@ impl ApplicationPlugin {
 
         let world = plugin_state.world();
         let player = plugin_state.player();
-        let new_coordinates = WorldCoordinate::new(plugin_state.world(), player.chunk_key());
-        let tile_size = world.tile_size();
-        // A new coordinate already sits at the center of its tile, so stepping a whole number
-        // of tiles lands on the center of the middle tile.
-        let x = f32::from(world.columns() / 2) * tile_size;
-        let y = f32::from(world.rows() / 2) * tile_size;
-        let new_coordinates = new_coordinates.shifted(x, y, tile_size);
+        let new_coordinates = WorldCoordinate::new(world, player.chunk_key());
+        let new_coordinates = new_coordinates.centered();
+        *plugin_state.camera_coordinate_mut() = new_coordinates.clone();
         plugin_state.player_mut().set_coordinates(new_coordinates);
 
         self.player_image = Self::load_image(io, "player.bmp");
@@ -120,8 +118,8 @@ impl ApplicationPlugin {
         }
         // For now, assume the image is cropped, such that the bottom center
         // is the bottom center of the image.
-        let align_x = 0;
-        let align_y = 21;
+        let align_x = None;
+        let align_y = Some(50);
         let image = Image::new(image_buffer, align_x, align_y);
         Some(image)
     }
@@ -305,12 +303,16 @@ impl ApplicationPlugin {
             } else {
                 new_coordinates
             };
+            if player_coordinate.chunk_key() != new_coordinates.chunk_key() {
+                let camera_coordinates = new_coordinates.centered();
+                *plugin_state.camera_coordinate_mut() = camera_coordinates;
+            }
             plugin_state.player_mut().set_coordinates(new_coordinates);
         }
 
         let _ = Self::render_chunk(plugin_state, &viewport, buffer);
 
-        self.render_player(&viewport, buffer);
+        self.render_player(plugin_state, &viewport, buffer);
 
         #[cfg(feature = "audio_debug")]
         let _ = Self::render_audio(game_state, plugin_state, &viewport, buffer);
@@ -574,9 +576,7 @@ impl ApplicationPlugin {
 
     /// The world position drawn at the center of the screen.
     fn view_center(plugin_state: &PluginGameState) -> &WorldCoordinate {
-        // NOTE: In the future, we won't want to center on the player. Instead, we'll want
-        // to center on the camera position.
-        plugin_state.player().coordinate()
+        plugin_state.camera_coordinate()
     }
 
     fn find_new_player_coordinates(
@@ -683,21 +683,35 @@ impl ApplicationPlugin {
         Color::from(Color::from_rgb(0xCC, 0x00, 0xCC))
     }
 
-    fn render_player(&self, viewport: &Viewport, buffer: &mut BackBuffer) {
+    fn render_player(
+        &self,
+        plugin_state: &PluginGameState,
+        viewport: &Viewport,
+        buffer: &mut BackBuffer,
+    ) {
         let Some(ref image) = self.player_image else {
             return;
         };
+        let player_coordinate = plugin_state.player().coordinate();
+        let camera_coordinate = plugin_state.camera_coordinate();
+        let tile_size = plugin_state.world().tile_size();
+        let (delta_x, delta_y) = player_coordinate.distance_to(camera_coordinate, tile_size);
+        let half_tile_size = tile_size / 2.0;
         #[expect(clippy::cast_precision_loss)]
-        let left = -viewport.to_meters(image.buffer().width_px() as f32) / 2.0
-            - viewport.to_meters(image.align_x() as f32);
+        let x_alignment = image
+            .x_offset_px()
+            .map_or_default(|a| viewport.to_meters(a as f32) - half_tile_size);
         #[expect(clippy::cast_precision_loss)]
-        let bottom = -(viewport.to_meters(image.buffer().height_px() as f32) / 2.0
-            - viewport.to_meters(image.align_y() as f32));
+        let y_alignment = image
+            .y_offset_px()
+            .map_or_default(|a| viewport.to_meters(a as f32) - half_tile_size);
         #[expect(clippy::cast_precision_loss)]
         let height = viewport.to_meters(image.buffer().height_px() as f32);
         #[expect(clippy::cast_precision_loss)]
         let width = viewport.to_meters(image.buffer().width_px() as f32);
-        let rectangle = Rectangle::new(bottom, left, height, width);
+        let delta_x = delta_x + x_alignment - width / 2.0;
+        let delta_y = delta_y + y_alignment - height / 2.0;
+        let rectangle = Rectangle::new(delta_y, delta_x, height, width);
         let rectangle = viewport.to_buffer_rectangle(&rectangle);
         #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
         buffer.copy_from_buffer(
@@ -867,6 +881,7 @@ impl ApplicationPlugin {
         Ok(())
     }
 
+    #[cfg(feature = "audio_debug")]
     fn write_sound_direct(
         game_state: &GameState,
         plugin_state: &mut PluginGameState,
@@ -976,22 +991,23 @@ impl Application for ApplicationPlugin {
         }
     }
 
-    fn write_sound(&mut self, context: AudioContext<'_>) {
-        let AudioContext {
-            game_state,
-            plugin_state,
-            mut sound_buffer,
-            ..
-        } = context;
-        let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() else {
-            return;
-        };
-        let Some(samples) = sound_buffer.as_samples_mut::<StereoSample>() else {
-            return;
-        };
-        Self::write_sound_direct(game_state, plugin_state, samples);
-
+    fn write_sound(&mut self, #[allow(unused)] context: AudioContext<'_>) {
         #[cfg(feature = "audio_debug")]
-        Self::capture_audio_flip(game_state, plugin_state);
+        {
+            let AudioContext {
+                game_state,
+                plugin_state,
+                mut sound_buffer,
+                ..
+            } = context;
+            let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() else {
+                return;
+            };
+            let Some(samples) = sound_buffer.as_samples_mut::<StereoSample>() else {
+                return;
+            };
+            Self::write_sound_direct(game_state, plugin_state, samples);
+            Self::capture_audio_flip(game_state, plugin_state);
+        }
     }
 }

@@ -15,6 +15,7 @@ pub struct PluginAudioState {
     #[cfg(feature = "audio_debug")]
     flips: VecDeque<FlipData>,
     max_cursor_count: usize,
+    #[cfg(feature = "audio_debug")]
     theta: f32,
 }
 
@@ -26,6 +27,7 @@ impl PluginAudioState {
             #[cfg(feature = "audio_debug")]
             flips: VecDeque::new(),
             max_cursor_count: 0,
+            #[cfg(feature = "audio_debug")]
             theta: 0f32,
         }
     }
@@ -69,11 +71,13 @@ impl PluginAudioState {
 
     #[inline]
     #[must_use]
+    #[cfg(feature = "audio_debug")]
     pub fn theta(&self) -> f32 {
         self.theta
     }
 
     #[inline]
+    #[cfg(feature = "audio_debug")]
     pub fn set_theta(&mut self, value: f32) {
         self.theta = value;
     }
