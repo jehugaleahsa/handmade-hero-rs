@@ -188,19 +188,20 @@ impl Rectangle<f32> {
     /// An error is returned if any of the `f32` positions cannot be converted to a `usize`.
     #[inline]
     pub fn round_to_usize(&self) -> Result<Rectangle<usize>> {
-        let top = Self::round_safe(self.top)?;
-        let left = Self::round_safe(self.left)?;
-        let bottom = Self::round_safe(self.bottom)?;
-        let right = Self::round_safe(self.right)?;
-        Ok(Rectangle {
+        let top = Self::round_usize_safe(self.top)?;
+        let left = Self::round_usize_safe(self.left)?;
+        let bottom = Self::round_usize_safe(self.bottom)?;
+        let right = Self::round_usize_safe(self.right)?;
+        let rectangle = Rectangle {
             top,
             left,
             bottom,
             right,
-        })
+        };
+        Ok(rectangle)
     }
 
-    fn round_safe(value: f32) -> Result<usize> {
+    fn round_usize_safe(value: f32) -> Result<usize> {
         if value < 0f32 {
             return Err(ApplicationError::new("Rectangle with negative vertex"));
         }

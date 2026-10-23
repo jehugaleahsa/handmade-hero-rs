@@ -713,11 +713,11 @@ impl ApplicationPlugin {
         let delta_y = delta_y + y_alignment - height / 2.0;
         let rectangle = Rectangle::new(delta_y, delta_x, height, width);
         let rectangle = viewport.to_buffer_rectangle(&rectangle);
-        #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         buffer.copy_from_buffer(
             image.buffer(),
-            rectangle.left() as usize,
-            rectangle.bottom() as usize,
+            rectangle.left() as isize,
+            rectangle.bottom() as isize,
         );
     }
 

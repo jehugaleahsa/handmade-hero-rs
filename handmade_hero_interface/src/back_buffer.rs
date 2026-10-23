@@ -59,40 +59,10 @@ impl BackBuffer {
         self.pixels.as_mut_slice()
     }
 
-    #[allow(dead_code)]
-    pub fn copy_from_buffer_repeating(
-        &mut self,
-        source: &BackBuffer,
-        repeat_x: bool,
-        repeat_y: bool,
-    ) {
-        let source_height = source.height_px();
-        let source_width = source.width_px();
-        let destination_height = self.height_px();
-        let destination_width = self.width_px();
-        let mut start_y = 0;
-        while start_y < destination_height {
-            let mut start_x = 0;
-            while start_x < destination_width {
-                self.copy_from_buffer(source, start_x, start_y);
-                if repeat_x {
-                    start_x += source_width;
-                } else {
-                    break;
-                }
-            }
-            if repeat_y {
-                start_y += source_height;
-            } else {
-                break;
-            }
-        }
-    }
-
-    pub fn copy_from_buffer(&mut self, source: &BackBuffer, x_offset: usize, y_offset: usize) {
+    pub fn copy_from_buffer(&mut self, source: &BackBuffer, x_offset: isize, y_offset: isize) {
         let source_width = source.width_px();
         let destination_width = self.width_px();
-        let clipped_source_width = Self::clipped(source_width, x_offset, destination_width);
+        let mut clipped_source_width = Self::clipped(source_width, x_offset, destination_width);
         if clipped_source_width == 0 {
             return;
         }
@@ -101,11 +71,29 @@ impl BackBuffer {
         let destination_height = self.height_px();
         let clipped_source_height = Self::clipped(source_height, y_offset, destination_height);
 
+        let mut source_row = 0;
+        let mut source_row_offset = 0;
+        let mut destination_row_offset = 0;
+        if y_offset < 0 {
+            source_row += y_offset.unsigned_abs();
+            source_row_offset += source_row * clipped_source_width;
+        } else {
+            destination_row_offset += y_offset.unsigned_abs() * destination_width;
+        }
+        if x_offset < 0 {
+            let x_offset_abs = x_offset.unsigned_abs();
+            if x_offset_abs >= clipped_source_width {
+                return;
+            }
+            source_row_offset += x_offset_abs;
+            clipped_source_width -= x_offset_abs;
+        } else {
+            destination_row_offset += x_offset.unsigned_abs();
+        }
+
         let source_pixels = source.pixels();
         let destination_pixels = self.pixels_mut();
-        let mut source_row_offset = 0;
-        let mut destination_row_offset = y_offset * destination_width + x_offset;
-        for _ in 0..clipped_source_height {
+        for _ in source_row..clipped_source_height {
             for (source_column_offset, destination_column_offset) in (source_row_offset..)
                 .take(clipped_source_width)
                 .zip(destination_row_offset..)
@@ -121,8 +109,11 @@ impl BackBuffer {
         }
     }
 
-    fn clipped(start: usize, offset: usize, max: usize) -> usize {
-        let end = start + offset;
+    fn clipped(start: usize, offset: isize, max: usize) -> usize {
+        if offset < 0 {
+            return start;
+        }
+        let end = start + offset.unsigned_abs();
         if end > max {
             let overflow = end - max;
             start.saturating_sub(overflow)
