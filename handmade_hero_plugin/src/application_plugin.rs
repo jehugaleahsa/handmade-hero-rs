@@ -116,10 +116,11 @@ impl ApplicationPlugin {
             let color = Color::from_rgba(red, green, blue, alpha);
             buffer_pixels[position] = Color::from(color);
         }
-        // For now, assume the image is cropped, such that the bottom center
-        // is the bottom center of the image.
-        let align_x = None;
-        let align_y = Some(50);
+        // For now, assume the player's feet are horizontally centered, sitting
+        // just above some transparent padding at the bottom. The alignment is
+        // the pixel under the feet, measured from the bottom-left corner.
+        let align_x = 50;
+        let align_y = 8;
         let image = Image::new(image_buffer, align_x, align_y);
         Some(image)
     }
@@ -696,22 +697,19 @@ impl ApplicationPlugin {
         let camera_coordinate = plugin_state.camera_coordinate();
         let tile_size = plugin_state.world().tile_size();
         let (delta_x, delta_y) = player_coordinate.distance_to(camera_coordinate, tile_size);
-        let half_tile_size = tile_size / 2.0;
-        #[expect(clippy::cast_precision_loss)]
-        let x_alignment = image
-            .x_offset_px()
-            .map_or_default(|a| viewport.to_meters(a as f32) - half_tile_size);
-        #[expect(clippy::cast_precision_loss)]
-        let y_alignment = image
-            .y_offset_px()
-            .map_or_default(|a| viewport.to_meters(a as f32) - half_tile_size);
         #[expect(clippy::cast_precision_loss)]
         let height = viewport.to_meters(image.buffer().height_px() as f32);
         #[expect(clippy::cast_precision_loss)]
         let width = viewport.to_meters(image.buffer().width_px() as f32);
-        let delta_x = delta_x + x_alignment - width / 2.0;
-        let delta_y = delta_y + y_alignment - height / 2.0;
-        let rectangle = Rectangle::new(delta_y, delta_x, height, width);
+        // The player's coordinate is where their feet touch the ground, the same point the
+        // collision box grows up from, so the image's alignment point is placed right on it.
+        #[expect(clippy::cast_precision_loss)]
+        let x_alignment = viewport.to_meters(image.x_offset_px() as f32);
+        #[expect(clippy::cast_precision_loss)]
+        let y_alignment = viewport.to_meters(image.y_offset_px() as f32);
+        let left = delta_x - x_alignment;
+        let bottom = delta_y - y_alignment;
+        let rectangle = Rectangle::new(bottom, left, height, width);
         let rectangle = viewport.to_buffer_rectangle(&rectangle);
         #[expect(clippy::cast_possible_truncation)]
         buffer.copy_from_buffer(
