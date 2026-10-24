@@ -62,64 +62,65 @@ impl BackBuffer {
     pub fn copy_from_buffer(&mut self, source: &BackBuffer, x_offset: isize, y_offset: isize) {
         let source_width = source.width_px();
         let destination_width = self.width_px();
-        let mut clipped_source_width = Self::clipped(source_width, x_offset, destination_width);
-        if clipped_source_width == 0 {
+
+        let Some((min_x, max_x, source_offset_x)) =
+            Self::clamp(x_offset, source_width, destination_width)
+        else {
+            return;
+        };
+        let Some((min_y, max_y, source_offset_y)) =
+            Self::clamp(y_offset, source.height_px(), self.height_px())
+        else {
+            return;
+        };
+        if min_x == max_x {
             return;
         }
 
-        let source_height = source.height_px();
-        let destination_height = self.height_px();
-        let clipped_source_height = Self::clipped(source_height, y_offset, destination_height);
-
-        let mut source_row = 0;
-        let mut source_row_offset = 0;
-        let mut destination_row_offset = 0;
-        if y_offset < 0 {
-            source_row += y_offset.unsigned_abs();
-            source_row_offset += source_row * clipped_source_width;
-        } else {
-            destination_row_offset += y_offset.unsigned_abs() * destination_width;
-        }
-        if x_offset < 0 {
-            let x_offset_abs = x_offset.unsigned_abs();
-            if x_offset_abs >= clipped_source_width {
-                return;
-            }
-            source_row_offset += x_offset_abs;
-            clipped_source_width -= x_offset_abs;
-        } else {
-            destination_row_offset += x_offset.unsigned_abs();
-        }
+        let mut source_row = source_offset_y * source_width + source_offset_x;
+        let mut destination_row = min_y * destination_width + min_x;
 
         let source_pixels = source.pixels();
         let destination_pixels = self.pixels_mut();
-        for _ in source_row..clipped_source_height {
-            for (source_column_offset, destination_column_offset) in (source_row_offset..)
-                .take(clipped_source_width)
-                .zip(destination_row_offset..)
-            {
+        for _ in min_y..max_y {
+            let mut source_column_offset = source_row;
+            let mut destination_column_offset = destination_row;
+            #[expect(clippy::explicit_counter_loop)] // <-- Suggestion is too complicated
+            for _ in min_x..max_x {
                 let source_pixel = source_pixels[source_column_offset];
                 let destination_pixel = destination_pixels[destination_column_offset];
                 let blended_pixel = Self::blend_pixel(source_pixel, destination_pixel);
                 destination_pixels[destination_column_offset] = blended_pixel;
+                source_column_offset += 1;
+                destination_column_offset += 1;
             }
-            // Not clipped widths!
-            source_row_offset += source_width;
-            destination_row_offset += destination_width;
+            source_row += source_width;
+            destination_row += destination_width;
         }
     }
 
-    fn clipped(start: usize, offset: isize, max: usize) -> usize {
-        if offset < 0 {
-            return start;
-        }
-        let end = start + offset.unsigned_abs();
-        if end > max {
-            let overflow = end - max;
-            start.saturating_sub(overflow)
+    fn clamp(
+        delta: isize,
+        source_max: usize,
+        destination_max: usize,
+    ) -> Option<(usize, usize, usize)> {
+        let mut offset = 0;
+        let mut start = 0;
+        let mut end = source_max;
+        if delta < 0 {
+            offset = delta.unsigned_abs();
+            if offset > source_max {
+                return None;
+            }
+            end -= offset;
         } else {
-            start
+            start = delta.unsigned_abs();
+            end += start;
         }
+        if end > destination_max {
+            end = destination_max;
+        }
+        Some((start, end, offset))
     }
 
     fn blend_pixel(a: Color<u8>, b: Color<u8>) -> Color<u8> {
