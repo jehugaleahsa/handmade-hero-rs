@@ -20,7 +20,8 @@ pub struct Viewport {
 }
 
 impl Viewport {
-    /// Scales the world so the tile grid covers the whole buffer.
+    /// Scales the world so a whole room fits within the buffer. When the buffer's aspect ratio
+    /// differs from the room's, the leftover space along one axis is left for bars.
     #[must_use]
     #[expect(clippy::cast_precision_loss)]
     pub fn fit(
@@ -33,7 +34,7 @@ impl Viewport {
         let height_px = resolution_height_px as f32;
         let tile_width_px = width_px / f32::from(World::TILE_COLUMNS);
         let tile_height_px = height_px / f32::from(World::TILE_ROWS);
-        let tile_size_px = tile_height_px.max(tile_width_px);
+        let tile_size_px = tile_height_px.min(tile_width_px);
         // Dividing a count by a length yields a plain 1/length quantity. `LinearNumberDensity`
         // is tagged with uom's concentration kind, so the conversion has to be spelled out.
         let pixels_per_meter = (tile_size_px / world.tile_size()).into();

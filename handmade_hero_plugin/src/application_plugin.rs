@@ -636,13 +636,19 @@ impl ApplicationPlugin {
                 let bottom = delta_y - center_y_offset - half_tile_size;
                 let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);
                 let tile_rectangle = viewport.to_buffer_rectangle(&tile_rectangle);
-                let color = Self::determine_tile_color(
-                    world,
-                    player_coordinate,
-                    tile.chunk_key(),
-                    tile.tile_x(),
-                    tile.tile_y(),
-                );
+                // Tiles beyond the camera's room are blacked out, so the space around the chunk
+                // shows up as bars rather than a peek into the neighboring chunks.
+                let color = if tile.chunk_key() == center.chunk_key() {
+                    Self::determine_tile_color(
+                        world,
+                        player_coordinate,
+                        tile.chunk_key(),
+                        tile.tile_x(),
+                        tile.tile_y(),
+                    )
+                } else {
+                    Color::from(Color::from_rgb(0x00, 0x00, 0x00))
+                };
                 Self::render_rectangle(viewport, &tile_rectangle, Color::from(color), pixels)?;
             }
         }
