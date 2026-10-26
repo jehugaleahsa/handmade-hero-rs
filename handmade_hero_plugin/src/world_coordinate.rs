@@ -1,8 +1,8 @@
 use crate::chunk_coordinate::ChunkCoordinate;
 use crate::chunk_key::ChunkKey;
 use crate::world::World;
-use handmade_hero_interface::point_2d::Point2d;
 use handmade_hero_interface::units::si::length::Length;
+use handmade_hero_interface::{point_2d::Point2d, vector_2d::Vector2d};
 use serde::{Deserialize, Serialize};
 use uom::si::length::meter;
 
@@ -70,15 +70,14 @@ impl WorldCoordinate {
     }
 
     #[must_use]
-    pub fn shifted(&self, delta_x: Length, delta_y: Length, tile_size: Length) -> Self {
-        self.shifted_at_offset(delta_x, delta_y, self.tile_offset(), tile_size)
+    pub fn shifted(&self, delta: Vector2d<Length>, tile_size: Length) -> Self {
+        self.shifted_at_offset(delta, self.tile_offset(), tile_size)
     }
 
     #[must_use]
     fn shifted_at_offset(
         &self,
-        delta_x: Length,
-        delta_y: Length,
+        delta: Vector2d<Length>,
         tile_offset: Point2d<Length>,
         tile_size: Length,
     ) -> Self {
@@ -93,7 +92,7 @@ impl WorldCoordinate {
             chunk: chunk_x,
             tile: tile_x,
             tile_offset: tile_offset_x,
-        } = Self::shifted_axis(x_shift, delta_x, tile_size, self.columns);
+        } = Self::shifted_axis(x_shift, delta.x(), tile_size, self.columns);
 
         let y_shift = ShiftedCoordinate {
             chunk: self.chunk_key.y(),
@@ -104,7 +103,7 @@ impl WorldCoordinate {
             chunk: chunk_y,
             tile: tile_y,
             tile_offset: tile_offset_y,
-        } = Self::shifted_axis(y_shift, delta_y, tile_size, self.rows);
+        } = Self::shifted_axis(y_shift, delta.y(), tile_size, self.rows);
 
         let new_chunk_key = ChunkKey::at_x_y_z(chunk_x, chunk_y, self.chunk_key.z());
         let new_tile_offset = Point2d::from_x_y(tile_offset_x, tile_offset_y);
@@ -226,19 +225,15 @@ impl WorldCoordinate {
     // The distance between two coordinates in the same chunk
     #[inline]
     #[must_use]
-    pub fn distance_to(&self, other: &Self, tile_size: Length) -> (Length, Length) {
+    pub fn distance_to(&self, other: &Self, tile_size: Length) -> Vector2d<Length> {
         debug_assert_eq!(self.chunk_key, other.chunk_key);
-        let delta_x = (f32::from(self.chunk_coordinate.x())
-            - f32::from(other.chunk_coordinate.x()))
-            * tile_size;
-        let delta_y = (f32::from(self.chunk_coordinate.y())
-            - f32::from(other.chunk_coordinate.y()))
-            * tile_size;
-        let (current_offset_x, current_offset_y) = self.chunk_coordinate.tile_offset().to_tuple();
-        let (other_offset_x, other_offset_y) = other.chunk_coordinate.tile_offset().to_tuple();
-        let delta_x = delta_x + (current_offset_x - other_offset_x);
-        let delta_y = delta_y + (current_offset_y - other_offset_y);
-        (delta_x, delta_y)
+        let from_coordinate = Point2d::<f32>::from(self.chunk_coordinate.offset());
+        let to_coordinate = Point2d::<f32>::from(other.chunk_coordinate.offset());
+        let tile_distance = from_coordinate - to_coordinate;
+        let tile_delta = tile_distance * tile_size;
+        let inner_delta =
+            self.chunk_coordinate.tile_offset() - other.chunk_coordinate.tile_offset();
+        tile_delta + inner_delta
     }
 }
 
@@ -249,6 +244,7 @@ mod tests {
     use crate::world_coordinate::WorldCoordinate;
     use handmade_hero_interface::point_2d::Point2d;
     use handmade_hero_interface::units::si::length::Length;
+    use handmade_hero_interface::vector_2d::Vector2d;
     use uom::num_traits::Zero;
     use uom::si::length::meter;
 
@@ -262,7 +258,8 @@ mod tests {
         let key = ChunkKey::at_x_y_z(0, 0, 0);
         let coordinate = WorldCoordinate::new_internal(key, chunk_coordinate, 9, 17);
 
-        let shifted = coordinate.shifted(Length::zero(), tile_size * 5.0, tile_size);
+        let shift = Vector2d::from_x_y(Length::zero(), tile_size * 5.0);
+        let shifted = coordinate.shifted(shift, tile_size);
 
         assert_eq!(shifted.chunk_key(), key);
         assert_eq!(shifted.tile_x(), 8);

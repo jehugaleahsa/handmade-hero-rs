@@ -32,6 +32,12 @@ impl ChunkCoordinate {
 
     #[inline]
     #[must_use]
+    pub fn offset(&self) -> Point2d<u8> {
+        self.offset
+    }
+
+    #[inline]
+    #[must_use]
     pub fn tile_offset(&self) -> Point2d<Length> {
         self.tile_offset
     }

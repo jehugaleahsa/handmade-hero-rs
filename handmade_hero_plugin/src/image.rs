@@ -1,21 +1,16 @@
-use handmade_hero_interface::back_buffer::BackBuffer;
+use handmade_hero_interface::{back_buffer::BackBuffer, vector_2d::Vector2d};
 
 #[derive(Debug)]
 pub struct Image {
     buffer: BackBuffer,
-    x_offset_px: isize,
-    y_offset_px: isize,
+    offset_px: Vector2d<isize>,
 }
 
 impl Image {
     #[inline]
     #[must_use]
-    pub fn new(buffer: BackBuffer, x_offset_px: isize, y_offset_px: isize) -> Self {
-        Self {
-            buffer,
-            x_offset_px,
-            y_offset_px,
-        }
+    pub fn new(buffer: BackBuffer, offset_px: Vector2d<isize>) -> Self {
+        Self { buffer, offset_px }
     }
 
     #[inline]
@@ -24,15 +19,7 @@ impl Image {
         &self.buffer
     }
 
-    #[inline]
-    #[must_use]
-    pub fn x_offset_px(&self) -> isize {
-        self.x_offset_px
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn y_offset_px(&self) -> isize {
-        self.y_offset_px
+    pub fn offset_px(&self) -> Vector2d<isize> {
+        self.offset_px
     }
 }

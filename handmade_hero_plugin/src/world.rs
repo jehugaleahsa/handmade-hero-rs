@@ -4,6 +4,7 @@ use crate::collision_deltas::CollisionDeltas;
 use crate::tile_type::TileType;
 use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::units::si::length::Length;
+use handmade_hero_interface::vector_2d::Vector2d;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -75,19 +76,23 @@ impl World {
             left,
             right,
         } = collision_deltas;
-        let bottom_left = coordinate.shifted(left, bottom, self.tile_size);
+        let bottom_left = Vector2d::from_x_y(left, bottom);
+        let bottom_left = coordinate.shifted(bottom_left, self.tile_size);
         if !self.is_traversable_coordinate(&bottom_left) {
             return false;
         }
-        let bottom_right = coordinate.shifted(right, bottom, self.tile_size);
+        let bottom_right = Vector2d::from_x_y(right, bottom);
+        let bottom_right = coordinate.shifted(bottom_right, self.tile_size);
         if !self.is_traversable_coordinate(&bottom_right) {
             return false;
         }
-        let top_left = coordinate.shifted(left, top, self.tile_size);
+        let top_left = Vector2d::from_x_y(left, top);
+        let top_left = coordinate.shifted(top_left, self.tile_size);
         if !self.is_traversable_coordinate(&top_left) {
             return false;
         }
-        let top_right = coordinate.shifted(right, top, self.tile_size);
+        let top_right = Vector2d::from_x_y(right, top);
+        let top_right = coordinate.shifted(top_right, self.tile_size);
         self.is_traversable_coordinate(&top_right)
     }
 

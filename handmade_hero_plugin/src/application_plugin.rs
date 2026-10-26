@@ -32,10 +32,12 @@ use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::Length;
 use handmade_hero_interface::units::si::time::Time;
 use handmade_hero_interface::update_render_context::UpdateRenderContext;
+use handmade_hero_interface::vector_2d::Vector2d;
 use image::ImageReader;
 use rand::prelude::*;
 use std::f32;
 use std::io::Cursor;
+#[cfg(feature = "audio_debug")]
 use uom::num::Zero;
 use uom::si::frequency::hertz;
 use uom::si::length::meter;
@@ -119,9 +121,8 @@ impl ApplicationPlugin {
         // For now, assume the player's feet are horizontally centered, sitting
         // just above some transparent padding at the bottom. The alignment is
         // the pixel under the feet, measured from the bottom-left corner.
-        let align_x = 50;
-        let align_y = 8;
-        let image = Image::new(image_buffer, align_x, align_y);
+        let alignment = Vector2d::from_x_y(50, 8);
+        let image = Image::new(image_buffer, alignment);
         Some(image)
     }
 
@@ -172,11 +173,10 @@ impl ApplicationPlugin {
         game_state: &GameState,
         plugin_state: &PluginGameState,
         controller: Option<&ControllerState>,
-    ) -> (Length, Length) {
-        let Some((delta_x, delta_y, controller)) =
-            Self::calculate_input_delta_x_y(input_state, controller)
+    ) -> Vector2d<Length> {
+        let Some((delta, controller)) = Self::calculate_input_delta_x_y(input_state, controller)
         else {
-            return (Length::zero(), Length::zero());
+            return Vector2d::default();
         };
         let frame_duration = game_state.frame_duration();
         let is_running = plugin_state.player().running()
@@ -187,25 +187,25 @@ impl ApplicationPlugin {
             Length::new::<meter>(3.0) / Time::new::<second>(1.0)
         };
         let max_distance = frame_duration * max_speed;
-        let delta_x = delta_x * max_distance;
-        let delta_y = delta_y * max_distance;
-        (delta_x, delta_y)
+        delta * max_distance
     }
 
     fn calculate_input_delta_x_y<'a>(
         input_state: &'a InputState,
         controller: Option<&'a ControllerState>,
-    ) -> Option<(f32, f32, &'a ControllerState)> {
+    ) -> Option<(Vector2d<f32>, &'a ControllerState)> {
         let keyboard = input_state.keyboard().as_controller();
         let delta_x = Self::calculate_keyboard_delta_x(keyboard);
         let delta_y = Self::calculate_keyboard_delta_y(keyboard);
         if delta_x != 0.0 || delta_y != 0.0 {
-            return Some((delta_x, delta_y, keyboard));
+            let delta = Vector2d::from_x_y(delta_x, delta_y);
+            return Some((delta, keyboard));
         }
         if let Some(controller) = controller {
             let delta_x = Self::calculate_controller_delta_x(controller);
             let delta_y = Self::calculate_controller_delta_y(controller);
-            return Some((delta_x, delta_y, controller));
+            let delta = Vector2d::from_x_y(delta_x, delta_y);
+            return Some((delta, controller));
         }
         None
     }
@@ -265,7 +265,6 @@ impl ApplicationPlugin {
         buffer: &mut BackBuffer,
     ) {
         let controller = Self::detect_primary_controller(plugin_state, input_state);
-
         if let Some(controller) = controller {
             if controller.left_thumb().was_released() {
                 plugin_state.player_mut().toggle_running();
@@ -394,14 +393,9 @@ impl ApplicationPlugin {
         let Dimensions { width, height } = viewport.bounds();
         // We give ourselves an extra tile of margin on either side
         let tile_size = plugin_state.world().tile_size();
-        let margin_width = (width / 2.0) + tile_size;
-        let margin_height = (height / 2.0) + tile_size;
-        let bottom_left = center
-            .shifted(-margin_width, -margin_height, tile_size)
-            .chunk_key();
-        let top_right = center
-            .shifted(margin_width, margin_height, tile_size)
-            .chunk_key();
+        let margin = Vector2d::from_x_y(width, height) / 2.0 + Vector2d::splat(tile_size);
+        let bottom_left = center.shifted(-margin, tile_size).chunk_key();
+        let top_right = center.shifted(margin, tile_size).chunk_key();
         let world = plugin_state.world_mut();
         world.ensure_chunks(bottom_left, top_right, Self::initialize_chunk);
 
@@ -586,15 +580,14 @@ impl ApplicationPlugin {
         input_state: &InputState,
         controller: Option<&ControllerState>,
     ) -> Option<WorldCoordinate> {
-        let (delta_x, delta_y) =
-            Self::calculate_delta_x_y(input_state, game_state, plugin_state, controller);
-        if delta_x.is_zero() && delta_y.is_zero() {
+        let delta = Self::calculate_delta_x_y(input_state, game_state, plugin_state, controller);
+        if delta == Vector2d::default() {
             return None;
         }
 
         let world = plugin_state.world();
         let old_coordinates = plugin_state.player().coordinate();
-        let new_coordinates = old_coordinates.shifted(delta_x, delta_y, world.tile_size());
+        let new_coordinates = old_coordinates.shifted(delta, world.tile_size());
         Some(new_coordinates)
     }
 
@@ -702,7 +695,7 @@ impl ApplicationPlugin {
         let player_coordinate = plugin_state.player().coordinate();
         let camera_coordinate = plugin_state.camera_coordinate();
         let tile_size = plugin_state.world().tile_size();
-        let (delta_x, delta_y) = player_coordinate.distance_to(camera_coordinate, tile_size);
+        let delta = player_coordinate.distance_to(camera_coordinate, tile_size);
         #[expect(clippy::cast_precision_loss)]
         let height = viewport.to_meters(image.buffer().height_px() as f32);
         #[expect(clippy::cast_precision_loss)]
@@ -710,11 +703,11 @@ impl ApplicationPlugin {
         // The player's coordinate is where their feet touch the ground, the same point the
         // collision box grows up from, so the image's alignment point is placed right on it.
         #[expect(clippy::cast_precision_loss)]
-        let x_alignment = viewport.to_meters(image.x_offset_px() as f32);
+        let x_alignment = viewport.to_meters(image.offset_px().x() as f32);
         #[expect(clippy::cast_precision_loss)]
-        let y_alignment = viewport.to_meters(image.y_offset_px() as f32);
-        let left = delta_x - x_alignment;
-        let bottom = delta_y - y_alignment;
+        let y_alignment = viewport.to_meters(image.offset_px().y() as f32);
+        let left = delta.x() - x_alignment;
+        let bottom = delta.y() - y_alignment;
         let rectangle = Rectangle::new(bottom, left, height, width);
         let rectangle = viewport.to_buffer_rectangle(&rectangle);
         #[expect(clippy::cast_possible_truncation)]
