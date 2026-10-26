@@ -1,4 +1,4 @@
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use uom::{
     Conversion,
@@ -63,6 +63,20 @@ where
     }
 }
 
+impl<T> AddAssign for Vector2d<T>
+where
+    T: AddAssign<T> + Copy,
+{
+    #[inline]
+    fn add_assign(&mut self, other: Self) {
+        let mut x = self.x();
+        let mut y = self.y();
+        x += other.x();
+        y += other.y();
+        self.values = [x, y];
+    }
+}
+
 impl<T> Neg for Vector2d<T>
 where
     T: Neg<Output = T> + Copy,
@@ -91,6 +105,20 @@ where
     }
 }
 
+impl<T> SubAssign for Vector2d<T>
+where
+    T: SubAssign<T> + Copy,
+{
+    #[inline]
+    fn sub_assign(&mut self, other: Self) {
+        let mut x = self.x();
+        let mut y = self.y();
+        x -= other.x();
+        y -= other.y();
+        self.values = [x, y];
+    }
+}
+
 impl<T> Vector2d<T>
 where
     T: Mul<Output = T> + Copy,
@@ -101,6 +129,17 @@ where
         let x = self.x() * other.x();
         let y = self.y() * other.y();
         Self::from_x_y(x, y)
+    }
+}
+
+impl<T> Vector2d<T>
+where
+    T: Mul<Output = T> + Add<Output = T> + Copy,
+{
+    #[inline]
+    #[must_use]
+    pub fn dot(self, other: Self) -> T {
+        self.x() * other.x() + self.y() * other.y()
     }
 }
 
@@ -121,6 +160,21 @@ where
     }
 }
 
+impl<T, S> MulAssign<S> for Vector2d<T>
+where
+    T: MulAssign<S> + Copy,
+    S: Copy,
+{
+    #[inline]
+    fn mul_assign(&mut self, rhs: S) {
+        let mut x = self.x();
+        let mut y = self.y();
+        x *= rhs;
+        y *= rhs;
+        self.values = [x, y];
+    }
+}
+
 // Like multiplication, the scalar can be a plain f32 or a uom quantity, and the components take on
 // whatever type the quotient has.
 impl<T, S> Div<S> for Vector2d<T>
@@ -135,6 +189,21 @@ where
         let x = self.x() / rhs;
         let y = self.y() / rhs;
         Self::Output::from_x_y(x, y)
+    }
+}
+
+impl<T, S> DivAssign<S> for Vector2d<T>
+where
+    T: DivAssign<S> + Copy,
+    S: Copy,
+{
+    #[inline]
+    fn div_assign(&mut self, rhs: S) {
+        let mut x = self.x();
+        let mut y = self.y();
+        x /= rhs;
+        y /= rhs;
+        self.values = [x, y];
     }
 }
 
@@ -176,6 +245,24 @@ where
     fn mul(self, rhs: Vector2d<T>) -> Self::Output {
         let x = self * rhs.x();
         let y = self * rhs.y();
+        Self::Output::from_x_y(x, y)
+    }
+}
+
+impl<D, U, V, T> Div<Vector2d<T>> for Quantity<D, U, V>
+where
+    D: Dimension + ?Sized,
+    U: Units<V> + ?Sized,
+    V: Num + Conversion<V>,
+    Self: Div<T> + Copy,
+    T: Copy,
+{
+    type Output = Vector2d<<Self as Div<T>>::Output>;
+
+    #[inline]
+    fn div(self, rhs: Vector2d<T>) -> Self::Output {
+        let x = self / rhs.x();
+        let y = self / rhs.y();
         Self::Output::from_x_y(x, y)
     }
 }

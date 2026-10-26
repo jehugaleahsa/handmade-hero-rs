@@ -174,10 +174,15 @@ impl ApplicationPlugin {
         plugin_state: &PluginGameState,
         controller: Option<&ControllerState>,
     ) -> Vector2d<Length> {
-        let Some((delta, controller)) = Self::calculate_input_delta_x_y(input_state, controller)
+        let Some((mut delta, controller)) =
+            Self::calculate_input_delta_x_y(input_state, controller)
         else {
             return Vector2d::default();
         };
+        let delta_squared = delta.dot(delta);
+        if delta_squared > 1.0 {
+            delta /= delta_squared.sqrt();
+        }
         let frame_duration = game_state.frame_duration();
         let is_running = plugin_state.player().running()
             || (controller.keyboard() && input_state.keyboard().is_shift_down());
