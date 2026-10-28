@@ -45,6 +45,7 @@ use uom::si::acceleration::meter_per_second_squared;
 use uom::si::frequency::hertz;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
+use uom::si::velocity::meter_per_second;
 
 use crate::plugin_game_state::PluginGameState;
 
@@ -184,16 +185,14 @@ impl ApplicationPlugin {
 
         let is_running = plugin_state.player().running()
             || (controller.keyboard() && input_state.keyboard().is_shift_down());
-        let max_acceleration: Acceleration = if is_running {
-            Acceleration::new::<meter_per_second_squared>(10.0)
-        } else {
-            Acceleration::new::<meter_per_second_squared>(3.0)
-        };
+        let max_acceleration = if is_running { 20.0 } else { 10.0 };
         let acceleration = ratios * max_acceleration;
-        let elapsed = game_state.frame_duration(); // s
         let velocity = plugin_state.player().velocity(); // m/s
+        let acceleration = acceleration - 3.0 * velocity.map(|v| v.get::<meter_per_second>());
+        let acceleration = acceleration.map(|a| Acceleration::new::<meter_per_second_squared>(a));
+        let elapsed = game_state.frame_duration(); // s
         let position_delta = (0.5 * acceleration * elapsed * elapsed) + velocity * elapsed; // m/s^2 * s^2 * m/s * s = m
-        let velocity_delta: Vector2d<Velocity> = acceleration * elapsed; // m/s^2 * s = m/s
+        let velocity_delta = acceleration * elapsed; // m/s^2 * s = m/s
         (position_delta, velocity_delta)
     }
 
@@ -315,7 +314,7 @@ impl ApplicationPlugin {
             }
             *plugin_state.player_mut().coordinate_mut() = new_coordinates;
         }
-        *plugin_state.player_mut().velocity_mut() += velocity_delta;
+        *plugin_state.player_mut().velocity_mut() = velocity_delta;
 
         let _ = Self::render_chunk(plugin_state, &viewport, buffer);
 
@@ -593,7 +592,8 @@ impl ApplicationPlugin {
         let world = plugin_state.world();
         let old_coordinates = plugin_state.player().coordinate();
         let new_coordinates = old_coordinates.shifted(position_delta, world.tile_size());
-        (new_coordinates, velocity_delta)
+        let new_velocity = plugin_state.player().velocity() + velocity_delta;
+        (new_coordinates, new_velocity)
     }
 
     fn is_traversable(plugin_state: &PluginGameState, coordinates: &WorldCoordinate) -> bool {
