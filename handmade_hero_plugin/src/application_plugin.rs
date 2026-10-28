@@ -27,10 +27,12 @@ use handmade_hero_interface::plugin_state::PluginState;
 use handmade_hero_interface::rectangle::Rectangle;
 #[allow(unused)]
 use handmade_hero_interface::stereo_sample::StereoSample;
+use handmade_hero_interface::units::si::acceleration::Acceleration;
 #[allow(unused)]
 use handmade_hero_interface::units::si::frequency::Frequency;
 use handmade_hero_interface::units::si::length::Length;
 use handmade_hero_interface::units::si::time::Time;
+use handmade_hero_interface::units::si::velocity::Velocity;
 use handmade_hero_interface::update_render_context::UpdateRenderContext;
 use handmade_hero_interface::vector_2d::Vector2d;
 use image::ImageReader;
@@ -39,8 +41,8 @@ use std::f32;
 use std::io::Cursor;
 #[cfg(feature = "audio_debug")]
 use uom::num::Zero;
+use uom::si::acceleration::meter_per_second_squared;
 use uom::si::frequency::hertz;
-use uom::si::length::meter;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
 
@@ -76,7 +78,7 @@ impl ApplicationPlugin {
         let new_coordinates = WorldCoordinate::new(world, player.chunk_key());
         let new_coordinates = new_coordinates.centered();
         *plugin_state.camera_coordinate_mut() = new_coordinates.clone();
-        plugin_state.player_mut().set_coordinates(new_coordinates);
+        *plugin_state.player_mut().coordinate_mut() = new_coordinates;
 
         self.player_image = Self::load_image(io, "player.bmp");
     }
@@ -168,51 +170,51 @@ impl ApplicationPlugin {
         )
     }
 
-    fn calculate_delta_x_y(
+    fn calculate_deltas(
         input_state: &InputState,
         game_state: &GameState,
         plugin_state: &PluginGameState,
         controller: Option<&ControllerState>,
-    ) -> Vector2d<Length> {
-        let Some((mut delta, controller)) =
-            Self::calculate_input_delta_x_y(input_state, controller)
-        else {
-            return Vector2d::default();
-        };
-        let delta_squared = delta.dot(delta);
-        if delta_squared > 1.0 {
-            delta /= delta_squared.sqrt();
+    ) -> (Vector2d<Length>, Vector2d<Velocity>) {
+        let (mut ratios, controller) = Self::calculate_input_ratios(input_state, controller);
+        let ratios_squared = ratios.dot(ratios);
+        if ratios_squared > 1.0 {
+            ratios /= ratios_squared.sqrt();
         }
-        let frame_duration = game_state.frame_duration();
+
         let is_running = plugin_state.player().running()
             || (controller.keyboard() && input_state.keyboard().is_shift_down());
-        let max_speed = if is_running {
-            Length::new::<meter>(10.0) / Time::new::<second>(1.0)
+        let max_acceleration: Acceleration = if is_running {
+            Acceleration::new::<meter_per_second_squared>(10.0)
         } else {
-            Length::new::<meter>(3.0) / Time::new::<second>(1.0)
+            Acceleration::new::<meter_per_second_squared>(3.0)
         };
-        let max_distance = frame_duration * max_speed;
-        delta * max_distance
+        let acceleration = ratios * max_acceleration;
+        let elapsed = game_state.frame_duration(); // s
+        let velocity = plugin_state.player().velocity(); // m/s
+        let position_delta = (0.5 * acceleration * elapsed * elapsed) + velocity * elapsed; // m/s^2 * s^2 * m/s * s = m
+        let velocity_delta: Vector2d<Velocity> = acceleration * elapsed; // m/s^2 * s = m/s
+        (position_delta, velocity_delta)
     }
 
-    fn calculate_input_delta_x_y<'a>(
+    fn calculate_input_ratios<'a>(
         input_state: &'a InputState,
         controller: Option<&'a ControllerState>,
-    ) -> Option<(Vector2d<f32>, &'a ControllerState)> {
+    ) -> (Vector2d<f32>, &'a ControllerState) {
         let keyboard = input_state.keyboard().as_controller();
         let delta_x = Self::calculate_keyboard_delta_x(keyboard);
         let delta_y = Self::calculate_keyboard_delta_y(keyboard);
         if delta_x != 0.0 || delta_y != 0.0 {
             let delta = Vector2d::from_x_y(delta_x, delta_y);
-            return Some((delta, keyboard));
+            return (delta, keyboard);
         }
         if let Some(controller) = controller {
             let delta_x = Self::calculate_controller_delta_x(controller);
             let delta_y = Self::calculate_controller_delta_y(controller);
             let delta = Vector2d::from_x_y(delta_x, delta_y);
-            return Some((delta, controller));
+            return (delta, controller);
         }
-        None
+        (Vector2d::default(), keyboard)
     }
 
     #[inline]
@@ -288,32 +290,32 @@ impl ApplicationPlugin {
 
         Self::ensure_chunks(plugin_state, &viewport);
 
-        if let Some(new_coordinates) =
-            Self::find_new_player_coordinates(game_state, plugin_state, input_state, controller)
-            && Self::is_traversable(plugin_state, &new_coordinates)
-        {
+        let (coordinate_delta, velocity_delta) =
+            Self::find_player_deltas(game_state, plugin_state, input_state, controller);
+        if Self::is_traversable(plugin_state, &coordinate_delta) {
             let player_coordinate = plugin_state.player().coordinate();
             let new_coordinates = if let Some(stairs) =
-                Self::find_stairs(plugin_state.world(), &new_coordinates)
-                && !player_coordinate.is_same_tile(&new_coordinates)
+                Self::find_stairs(plugin_state.world(), &coordinate_delta)
+                && !player_coordinate.is_same_tile(&coordinate_delta)
             {
                 let player_z = player_coordinate.chunk_key().z();
                 if player_z == 0 && stairs == TileType::UpStairs {
-                    new_coordinates.elevated(1)
+                    coordinate_delta.elevated(1)
                 } else if player_z == 1 && stairs == TileType::DownStairs {
-                    new_coordinates.elevated(-1)
+                    coordinate_delta.elevated(-1)
                 } else {
-                    new_coordinates
+                    coordinate_delta
                 }
             } else {
-                new_coordinates
+                coordinate_delta
             };
             if player_coordinate.chunk_key() != new_coordinates.chunk_key() {
                 let camera_coordinates = new_coordinates.centered();
                 *plugin_state.camera_coordinate_mut() = camera_coordinates;
             }
-            plugin_state.player_mut().set_coordinates(new_coordinates);
+            *plugin_state.player_mut().coordinate_mut() = new_coordinates;
         }
+        *plugin_state.player_mut().velocity_mut() += velocity_delta;
 
         let _ = Self::render_chunk(plugin_state, &viewport, buffer);
 
@@ -579,21 +581,19 @@ impl ApplicationPlugin {
         plugin_state.camera_coordinate()
     }
 
-    fn find_new_player_coordinates(
+    fn find_player_deltas(
         game_state: &GameState,
         plugin_state: &PluginGameState,
         input_state: &InputState,
         controller: Option<&ControllerState>,
-    ) -> Option<WorldCoordinate> {
-        let delta = Self::calculate_delta_x_y(input_state, game_state, plugin_state, controller);
-        if delta == Vector2d::default() {
-            return None;
-        }
+    ) -> (WorldCoordinate, Vector2d<Velocity>) {
+        let (position_delta, velocity_delta) =
+            Self::calculate_deltas(input_state, game_state, plugin_state, controller);
 
         let world = plugin_state.world();
         let old_coordinates = plugin_state.player().coordinate();
-        let new_coordinates = old_coordinates.shifted(delta, world.tile_size());
-        Some(new_coordinates)
+        let new_coordinates = old_coordinates.shifted(position_delta, world.tile_size());
+        (new_coordinates, velocity_delta)
     }
 
     fn is_traversable(plugin_state: &PluginGameState, coordinates: &WorldCoordinate) -> bool {

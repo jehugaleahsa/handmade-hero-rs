@@ -3,13 +3,15 @@ use crate::collision_deltas::CollisionDeltas;
 use crate::dimensions::Dimensions;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
-use handmade_hero_interface::units::si::length::Length;
+use handmade_hero_interface::units::si::{length::Length, velocity::Velocity};
+use handmade_hero_interface::vector_2d::Vector2d;
 use serde::{Deserialize, Serialize};
 use uom::num_traits::Zero;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Player {
     coordinate: WorldCoordinate,
+    velocity: Vector2d<Velocity>,
     running: bool,
 }
 
@@ -19,6 +21,7 @@ impl Player {
         let coordinate = WorldCoordinate::new(world, chunk_key);
         Self {
             coordinate,
+            velocity: Vector2d::default(),
             running: false,
         }
     }
@@ -56,8 +59,20 @@ impl Player {
     }
 
     #[inline]
-    pub fn set_coordinates(&mut self, coordinate: WorldCoordinate) {
-        self.coordinate = coordinate;
+    #[must_use]
+    pub fn coordinate_mut(&mut self) -> &mut WorldCoordinate {
+        &mut self.coordinate
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn velocity(&self) -> Vector2d<Velocity> {
+        self.velocity
+    }
+
+    #[inline]
+    pub fn velocity_mut(&mut self) -> &mut Vector2d<Velocity> {
+        &mut self.velocity
     }
 
     #[inline]

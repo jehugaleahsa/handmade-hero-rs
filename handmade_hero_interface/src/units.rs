@@ -5,6 +5,18 @@ pub mod si {
         pub type Length = uom::si::length::Length<SI<f32>, f32>;
     }
 
+    pub mod velocity {
+        use uom::si::SI;
+
+        pub type Velocity = uom::si::velocity::Velocity<SI<f32>, f32>;
+    }
+
+    pub mod acceleration {
+        use uom::si::SI;
+
+        pub type Acceleration = uom::si::acceleration::Acceleration<SI<f32>, f32>;
+    }
+
     pub mod linear_number_density {
         use uom::si::SI;
 

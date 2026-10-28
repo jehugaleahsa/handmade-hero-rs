@@ -1,12 +1,12 @@
+use serde::{Deserialize, Serialize};
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-
 use uom::{
     Conversion,
     num_traits::Num,
     si::{Dimension, Quantity, Units},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Vector2d<T> {
     values: [T; 2],
 }
@@ -46,6 +46,14 @@ where
     #[must_use]
     pub fn y(self) -> T {
         self.values[1]
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn map<U>(self, mapper: impl Fn(T) -> U) -> Vector2d<U> {
+        let x = mapper(self.x());
+        let y = mapper(self.y());
+        Vector2d::from_x_y(x, y)
     }
 }
 
@@ -207,22 +215,32 @@ where
     }
 }
 
-impl Mul<Vector2d<f32>> for f32 {
-    type Output = Vector2d<f32>;
+// The components can be plain floats or uom quantities with the same storage type, and they take
+// on whatever type the product has.
+impl<T> Mul<Vector2d<T>> for f32
+where
+    f32: Mul<T>,
+    T: Copy,
+{
+    type Output = Vector2d<<f32 as Mul<T>>::Output>;
 
     #[inline]
-    fn mul(self, rhs: Vector2d<f32>) -> Self::Output {
+    fn mul(self, rhs: Vector2d<T>) -> Self::Output {
         let x = self * rhs.x();
         let y = self * rhs.y();
         Self::Output::from_x_y(x, y)
     }
 }
 
-impl Mul<Vector2d<f64>> for f64 {
-    type Output = Vector2d<f64>;
+impl<T> Mul<Vector2d<T>> for f64
+where
+    f64: Mul<T>,
+    T: Copy,
+{
+    type Output = Vector2d<<f64 as Mul<T>>::Output>;
 
     #[inline]
-    fn mul(self, rhs: Vector2d<f64>) -> Self::Output {
+    fn mul(self, rhs: Vector2d<T>) -> Self::Output {
         let x = self * rhs.x();
         let y = self * rhs.y();
         Self::Output::from_x_y(x, y)
@@ -335,6 +353,16 @@ mod tests {
         let scaled = uom::si::f64::Ratio::new::<ratio>(2.0f64) * vector;
         assert_eq!(4.0f64, scaled.x().get::<meter>());
         assert_eq!(6.0f64, scaled.y().get::<meter>());
+    }
+
+    #[test]
+    fn f32_scalar_times_uom_vector_keeps_dimension() {
+        let x_length = Length::new::<meter>(2.0f32);
+        let y_length = Length::new::<meter>(3.0f32);
+        let vector = Vector2d::from_x_y(x_length, y_length);
+        let scaled = 0.5f32 * vector;
+        assert_eq!(1.0f32, scaled.x().get::<meter>());
+        assert_eq!(1.5f32, scaled.y().get::<meter>());
     }
 
     #[test]
