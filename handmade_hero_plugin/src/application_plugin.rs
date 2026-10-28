@@ -45,7 +45,6 @@ use uom::si::acceleration::meter_per_second_squared;
 use uom::si::frequency::hertz;
 use uom::si::ratio::ratio;
 use uom::si::time::second;
-use uom::si::velocity::meter_per_second;
 
 use crate::plugin_game_state::PluginGameState;
 
@@ -177,26 +176,36 @@ impl ApplicationPlugin {
         plugin_state: &PluginGameState,
         controller: Option<&ControllerState>,
     ) -> (Vector2d<Length>, Vector2d<Velocity>) {
-        let (mut ratios, controller) = Self::calculate_input_ratios(input_state, controller);
-        let ratios_squared = ratios.dot(ratios);
-        if ratios_squared > 1.0 {
-            ratios /= ratios_squared.sqrt();
-        }
+        let (throttle, controller) = Self::calculate_throttle(input_state, controller);
 
         let is_running = plugin_state.player().running()
             || (controller.keyboard() && input_state.keyboard().is_shift_down());
-        let max_acceleration = if is_running { 20.0 } else { 10.0 };
-        let acceleration = ratios * max_acceleration;
+        let max_acceleration =
+            Acceleration::new::<meter_per_second_squared>(if is_running { 100.0 } else { 50.0 });
+        let acceleration = throttle * max_acceleration;
         let velocity = plugin_state.player().velocity(); // m/s
-        let acceleration = acceleration - 3.0 * velocity.map(|v| v.get::<meter_per_second>());
-        let acceleration = acceleration.map(|a| Acceleration::new::<meter_per_second_squared>(a));
+        let drag = 1.0 / Time::new::<second>(0.125); // hz (or 1/s)
+        let drag_coefficient = drag * velocity; // m/s^2
+        let acceleration = acceleration - drag_coefficient;
         let elapsed = game_state.frame_duration(); // s
-        let position_delta = (0.5 * acceleration * elapsed * elapsed) + velocity * elapsed; // m/s^2 * s^2 * m/s * s = m
+        let position_delta = (0.5 * acceleration * elapsed * elapsed) + velocity * elapsed; // m/s^2 * s^2 + m/s * s = m
         let velocity_delta = acceleration * elapsed; // m/s^2 * s = m/s
         (position_delta, velocity_delta)
     }
 
-    fn calculate_input_ratios<'a>(
+    fn calculate_throttle<'a>(
+        input_state: &'a InputState,
+        controller: Option<&'a ControllerState>,
+    ) -> (Vector2d<f32>, &'a ControllerState) {
+        let (mut throttle, controller) = Self::calculate_input_deltas(input_state, controller);
+        let throttle_squared = throttle.dot(throttle);
+        if throttle_squared > 1.0 {
+            throttle /= throttle_squared.sqrt();
+        }
+        (throttle, controller)
+    }
+
+    fn calculate_input_deltas<'a>(
         input_state: &'a InputState,
         controller: Option<&'a ControllerState>,
     ) -> (Vector2d<f32>, &'a ControllerState) {
