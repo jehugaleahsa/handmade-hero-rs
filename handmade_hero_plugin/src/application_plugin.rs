@@ -299,51 +299,53 @@ impl ApplicationPlugin {
 
         Self::ensure_chunks(plugin_state, &viewport);
 
-        let (coordinate_delta, velocity_delta) =
-            Self::find_player_deltas(game_state, plugin_state, input_state, controller);
-        let collision_result = Self::detect_wall_collision(plugin_state, &coordinate_delta);
-        if collision_result.collided {
-            let reflection_y = if collision_result.bottom_collided {
-                1.0
-            } else if collision_result.top_collided {
-                -1.0
-            } else {
-                0.0
-            };
-            let reflection_x = if collision_result.left_collided {
-                1.0
-            } else if collision_result.right_collided {
-                -1.0
-            } else {
-                0.0
-            };
+        let (new_coordinate, new_velocity) = Self::find_new_player_coordinate_and_velocity(
+            game_state,
+            plugin_state,
+            input_state,
+            controller,
+        );
+        let CollisionResult {
+            collided,
+            top_collided,
+            bottom_collided,
+            left_collided,
+            right_collided,
+        } = Self::detect_wall_collision(plugin_state, &new_coordinate);
+        if collided {
+            let reflection_y = Self::reflection(bottom_collided, top_collided);
+            let reflection_x = Self::reflection(left_collided, right_collided);
             let reflection = Vector2d::from_x_y(reflection_x, reflection_y);
-            let old_velocity = plugin_state.player().velocity();
-            let reflected_velocity = old_velocity - 2.0 * old_velocity.dot(reflection) * reflection;
+            // No single wall to reflect off, such as in an inside corner, means every way forward
+            // is blocked, so send the player straight back.
+            let reflected_velocity = match reflection.normalized() {
+                Some(normal) => new_velocity - new_velocity.dot(normal) * normal,
+                None => Vector2d::default(),
+            };
             *plugin_state.player_mut().velocity_mut() = reflected_velocity;
         } else {
             let player_coordinate = plugin_state.player().coordinate();
-            let new_coordinates = if let Some(stairs) =
-                Self::find_stairs(plugin_state.world(), &coordinate_delta)
-                && !player_coordinate.is_same_tile(&coordinate_delta)
+            let new_coordinate = if let Some(stairs) =
+                Self::find_stairs(plugin_state.world(), &new_coordinate)
+                && !player_coordinate.is_same_tile(&new_coordinate)
             {
                 let player_z = player_coordinate.chunk_key().z();
                 if player_z == 0 && stairs == TileType::UpStairs {
-                    coordinate_delta.elevated(1)
+                    new_coordinate.elevated(1)
                 } else if player_z == 1 && stairs == TileType::DownStairs {
-                    coordinate_delta.elevated(-1)
+                    new_coordinate.elevated(-1)
                 } else {
-                    coordinate_delta
+                    new_coordinate
                 }
             } else {
-                coordinate_delta
+                new_coordinate
             };
-            if player_coordinate.chunk_key() != new_coordinates.chunk_key() {
-                let camera_coordinates = new_coordinates.centered();
+            if player_coordinate.chunk_key() != new_coordinate.chunk_key() {
+                let camera_coordinates = new_coordinate.centered();
                 *plugin_state.camera_coordinate_mut() = camera_coordinates;
             }
-            *plugin_state.player_mut().coordinate_mut() = new_coordinates;
-            *plugin_state.player_mut().velocity_mut() = velocity_delta;
+            *plugin_state.player_mut().coordinate_mut() = new_coordinate;
+            *plugin_state.player_mut().velocity_mut() = new_velocity;
         }
 
         let _ = Self::render_chunk(plugin_state, &viewport, buffer);
@@ -355,6 +357,16 @@ impl ApplicationPlugin {
 
         #[cfg(feature = "mouse_debug")]
         let _ = Self::render_mouse(input_state, &viewport, buffer);
+    }
+
+    fn reflection(positive: bool, negative: bool) -> f32 {
+        if positive {
+            1.0
+        } else if negative {
+            -1.0
+        } else {
+            0.0
+        }
     }
 
     /// Scales the zoom by the right joystick's vertical tilt.
@@ -610,7 +622,7 @@ impl ApplicationPlugin {
         plugin_state.camera_coordinate()
     }
 
-    fn find_player_deltas(
+    fn find_new_player_coordinate_and_velocity(
         game_state: &GameState,
         plugin_state: &PluginGameState,
         input_state: &InputState,

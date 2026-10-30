@@ -156,6 +156,27 @@ where
     }
 }
 
+impl Vector2d<f32> {
+    #[inline]
+    #[must_use]
+    pub fn length(self) -> f32 {
+        self.dot(self).sqrt()
+    }
+
+    /// Scales the vector to a length of one, or returns `None` for the zero vector, which has no
+    /// direction to keep.
+    #[inline]
+    #[must_use]
+    pub fn normalized(self) -> Option<Self> {
+        let length = self.length();
+        if length > 0.0 {
+            Some(self / length)
+        } else {
+            None
+        }
+    }
+}
+
 // The scalar can be any type the components multiply by, so this covers a plain f32 as well as a
 // uom quantity, and the components take on whatever type the product has.
 impl<T, S> Mul<S> for Vector2d<T>
@@ -426,6 +447,29 @@ mod tests {
         let velocity = Vector2d::from_x_y(x_velocity, y_velocity);
         let direction = Vector2d::from_x_y(4.0f32, 5.0f32);
         assert_eq!(23.0f32, velocity.dot(direction).get::<meter_per_second>());
+    }
+
+    #[test]
+    fn length_of_f32_vector() {
+        let vector = Vector2d::from_x_y(3.0f32, 4.0f32);
+        assert_eq!(5.0f32, vector.length());
+    }
+
+    #[test]
+    fn normalized_keeps_direction_with_unit_length() {
+        let vector = Vector2d::from_x_y(3.0f32, 4.0f32);
+        let normal = vector
+            .normalized()
+            .expect("non-zero vector should normalize");
+        assert!((normal.length() - 1.0f32).abs() < f32::EPSILON);
+        assert!((normal.x() - 0.6f32).abs() < f32::EPSILON);
+        assert!((normal.y() - 0.8f32).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn normalized_zero_vector_is_none() {
+        let vector = Vector2d::<f32>::default();
+        assert_eq!(None, vector.normalized());
     }
 
     #[test]
