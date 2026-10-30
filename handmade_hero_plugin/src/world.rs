@@ -1,6 +1,7 @@
 use crate::chunk::Chunk;
 use crate::chunk_key::ChunkKey;
 use crate::collision_deltas::CollisionDeltas;
+use crate::collision_result::CollisionResult;
 use crate::tile_type::TileType;
 use crate::world_coordinate::WorldCoordinate;
 use handmade_hero_interface::units::si::length::Length;
@@ -63,37 +64,48 @@ impl World {
         }
     }
 
-    /// Indicates whether all four corners of the collision box fall within a traversable tile.
     #[must_use]
-    pub fn is_traversable(
+    pub fn detect_collision(
         &self,
         coordinate: &WorldCoordinate,
         collision_deltas: CollisionDeltas,
-    ) -> bool {
+    ) -> CollisionResult {
         let CollisionDeltas {
             top,
             bottom,
             left,
             right,
         } = collision_deltas;
-        let bottom_left = Vector2d::from_x_y(left, bottom);
-        let bottom_left = coordinate.shifted(bottom_left, self.tile_size);
-        if !self.is_traversable_coordinate(&bottom_left) {
-            return false;
+        let top_left_collided = self.is_collision(coordinate, left, top);
+        let top_right_collided = self.is_collision(coordinate, right, top);
+        let bottom_left_collided = self.is_collision(coordinate, left, bottom);
+        let bottom_right_collided = self.is_collision(coordinate, right, bottom);
+        let top_any = top_left_collided || top_right_collided;
+        let bottom_any = bottom_left_collided || bottom_right_collided;
+        let left_any = top_left_collided || bottom_left_collided;
+        let right_any = top_right_collided || bottom_right_collided;
+        let top_collided = top_any && !bottom_any;
+        let bottom_collided = bottom_any && !top_any;
+        let left_collided = left_any && !right_any;
+        let right_collided = right_any && !left_any;
+
+        let collided = top_left_collided
+            || top_right_collided
+            || bottom_left_collided
+            || bottom_right_collided;
+        CollisionResult {
+            collided,
+            top_collided,
+            bottom_collided,
+            left_collided,
+            right_collided,
         }
-        let bottom_right = Vector2d::from_x_y(right, bottom);
-        let bottom_right = coordinate.shifted(bottom_right, self.tile_size);
-        if !self.is_traversable_coordinate(&bottom_right) {
-            return false;
-        }
-        let top_left = Vector2d::from_x_y(left, top);
-        let top_left = coordinate.shifted(top_left, self.tile_size);
-        if !self.is_traversable_coordinate(&top_left) {
-            return false;
-        }
-        let top_right = Vector2d::from_x_y(right, top);
-        let top_right = coordinate.shifted(top_right, self.tile_size);
-        self.is_traversable_coordinate(&top_right)
+    }
+
+    fn is_collision(&self, coordinate: &WorldCoordinate, delta_x: Length, delta_y: Length) -> bool {
+        let corner = Vector2d::from_x_y(delta_x, delta_y);
+        let corner = coordinate.shifted(corner, self.tile_size);
+        !self.is_traversable_coordinate(&corner)
     }
 
     #[must_use]

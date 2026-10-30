@@ -142,11 +142,16 @@ where
 
 impl<T> Vector2d<T>
 where
-    T: Mul<Output = T> + Add<Output = T> + Copy,
+    T: Copy,
 {
     #[inline]
     #[must_use]
-    pub fn dot(self, other: Self) -> T {
+    pub fn dot<U>(self, other: Vector2d<U>) -> <T as Mul<U>>::Output
+    where
+        T: Mul<U>,
+        U: Copy,
+        <T as Mul<U>>::Output: Add<Output = <T as Mul<U>>::Output>,
+    {
         self.x() * other.x() + self.y() * other.y()
     }
 }
@@ -398,6 +403,29 @@ mod tests {
         let vector = Vector2d::splat(Length::new::<meter>(2.0f32));
         assert_eq!(2.0f32, vector.x().get::<meter>());
         assert_eq!(2.0f32, vector.y().get::<meter>());
+    }
+
+    #[test]
+    fn dot_f32_vectors() {
+        let left = Vector2d::from_x_y(2.0f32, 3.0f32);
+        let right = Vector2d::from_x_y(4.0f32, 5.0f32);
+        assert_eq!(23.0f32, left.dot(right));
+    }
+
+    #[test]
+    fn dot_uom_lengths_gives_area() {
+        let left = Vector2d::from_x_y(Length::new::<meter>(2.0f32), Length::new::<meter>(3.0f32));
+        let right = Vector2d::from_x_y(Length::new::<meter>(4.0f32), Length::new::<meter>(5.0f32));
+        assert_eq!(23.0f32, left.dot(right).get::<square_meter>());
+    }
+
+    #[test]
+    fn dot_uom_velocity_with_f32_keeps_dimension() {
+        let x_velocity = uom::si::f32::Velocity::new::<meter_per_second>(2.0f32);
+        let y_velocity = uom::si::f32::Velocity::new::<meter_per_second>(3.0f32);
+        let velocity = Vector2d::from_x_y(x_velocity, y_velocity);
+        let direction = Vector2d::from_x_y(4.0f32, 5.0f32);
+        assert_eq!(23.0f32, velocity.dot(direction).get::<meter_per_second>());
     }
 
     #[test]

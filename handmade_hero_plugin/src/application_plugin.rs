@@ -1,4 +1,5 @@
 use crate::chunk_key::ChunkKey;
+use crate::collision_result::CollisionResult;
 use crate::dimensions::Dimensions;
 use crate::image::Image;
 use crate::player::Player;
@@ -300,7 +301,27 @@ impl ApplicationPlugin {
 
         let (coordinate_delta, velocity_delta) =
             Self::find_player_deltas(game_state, plugin_state, input_state, controller);
-        if Self::is_traversable(plugin_state, &coordinate_delta) {
+        let collision_result = Self::detect_wall_collision(plugin_state, &coordinate_delta);
+        if collision_result.collided {
+            let reflection_y = if collision_result.bottom_collided {
+                1.0
+            } else if collision_result.top_collided {
+                -1.0
+            } else {
+                0.0
+            };
+            let reflection_x = if collision_result.left_collided {
+                1.0
+            } else if collision_result.right_collided {
+                -1.0
+            } else {
+                0.0
+            };
+            let reflection = Vector2d::from_x_y(reflection_x, reflection_y);
+            let old_velocity = plugin_state.player().velocity();
+            let reflected_velocity = old_velocity - 2.0 * old_velocity.dot(reflection) * reflection;
+            *plugin_state.player_mut().velocity_mut() = reflected_velocity;
+        } else {
             let player_coordinate = plugin_state.player().coordinate();
             let new_coordinates = if let Some(stairs) =
                 Self::find_stairs(plugin_state.world(), &coordinate_delta)
@@ -322,8 +343,8 @@ impl ApplicationPlugin {
                 *plugin_state.camera_coordinate_mut() = camera_coordinates;
             }
             *plugin_state.player_mut().coordinate_mut() = new_coordinates;
+            *plugin_state.player_mut().velocity_mut() = velocity_delta;
         }
-        *plugin_state.player_mut().velocity_mut() = velocity_delta;
 
         let _ = Self::render_chunk(plugin_state, &viewport, buffer);
 
@@ -605,10 +626,13 @@ impl ApplicationPlugin {
         (new_coordinates, new_velocity)
     }
 
-    fn is_traversable(plugin_state: &PluginGameState, coordinates: &WorldCoordinate) -> bool {
+    fn detect_wall_collision(
+        plugin_state: &PluginGameState,
+        coordinates: &WorldCoordinate,
+    ) -> CollisionResult {
         let world = plugin_state.world();
         let collision_deltas = Player::collision_bound_deltas(world.tile_size());
-        world.is_traversable(coordinates, collision_deltas)
+        world.detect_collision(coordinates, collision_deltas)
     }
 
     fn find_stairs(world: &World, coordinates: &WorldCoordinate) -> Option<TileType> {

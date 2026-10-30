@@ -3,6 +3,7 @@ mod chunk;
 mod chunk_coordinate;
 mod chunk_key;
 mod collision_deltas;
+mod collision_result;
 mod dimensions;
 mod image;
 mod player;
