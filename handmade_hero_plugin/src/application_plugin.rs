@@ -199,7 +199,7 @@ impl ApplicationPlugin {
         controller: Option<&'a ControllerState>,
     ) -> (Vector2d<f32>, &'a ControllerState) {
         let (mut throttle, controller) = Self::calculate_input_deltas(input_state, controller);
-        let throttle_squared = throttle.dot(throttle);
+        let throttle_squared = throttle.length_squared();
         if throttle_squared > 1.0 {
             throttle /= throttle_squared.sqrt();
         }
@@ -299,12 +299,13 @@ impl ApplicationPlugin {
 
         Self::ensure_chunks(plugin_state, &viewport);
 
-        let (new_coordinate, new_velocity) = Self::find_new_player_coordinate_and_velocity(
+        let (mut new_coordinate, mut new_velocity) = Self::find_new_player_coordinate_and_velocity(
             game_state,
             plugin_state,
             input_state,
             controller,
         );
+        let old_coordinate = plugin_state.player().coordinate();
         let CollisionResult {
             collided,
             top_collided,
@@ -318,35 +319,28 @@ impl ApplicationPlugin {
             let reflection = Vector2d::from_x_y(reflection_x, reflection_y);
             // No single wall to reflect off, such as in an inside corner, means every way forward
             // is blocked, so send the player straight back.
-            let reflected_velocity = match reflection.normalized() {
+            new_velocity = match reflection.normalized() {
                 Some(normal) => new_velocity - new_velocity.dot(normal) * normal,
                 None => Vector2d::default(),
             };
-            *plugin_state.player_mut().velocity_mut() = reflected_velocity;
-        } else {
-            let player_coordinate = plugin_state.player().coordinate();
-            let new_coordinate = if let Some(stairs) =
-                Self::find_stairs(plugin_state.world(), &new_coordinate)
-                && !player_coordinate.is_same_tile(&new_coordinate)
-            {
-                let player_z = player_coordinate.chunk_key().z();
-                if player_z == 0 && stairs == TileType::UpStairs {
-                    new_coordinate.elevated(1)
-                } else if player_z == 1 && stairs == TileType::DownStairs {
-                    new_coordinate.elevated(-1)
-                } else {
-                    new_coordinate
-                }
-            } else {
-                new_coordinate
-            };
-            if player_coordinate.chunk_key() != new_coordinate.chunk_key() {
-                let camera_coordinates = new_coordinate.centered();
-                *plugin_state.camera_coordinate_mut() = camera_coordinates;
-            }
-            *plugin_state.player_mut().coordinate_mut() = new_coordinate;
-            *plugin_state.player_mut().velocity_mut() = new_velocity;
+            new_coordinate = old_coordinate.clone();
         }
+        if let Some(stairs) = Self::find_stairs(plugin_state.world(), &new_coordinate)
+            && !old_coordinate.is_same_tile(&new_coordinate)
+        {
+            let player_z = old_coordinate.chunk_key().z();
+            if player_z == 0 && stairs == TileType::UpStairs {
+                new_coordinate = new_coordinate.elevated(1);
+            } else if player_z == 1 && stairs == TileType::DownStairs {
+                new_coordinate = new_coordinate.elevated(-1);
+            }
+        }
+        if old_coordinate.chunk_key() != new_coordinate.chunk_key() {
+            let camera_coordinates = new_coordinate.centered();
+            *plugin_state.camera_coordinate_mut() = camera_coordinates;
+        }
+        *plugin_state.player_mut().coordinate_mut() = new_coordinate;
+        *plugin_state.player_mut().velocity_mut() = new_velocity;
 
         let _ = Self::render_chunk(plugin_state, &viewport, buffer);
 

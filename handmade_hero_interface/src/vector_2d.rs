@@ -160,7 +160,13 @@ impl Vector2d<f32> {
     #[inline]
     #[must_use]
     pub fn length(self) -> f32 {
-        self.dot(self).sqrt()
+        self.length_squared().sqrt()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn length_squared(self) -> f32 {
+        self.dot(self)
     }
 
     /// Scales the vector to a length of one, or returns `None` for the zero vector, which has no
