@@ -1,8 +1,9 @@
 use crate::chunk_key::ChunkKey;
+use crate::collision_deltas::CollisionDeltas;
 use crate::collision_result::CollisionResult;
 use crate::dimensions::Dimensions;
+use crate::entity::Entity;
 use crate::image::Image;
-use crate::player::Player;
 use crate::tile_type::TileType;
 use crate::viewport::Viewport;
 use crate::world::World;
@@ -12,7 +13,6 @@ use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
 use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button::Button;
-use handmade_hero_interface::button_state::ButtonState;
 use handmade_hero_interface::color::Color;
 use handmade_hero_interface::controller_state::ControllerState;
 use handmade_hero_interface::display::Display;
@@ -40,7 +40,6 @@ use image::ImageReader;
 use rand::prelude::*;
 use std::f32;
 use std::io::Cursor;
-#[cfg(feature = "audio_debug")]
 use uom::num::Zero;
 use uom::si::acceleration::meter_per_second_squared;
 use uom::si::frequency::hertz;
@@ -73,15 +72,30 @@ impl ApplicationPlugin {
     ) {
         #[cfg(feature = "audio_debug")]
         Self::initialize_audio_debugging(game_state, plugin_state);
-
-        let world = plugin_state.world();
-        let player = plugin_state.player();
-        let new_coordinates = WorldCoordinate::new(world, player.chunk_key());
-        let new_coordinates = new_coordinates.centered();
-        *plugin_state.camera_coordinate_mut() = new_coordinates.clone();
-        *plugin_state.player_mut().coordinate_mut() = new_coordinates;
-
         self.player_image = Self::load_image(io, "player.bmp");
+
+        // Create the primary player, initially linked to the keyboard
+        let position = plugin_state.camera_position().centered();
+        let mut player = Entity::new(position);
+        let tile_size = plugin_state.world().tile_size();
+        Self::set_player_collision(&mut player, tile_size);
+        let entity_index = plugin_state.add_player(player);
+        plugin_state.map_controller_to_player_index(0, entity_index);
+    }
+
+    fn set_player_collision(player: &mut Entity, tile_size: Length) {
+        let height = tile_size * 0.9f32;
+        let width = tile_size * 0.75f32;
+        let left_delta = -0.5 * width;
+        let right_delta = 0.5 * width;
+        let bound_height = 0.125 * height;
+        let deltas = CollisionDeltas {
+            top: bound_height,
+            bottom: Length::zero(),
+            left: left_delta,
+            right: right_delta,
+        };
+        player.set_collision(deltas);
     }
 
     #[cfg(feature = "audio_debug")]
@@ -171,108 +185,6 @@ impl ApplicationPlugin {
         )
     }
 
-    fn calculate_deltas(
-        input_state: &InputState,
-        game_state: &GameState,
-        plugin_state: &PluginGameState,
-        controller: Option<&ControllerState>,
-    ) -> (Vector2d<Length>, Vector2d<Velocity>) {
-        let (throttle, controller) = Self::calculate_throttle(input_state, controller);
-
-        let is_running = plugin_state.player().running()
-            || (controller.keyboard() && input_state.keyboard().is_shift_down());
-        let max_acceleration =
-            Acceleration::new::<meter_per_second_squared>(if is_running { 100.0 } else { 50.0 });
-        let acceleration = throttle * max_acceleration;
-        let velocity = plugin_state.player().velocity(); // m/s
-        let drag = 1.0 / Time::new::<second>(0.125); // hz (or 1/s)
-        let drag_coefficient = drag * velocity; // m/s^2
-        let acceleration = acceleration - drag_coefficient;
-        let elapsed = game_state.frame_duration(); // s
-        let position_delta = (0.5 * acceleration * elapsed * elapsed) + velocity * elapsed; // m/s^2 * s^2 + m/s * s = m
-        let velocity_delta = acceleration * elapsed; // m/s^2 * s = m/s
-        (position_delta, velocity_delta)
-    }
-
-    fn calculate_throttle<'a>(
-        input_state: &'a InputState,
-        controller: Option<&'a ControllerState>,
-    ) -> (Vector2d<f32>, &'a ControllerState) {
-        let (mut throttle, controller) = Self::calculate_input_deltas(input_state, controller);
-        let throttle_squared = throttle.length_squared();
-        if throttle_squared > 1.0 {
-            throttle /= throttle_squared.sqrt();
-        }
-        (throttle, controller)
-    }
-
-    fn calculate_input_deltas<'a>(
-        input_state: &'a InputState,
-        controller: Option<&'a ControllerState>,
-    ) -> (Vector2d<f32>, &'a ControllerState) {
-        let keyboard = input_state.keyboard().as_controller();
-        let delta_x = Self::calculate_keyboard_delta_x(keyboard);
-        let delta_y = Self::calculate_keyboard_delta_y(keyboard);
-        if delta_x != 0.0 || delta_y != 0.0 {
-            let delta = Vector2d::from_x_y(delta_x, delta_y);
-            return (delta, keyboard);
-        }
-        if let Some(controller) = controller {
-            let delta_x = Self::calculate_controller_delta_x(controller);
-            let delta_y = Self::calculate_controller_delta_y(controller);
-            let delta = Vector2d::from_x_y(delta_x, delta_y);
-            return (delta, controller);
-        }
-        (Vector2d::default(), keyboard)
-    }
-
-    #[inline]
-    #[must_use]
-    fn calculate_keyboard_delta_x(keyboard: &ControllerState) -> f32 {
-        Self::calculate_input_delta(*keyboard.right(), *keyboard.left())
-    }
-
-    #[inline]
-    #[must_use]
-    fn calculate_keyboard_delta_y(keyboard: &ControllerState) -> f32 {
-        Self::calculate_input_delta(*keyboard.up(), *keyboard.down())
-    }
-
-    #[must_use]
-    fn calculate_input_delta(positive: ButtonState, negative: ButtonState) -> f32 {
-        if positive.ended_down() {
-            if negative.ended_down() { 0.0 } else { 1.0 }
-        } else if negative.ended_down() {
-            -1.0
-        } else {
-            0.0
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    fn calculate_controller_delta_x(controller: &ControllerState) -> f32 {
-        if controller.left().ended_down() {
-            -1.0
-        } else if controller.right().ended_down() {
-            1.0
-        } else {
-            controller.left_joystick().x_ratio()
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    fn calculate_controller_delta_y(controller: &ControllerState) -> f32 {
-        if controller.up().ended_down() {
-            1.0
-        } else if controller.down().ended_down() {
-            -1.0
-        } else {
-            controller.left_joystick().y_ratio()
-        }
-    }
-
     fn update_render_direct(
         &self,
         game_state: &GameState,
@@ -280,15 +192,7 @@ impl ApplicationPlugin {
         input_state: &InputState,
         buffer: &mut BackBuffer,
     ) {
-        let controller = Self::detect_primary_controller(plugin_state, input_state);
-        if let Some(controller) = controller {
-            if controller.left_thumb().was_released() {
-                plugin_state.player_mut().toggle_running();
-            }
-
-            let zoom = Self::calculate_zoom(game_state, plugin_state.zoom(), controller);
-            plugin_state.set_zoom(zoom);
-        }
+        Self::detect_controllers(plugin_state, input_state);
 
         let viewport = Viewport::fit(
             plugin_state.world(),
@@ -299,52 +203,9 @@ impl ApplicationPlugin {
 
         Self::ensure_chunks(plugin_state, &viewport);
 
-        let (mut new_coordinate, mut new_velocity) = Self::find_new_player_coordinate_and_velocity(
-            game_state,
-            plugin_state,
-            input_state,
-            controller,
-        );
-        let old_coordinate = plugin_state.player().coordinate();
-        let CollisionResult {
-            collided,
-            top_collided,
-            bottom_collided,
-            left_collided,
-            right_collided,
-        } = Self::detect_wall_collision(plugin_state, &new_coordinate);
-        if collided {
-            let reflection_y = Self::reflection(bottom_collided, top_collided);
-            let reflection_x = Self::reflection(left_collided, right_collided);
-            let reflection = Vector2d::from_x_y(reflection_x, reflection_y);
-            // No single wall to reflect off, such as in an inside corner, means every way forward
-            // is blocked, so send the player straight back.
-            new_velocity = match reflection.normalized() {
-                Some(normal) => new_velocity - new_velocity.dot(normal) * normal,
-                None => Vector2d::default(),
-            };
-            new_coordinate = old_coordinate.clone();
-        }
-        if let Some(stairs) = Self::find_stairs(plugin_state.world(), &new_coordinate)
-            && !old_coordinate.is_same_tile(&new_coordinate)
-        {
-            let player_z = old_coordinate.chunk_key().z();
-            if player_z == 0 && stairs == TileType::UpStairs {
-                new_coordinate = new_coordinate.elevated(1);
-            } else if player_z == 1 && stairs == TileType::DownStairs {
-                new_coordinate = new_coordinate.elevated(-1);
-            }
-        }
-        if old_coordinate.chunk_key() != new_coordinate.chunk_key() {
-            let camera_coordinates = new_coordinate.centered();
-            *plugin_state.camera_coordinate_mut() = camera_coordinates;
-        }
-        *plugin_state.player_mut().coordinate_mut() = new_coordinate;
-        *plugin_state.player_mut().velocity_mut() = new_velocity;
-
         let _ = Self::render_chunk(plugin_state, &viewport, buffer);
 
-        self.render_player(plugin_state, &viewport, buffer);
+        self.update_and_render_players(game_state, input_state, plugin_state, &viewport, buffer);
 
         #[cfg(feature = "audio_debug")]
         let _ = Self::render_audio(game_state, plugin_state, &viewport, buffer);
@@ -353,61 +214,29 @@ impl ApplicationPlugin {
         let _ = Self::render_mouse(input_state, &viewport, buffer);
     }
 
-    fn reflection(positive: bool, negative: bool) -> f32 {
-        if positive {
-            1.0
-        } else if negative {
-            -1.0
-        } else {
-            0.0
-        }
-    }
-
-    /// Scales the zoom by the right joystick's vertical tilt.
-    ///
-    /// Zooming multiplies rather than adds, so each second the stick is held changes the zoom
-    /// by the same ratio at every level, and tilting the other way exactly undoes it.
-    #[must_use]
-    fn calculate_zoom(
-        game_state: &GameState,
-        previous_zoom: f32,
-        controller: &ControllerState,
-    ) -> f32 {
-        const MIN_ZOOM: f32 = 0.25;
-        const MAX_ZOOM: f32 = 2.0;
-        // A fully tilted stick doubles or halves the zoom this many times per second.
-        const DOUBLINGS_PER_SECOND: f32 = 1.0;
-
-        let tilt = controller.right_joystick().y_ratio();
-        let seconds = game_state.frame_duration().get::<second>();
-        let zoom = previous_zoom * (DOUBLINGS_PER_SECOND * tilt * seconds).exp2();
-        zoom.clamp(MIN_ZOOM, MAX_ZOOM)
-    }
-
-    fn detect_primary_controller<'a>(
-        plugin_state: &mut PluginGameState,
-        input_state: &'a InputState,
-    ) -> Option<&'a ControllerState> {
-        if let Some(primary_index) = plugin_state.primary_controller_index()
-            && let Some(primary_controller) = input_state.controller_at(primary_index)
-        {
-            if primary_controller.enabled() {
-                // The primary controller is already detected and enabled
-                return Some(primary_controller);
-            }
-            plugin_state.clear_primary_controller_index();
-            return None;
-        }
-        // NOTE: In the future, when we support multiple players, we won't want to allow players
-        // to "steal" another player's character when they get disconnected. Once a player gets
-        // assigned a slot, they are stuck to until their controller is disconnected.
+    fn detect_controllers(plugin_state: &mut PluginGameState, input_state: &InputState) {
         for (index, controller) in input_state.controllers().enumerate() {
-            if controller.enabled() && Self::is_input_detected(controller) {
-                plugin_state.set_primary_controller_index(index);
-                return Some(controller);
+            let index = index + 1; // Reserve 0 for the keyboard!
+            if controller.enabled() {
+                if plugin_state.player_by_controller_index(index).is_none()
+                    && Self::is_input_detected(controller)
+                {
+                    let position = plugin_state.camera_position().centered();
+                    let mut player = Entity::new(position);
+                    let tile_size = plugin_state.world().tile_size();
+                    Self::set_player_collision(&mut player, tile_size);
+                    let entity_index = plugin_state.add_player(player);
+                    plugin_state.map_controller_to_player_index(index, entity_index);
+                    if plugin_state.primary_controller_index().is_none() {
+                        plugin_state.set_primary_controller_index(index);
+                    }
+                }
+            } else if let Some(primary_index) = plugin_state.primary_controller_index()
+                && primary_index == index
+            {
+                plugin_state.clear_primary_controller_index();
             }
         }
-        None
     }
 
     /// For local development purposes, we detect inputs by checking for any sort of input.
@@ -431,7 +260,7 @@ impl ApplicationPlugin {
     }
 
     fn ensure_chunks(plugin_state: &mut PluginGameState, viewport: &Viewport) {
-        let center = Self::view_center(plugin_state);
+        let center = Self::view_center(plugin_state).clone();
         let Dimensions { width, height } = viewport.bounds();
         // We give ourselves an extra tile of margin on either side
         let tile_size = plugin_state.world().tile_size();
@@ -442,8 +271,8 @@ impl ApplicationPlugin {
         world.ensure_chunks(bottom_left, top_right, Self::initialize_chunk);
 
         // For now, let's just also create tiles on both floors
-        let player_z = plugin_state.player().coordinate().chunk_key().z();
-        let z_delta = Self::find_delta_z(player_z);
+        let chunk_z = center.chunk_key().z();
+        let z_delta = Self::find_delta_z(chunk_z);
         let bottom_left = bottom_left.shifted(0, 0, z_delta);
         let top_right = top_right.shifted(0, 0, z_delta);
         let world = plugin_state.world_mut();
@@ -611,43 +440,6 @@ impl ApplicationPlugin {
         right_neighbor_has_door.unwrap_or_else(generator)
     }
 
-    /// The world position drawn at the center of the screen.
-    fn view_center(plugin_state: &PluginGameState) -> &WorldCoordinate {
-        plugin_state.camera_coordinate()
-    }
-
-    fn find_new_player_coordinate_and_velocity(
-        game_state: &GameState,
-        plugin_state: &PluginGameState,
-        input_state: &InputState,
-        controller: Option<&ControllerState>,
-    ) -> (WorldCoordinate, Vector2d<Velocity>) {
-        let (position_delta, velocity_delta) =
-            Self::calculate_deltas(input_state, game_state, plugin_state, controller);
-
-        let world = plugin_state.world();
-        let old_coordinates = plugin_state.player().coordinate();
-        let new_coordinates = old_coordinates.shifted(position_delta, world.tile_size());
-        let new_velocity = plugin_state.player().velocity() + velocity_delta;
-        (new_coordinates, new_velocity)
-    }
-
-    fn detect_wall_collision(
-        plugin_state: &PluginGameState,
-        coordinates: &WorldCoordinate,
-    ) -> CollisionResult {
-        let world = plugin_state.world();
-        let collision_deltas = Player::collision_bound_deltas(world.tile_size());
-        world.detect_collision(coordinates, collision_deltas)
-    }
-
-    fn find_stairs(world: &World, coordinates: &WorldCoordinate) -> Option<TileType> {
-        world
-            .get_chunk(coordinates.chunk_key())
-            .and_then(|c| c.get(coordinates.tile_y(), coordinates.tile_x()))
-            .filter(|t| t.is_stairs())
-    }
-
     fn render_chunk(
         plugin_state: &PluginGameState,
         viewport: &Viewport,
@@ -658,7 +450,6 @@ impl ApplicationPlugin {
         let world = plugin_state.world();
         let tile_size = world.tile_size();
         let half_tile_size = tile_size / 2.0;
-        let player_coordinate = plugin_state.player().coordinate();
         let center = Self::view_center(plugin_state);
         let (center_x_offset, center_y_offset) = center.tile_offset().to_tuple();
         let Dimensions { width, height } = viewport.bounds();
@@ -677,8 +468,7 @@ impl ApplicationPlugin {
                 // shows up as bars rather than a peek into the neighboring chunks.
                 let color = if tile.chunk_key() == center.chunk_key() {
                     Self::determine_tile_color(
-                        world,
-                        player_coordinate,
+                        plugin_state,
                         tile.chunk_key(),
                         tile.tile_x(),
                         tile.tile_y(),
@@ -700,18 +490,21 @@ impl ApplicationPlugin {
     }
 
     fn determine_tile_color(
-        world: &World,
-        player_coordinate: &WorldCoordinate,
+        plugin_state: &PluginGameState,
         chunk_key: ChunkKey,
         tile_x: u8,
         tile_y: u8,
     ) -> Color<f32> {
+        let world = plugin_state.world();
         let tile = world.get_chunk(chunk_key).map(|c| c[(tile_y, tile_x)]);
         if let Some(tile) = tile {
-            if chunk_key == player_coordinate.chunk_key()
-                && tile_y == player_coordinate.tile_y()
-                && tile_x == player_coordinate.tile_x()
-            {
+            let is_player_coordinate = plugin_state.players().any(|p| {
+                let position = p.position();
+                chunk_key == position.chunk_key()
+                    && tile_y == position.tile_y()
+                    && tile_x == position.tile_x()
+            });
+            if is_player_coordinate {
                 return Color::from(Color::from_rgb(0x00, 0x00, 0x00));
             } else if tile == TileType::Floor {
                 return Color::from(Color::from_rgb(0xCC, 0xCC, 0xCC));
@@ -727,19 +520,254 @@ impl ApplicationPlugin {
         Color::from(Color::from_rgb(0xCC, 0x00, 0xCC))
     }
 
+    fn update_and_render_players(
+        &self,
+        game_state: &GameState,
+        input_state: &InputState,
+        plugin_state: &mut PluginGameState,
+        viewport: &Viewport,
+        buffer: &mut BackBuffer,
+    ) {
+        let mut primary_updated = false;
+        for (index, controller) in input_state.controllers().enumerate() {
+            if controller.enabled() {
+                let index = index + 1; // 0 is reserved for the keyboard!
+                self.update_and_render_player(
+                    game_state,
+                    plugin_state,
+                    viewport,
+                    buffer,
+                    index,
+                    controller,
+                );
+                if let Some(primary_index) = plugin_state.primary_controller_index()
+                    && index == primary_index
+                {
+                    // Avoid updating the primary player twice!
+                    primary_updated = true;
+                }
+            }
+        }
+        if !primary_updated {
+            let keyboard = input_state.keyboard().as_controller();
+            self.update_and_render_player(game_state, plugin_state, viewport, buffer, 0, keyboard);
+        }
+    }
+
+    fn update_and_render_player(
+        &self,
+        game_state: &GameState,
+        plugin_state: &mut PluginGameState,
+        viewport: &Viewport,
+        buffer: &mut BackBuffer,
+        controller_index: usize,
+        controller: &ControllerState,
+    ) {
+        let zoom = Self::calculate_zoom(game_state, plugin_state.zoom(), controller);
+        plugin_state.set_zoom(zoom);
+
+        let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
+            return;
+        };
+        let (mut new_coordinate, mut new_velocity) = Self::find_new_player_coordinate_and_velocity(
+            game_state,
+            plugin_state,
+            controller_index,
+            controller,
+            player,
+        );
+
+        let old_coordinate = player.position();
+        let CollisionResult {
+            collided,
+            top_collided,
+            bottom_collided,
+            left_collided,
+            right_collided,
+        } = Self::detect_wall_collision(plugin_state, &new_coordinate, player);
+        if collided {
+            let reflection_y = Self::reflection(bottom_collided, top_collided);
+            let reflection_x = Self::reflection(left_collided, right_collided);
+            let reflection = Vector2d::from_x_y(reflection_x, reflection_y);
+            // No single wall to reflect off, such as in an inside corner, means every way forward
+            // is blocked, so send the player straight back.
+            new_velocity = match reflection.normalized() {
+                Some(normal) => new_velocity - new_velocity.dot(normal) * normal,
+                None => Vector2d::default(),
+            };
+            new_coordinate = old_coordinate.clone();
+        }
+        if let Some(stairs) = Self::find_stairs(plugin_state.world(), &new_coordinate)
+            && !old_coordinate.is_same_tile(&new_coordinate)
+        {
+            let player_z = old_coordinate.chunk_key().z();
+            if player_z == 0 && stairs == TileType::UpStairs {
+                new_coordinate = new_coordinate.elevated(1);
+            } else if player_z == 1 && stairs == TileType::DownStairs {
+                new_coordinate = new_coordinate.elevated(-1);
+            }
+        }
+        if old_coordinate.chunk_key() != new_coordinate.chunk_key() {
+            let camera_coordinates = new_coordinate.centered();
+            *plugin_state.camera_position_mut() = camera_coordinates;
+        }
+
+        if let Some(player) = plugin_state.player_by_controller_index_mut(controller_index) {
+            *player.position_mut() = new_coordinate.clone();
+            *player.velocity_mut() = new_velocity;
+        }
+
+        self.render_player(plugin_state, viewport, buffer, &new_coordinate);
+    }
+
+    /// Scales the zoom by the right joystick's vertical tilt.
+    ///
+    /// Zooming multiplies rather than adds, so each second the stick is held changes the zoom
+    /// by the same ratio at every level, and tilting the other way exactly undoes it.
+    #[must_use]
+    fn calculate_zoom(
+        game_state: &GameState,
+        previous_zoom: f32,
+        controller: &ControllerState,
+    ) -> f32 {
+        const MIN_ZOOM: f32 = 0.25;
+        const MAX_ZOOM: f32 = 2.0;
+        // A fully tilted stick doubles or halves the zoom this many times per second.
+        const DOUBLINGS_PER_SECOND: f32 = 1.0;
+
+        let tilt = controller.right_joystick().y_ratio();
+        let seconds = game_state.frame_duration().get::<second>();
+        let zoom = previous_zoom * (DOUBLINGS_PER_SECOND * tilt * seconds).exp2();
+        zoom.clamp(MIN_ZOOM, MAX_ZOOM)
+    }
+
+    fn find_new_player_coordinate_and_velocity(
+        game_state: &GameState,
+        plugin_state: &PluginGameState,
+        controller_index: usize,
+        controller: &ControllerState,
+        player: &Entity,
+    ) -> (WorldCoordinate, Vector2d<Velocity>) {
+        let (position_delta, velocity_delta) =
+            Self::calculate_deltas(game_state, plugin_state, controller_index, controller);
+
+        let world = plugin_state.world();
+        let old_coordinates = player.position();
+        let new_coordinates = old_coordinates.shifted(position_delta, world.tile_size());
+        let new_velocity = player.velocity() + velocity_delta;
+        (new_coordinates, new_velocity)
+    }
+
+    fn calculate_deltas(
+        game_state: &GameState,
+        plugin_state: &PluginGameState,
+        controller_index: usize,
+        controller: &ControllerState,
+    ) -> (Vector2d<Length>, Vector2d<Velocity>) {
+        let throttle = Self::calculate_throttle(controller);
+        let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
+            return (Vector2d::default(), Vector2d::default());
+        };
+
+        let max_acceleration = Acceleration::new::<meter_per_second_squared>(50.0);
+        let acceleration = throttle * max_acceleration;
+        let velocity = player.velocity(); // m/s
+        let drag = 1.0 / Time::new::<second>(0.125); // hz (or 1/s)
+        let drag_coefficient = drag * velocity; // m/s^2
+        let acceleration = acceleration - drag_coefficient;
+        let elapsed = game_state.frame_duration(); // s
+        let position_delta = (0.5 * acceleration * elapsed * elapsed) + velocity * elapsed; // m/s^2 * s^2 + m/s * s = m
+        let velocity_delta = acceleration * elapsed; // m/s^2 * s = m/s
+        (position_delta, velocity_delta)
+    }
+
+    fn calculate_throttle(controller: &ControllerState) -> Vector2d<f32> {
+        let mut throttle = Self::calculate_input_deltas(controller);
+        let throttle_squared = throttle.length_squared();
+        if throttle_squared > 1.0 {
+            throttle /= throttle_squared.sqrt();
+        }
+        throttle
+    }
+
+    fn calculate_input_deltas(controller: &ControllerState) -> Vector2d<f32> {
+        let delta_x = Self::calculate_controller_delta_x(controller);
+        let delta_y = Self::calculate_controller_delta_y(controller);
+        Vector2d::from_x_y(delta_x, delta_y)
+    }
+
+    #[inline]
+    #[must_use]
+    fn calculate_controller_delta_x(controller: &ControllerState) -> f32 {
+        if controller.left().ended_down() {
+            -1.0
+        } else if controller.right().ended_down() {
+            1.0
+        } else {
+            controller.left_joystick().x_ratio()
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    fn calculate_controller_delta_y(controller: &ControllerState) -> f32 {
+        if controller.up().ended_down() {
+            1.0
+        } else if controller.down().ended_down() {
+            -1.0
+        } else {
+            controller.left_joystick().y_ratio()
+        }
+    }
+
+    fn reflection(positive: bool, negative: bool) -> f32 {
+        if positive {
+            1.0
+        } else if negative {
+            -1.0
+        } else {
+            0.0
+        }
+    }
+
+    /// The world position drawn at the center of the screen.
+    fn view_center(plugin_state: &PluginGameState) -> &WorldCoordinate {
+        plugin_state.camera_position()
+    }
+
+    fn detect_wall_collision(
+        plugin_state: &PluginGameState,
+        coordinates: &WorldCoordinate,
+        player: &Entity,
+    ) -> CollisionResult {
+        let world = plugin_state.world();
+        if let Some(collision_deltas) = player.collision() {
+            world.detect_collision(coordinates, collision_deltas)
+        } else {
+            CollisionResult::default()
+        }
+    }
+
+    fn find_stairs(world: &World, coordinates: &WorldCoordinate) -> Option<TileType> {
+        world
+            .get_chunk(coordinates.chunk_key())
+            .and_then(|c| c.get(coordinates.tile_y(), coordinates.tile_x()))
+            .filter(|t| t.is_stairs())
+    }
+
     fn render_player(
         &self,
         plugin_state: &PluginGameState,
         viewport: &Viewport,
         buffer: &mut BackBuffer,
+        position: &WorldCoordinate,
     ) {
         let Some(ref image) = self.player_image else {
             return;
         };
-        let player_coordinate = plugin_state.player().coordinate();
-        let camera_coordinate = plugin_state.camera_coordinate();
+        let camera_coordinate = plugin_state.camera_position();
         let tile_size = plugin_state.world().tile_size();
-        let delta = player_coordinate.distance_to(camera_coordinate, tile_size);
+        let delta = position.distance_to(camera_coordinate, tile_size);
         #[expect(clippy::cast_precision_loss)]
         let height = viewport.to_meters(image.buffer().height_px() as f32);
         #[expect(clippy::cast_precision_loss)]
