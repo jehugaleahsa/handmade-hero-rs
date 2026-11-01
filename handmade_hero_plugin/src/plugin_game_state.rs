@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::chunk_key::ChunkKey;
 use crate::entity::Entity;
 use crate::plugin_audio_state::PluginAudioState;
@@ -14,6 +16,7 @@ pub struct PluginGameState {
     camera_position: WorldCoordinate,
     audio: PluginAudioState,
     primary_controller_index: Option<usize>,
+    player_disabled: HashSet<usize>,
     controller_player_indexes: Vec<Option<usize>>,
     zoom: f32,
 }
@@ -32,6 +35,7 @@ impl PluginGameState {
             audio: PluginAudioState::new(),
             primary_controller_index: None,
             controller_player_indexes: Vec::new(),
+            player_disabled: HashSet::new(),
             zoom: 1.0,
         }
     }
@@ -111,9 +115,17 @@ impl PluginGameState {
 
     #[inline]
     #[must_use]
+    pub fn player_index_by_controller_index(&self, controller_index: usize) -> Option<usize> {
+        self.controller_player_indexes
+            .get(controller_index)
+            .and_then(|i| *i)
+    }
+
+    #[inline]
+    #[must_use]
     pub fn player_by_controller_index(&self, controller_index: usize) -> Option<&Entity> {
-        if let Some(Some(index)) = self.controller_player_indexes.get(controller_index) {
-            self.entity(*index)
+        if let Some(index) = self.player_index_by_controller_index(controller_index) {
+            self.entity(index)
         } else {
             None
         }
@@ -125,8 +137,8 @@ impl PluginGameState {
         &mut self,
         controller_index: usize,
     ) -> Option<&mut Entity> {
-        if let Some(Some(index)) = self.controller_player_indexes.get(controller_index) {
-            self.entity_mut(*index)
+        if let Some(index) = self.player_index_by_controller_index(controller_index) {
+            self.entity_mut(index)
         } else {
             None
         }
@@ -145,6 +157,22 @@ impl PluginGameState {
         let index = self.entities.len();
         self.entities.push(player);
         index
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn is_player_disabled(&self, player_index: usize) -> bool {
+        self.player_disabled.contains(&player_index)
+    }
+
+    #[inline]
+    pub fn enable_player(&mut self, player_index: usize) {
+        self.player_disabled.remove(&player_index);
+    }
+
+    #[inline]
+    pub fn disable_player(&mut self, player_index: usize) {
+        self.player_disabled.insert(player_index);
     }
 
     #[inline]

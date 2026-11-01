@@ -218,24 +218,43 @@ impl ApplicationPlugin {
         for (index, controller) in input_state.controllers().enumerate() {
             let index = index + 1; // Reserve 0 for the keyboard!
             if controller.enabled() {
-                if plugin_state.player_by_controller_index(index).is_none()
+                if Self::is_player_is_disabled(plugin_state, index)
                     && Self::is_input_detected(controller)
                 {
-                    let position = plugin_state.camera_position().centered();
-                    let mut player = Entity::new(position);
-                    let tile_size = plugin_state.world().tile_size();
-                    Self::set_player_collision(&mut player, tile_size);
-                    let entity_index = plugin_state.add_player(player);
-                    plugin_state.map_controller_to_player_index(index, entity_index);
-                    if plugin_state.primary_controller_index().is_none() {
+                    let player_index = if plugin_state.primary_controller_index().is_some() {
+                        // The primary index is already assigned - new player
+                        let position = plugin_state.camera_position().centered();
+                        let mut player = Entity::new(position);
+                        let tile_size = plugin_state.world().tile_size();
+                        Self::set_player_collision(&mut player, tile_size);
+                        plugin_state.add_player(player)
+                    } else {
+                        // This is the first controller registered - share the keyboard player
                         plugin_state.set_primary_controller_index(index);
-                    }
+                        plugin_state.player_index_by_controller_index(0).unwrap() // Always a keyboard
+                    };
+                    plugin_state.map_controller_to_player_index(index, player_index);
+                    plugin_state.enable_player(player_index);
                 }
-            } else if let Some(primary_index) = plugin_state.primary_controller_index()
-                && primary_index == index
-            {
-                plugin_state.clear_primary_controller_index();
+            } else {
+                if let Some(player_index) = plugin_state.player_index_by_controller_index(index) {
+                    plugin_state.disable_player(player_index);
+                }
+                if let Some(primary_index) = plugin_state.primary_controller_index()
+                    && primary_index == index
+                {
+                    plugin_state.clear_primary_controller_index();
+                }
             }
+        }
+    }
+
+    fn is_player_is_disabled(plugin_state: &PluginGameState, controller_index: usize) -> bool {
+        if let Some(player_index) = plugin_state.player_index_by_controller_index(controller_index)
+        {
+            plugin_state.is_player_disabled(player_index)
+        } else {
+            true
         }
     }
 
