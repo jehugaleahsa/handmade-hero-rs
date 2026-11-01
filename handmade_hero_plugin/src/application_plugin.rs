@@ -80,7 +80,7 @@ impl ApplicationPlugin {
         let tile_size = plugin_state.world().tile_size();
         Self::set_player_collision(&mut player, tile_size);
         let entity_index = plugin_state.add_player(player);
-        plugin_state.map_controller_to_player_index(0, entity_index);
+        plugin_state.map_controller_to_player_index(PluginGameState::KEYBOARD_INDEX, entity_index);
     }
 
     fn set_player_collision(player: &mut Entity, tile_size: Length) {
@@ -231,7 +231,9 @@ impl ApplicationPlugin {
                     } else {
                         // This is the first controller registered - share the keyboard player
                         plugin_state.set_primary_controller_index(index);
-                        plugin_state.player_index_by_controller_index(0).unwrap() // Always a keyboard
+                        plugin_state
+                            .player_index_by_controller_index(PluginGameState::KEYBOARD_INDEX)
+                            .unwrap() // SAFETY: Always a keyboard
                     };
                     plugin_state.map_controller_to_player_index(index, player_index);
                     plugin_state.enable_player(player_index);
@@ -547,46 +549,46 @@ impl ApplicationPlugin {
         viewport: &Viewport,
         buffer: &mut BackBuffer,
     ) {
-        let mut primary_updated = false;
         for (index, controller) in input_state.controllers().enumerate() {
             if controller.enabled() {
                 let index = index + 1; // 0 is reserved for the keyboard!
-                self.update_and_render_player(
-                    game_state,
-                    plugin_state,
-                    viewport,
-                    buffer,
-                    index,
-                    controller,
-                );
-                if let Some(primary_index) = plugin_state.primary_controller_index()
-                    && index == primary_index
+                if let Some(new_coordinate) =
+                    self.update_player(game_state, plugin_state, index, controller)
                 {
-                    // Avoid updating the primary player twice!
-                    primary_updated = true;
+                    // Avoid rendering the primary player twice, but process both inputs
+                    if plugin_state
+                        .primary_controller_index()
+                        .is_none_or(|pi| pi != index)
+                    {
+                        self.render_player(plugin_state, viewport, buffer, &new_coordinate);
+                    }
                 }
             }
         }
-        if !primary_updated {
-            let keyboard = input_state.keyboard().as_controller();
-            self.update_and_render_player(game_state, plugin_state, viewport, buffer, 0, keyboard);
+
+        let keyboard = input_state.keyboard().as_controller();
+        if let Some(new_coordinate) = self.update_player(
+            game_state,
+            plugin_state,
+            PluginGameState::KEYBOARD_INDEX,
+            keyboard,
+        ) {
+            self.render_player(plugin_state, viewport, buffer, &new_coordinate);
         }
     }
 
-    fn update_and_render_player(
+    fn update_player(
         &self,
         game_state: &GameState,
         plugin_state: &mut PluginGameState,
-        viewport: &Viewport,
-        buffer: &mut BackBuffer,
         controller_index: usize,
         controller: &ControllerState,
-    ) {
+    ) -> Option<WorldCoordinate> {
         let zoom = Self::calculate_zoom(game_state, plugin_state.zoom(), controller);
         plugin_state.set_zoom(zoom);
 
         let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
-            return;
+            return None;
         };
         let (mut new_coordinate, mut new_velocity) = Self::find_new_player_coordinate_and_velocity(
             game_state,
@@ -634,9 +636,10 @@ impl ApplicationPlugin {
         if let Some(player) = plugin_state.player_by_controller_index_mut(controller_index) {
             *player.position_mut() = new_coordinate.clone();
             *player.velocity_mut() = new_velocity;
+            Some(new_coordinate)
+        } else {
+            None
         }
-
-        self.render_player(plugin_state, viewport, buffer, &new_coordinate);
     }
 
     /// Scales the zoom by the right joystick's vertical tilt.
@@ -683,11 +686,11 @@ impl ApplicationPlugin {
         controller_index: usize,
         controller: &ControllerState,
     ) -> (Vector2d<Length>, Vector2d<Velocity>) {
-        let throttle = Self::calculate_throttle(controller);
         let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
             return (Vector2d::default(), Vector2d::default());
         };
 
+        let throttle = Self::calculate_throttle(controller);
         let max_acceleration = Acceleration::new::<meter_per_second_squared>(50.0);
         let acceleration = throttle * max_acceleration;
         let velocity = player.velocity(); // m/s

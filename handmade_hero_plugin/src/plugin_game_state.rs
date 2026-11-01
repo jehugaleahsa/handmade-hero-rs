@@ -22,6 +22,8 @@ pub struct PluginGameState {
 }
 
 impl PluginGameState {
+    pub const KEYBOARD_INDEX: usize = 0;
+
     #[must_use]
     pub fn new() -> Self {
         let tile_size = Length::new::<meter>(1.4);
