@@ -226,7 +226,6 @@ impl WorldCoordinate {
     #[inline]
     #[must_use]
     pub fn distance_to(&self, other: &Self, tile_size: Length) -> Vector2d<Length> {
-        debug_assert_eq!(self.chunk_key, other.chunk_key);
         let from_coordinate = Point2d::<f32>::from(self.chunk_coordinate.offset());
         let to_coordinate = Point2d::<f32>::from(other.chunk_coordinate.offset());
         let tile_distance = from_coordinate - to_coordinate;
