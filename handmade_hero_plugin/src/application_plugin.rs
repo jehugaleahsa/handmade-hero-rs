@@ -549,31 +549,38 @@ impl ApplicationPlugin {
         viewport: &Viewport,
         buffer: &mut BackBuffer,
     ) {
+        let mut primary_rendered = false;
         for (index, controller) in input_state.controllers().enumerate() {
             if controller.enabled() {
                 let index = index + 1; // 0 is reserved for the keyboard!
-                if let Some(new_coordinate) =
+                if let (Some(new_coordinate), provided) =
                     self.update_player(game_state, plugin_state, index, controller)
                 {
-                    // Avoid rendering the primary player twice, but process both inputs
+                    // Render non-primary players immediately. Only render the primary
+                    // player if input was provided. Otherwise, fallback to the keyboard.
+                    // This prevents double movement for the primary player.
                     if plugin_state
                         .primary_controller_index()
                         .is_none_or(|pi| pi != index)
+                        || provided
                     {
                         self.render_player(plugin_state, viewport, buffer, &new_coordinate);
+                        primary_rendered = provided;
                     }
                 }
             }
         }
 
-        let keyboard = input_state.keyboard().as_controller();
-        if let Some(new_coordinate) = self.update_player(
-            game_state,
-            plugin_state,
-            PluginGameState::KEYBOARD_INDEX,
-            keyboard,
-        ) {
-            self.render_player(plugin_state, viewport, buffer, &new_coordinate);
+        if !primary_rendered {
+            let keyboard = input_state.keyboard().as_controller();
+            if let (Some(new_coordinate), _) = self.update_player(
+                game_state,
+                plugin_state,
+                PluginGameState::KEYBOARD_INDEX,
+                keyboard,
+            ) {
+                self.render_player(plugin_state, viewport, buffer, &new_coordinate);
+            }
         }
     }
 
@@ -583,20 +590,21 @@ impl ApplicationPlugin {
         plugin_state: &mut PluginGameState,
         controller_index: usize,
         controller: &ControllerState,
-    ) -> Option<WorldCoordinate> {
+    ) -> (Option<WorldCoordinate>, bool) {
         let zoom = Self::calculate_zoom(game_state, plugin_state.zoom(), controller);
         plugin_state.set_zoom(zoom);
 
         let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
-            return None;
+            return (None, false);
         };
-        let (mut new_coordinate, mut new_velocity) = Self::find_new_player_coordinate_and_velocity(
-            game_state,
-            plugin_state,
-            controller_index,
-            controller,
-            player,
-        );
+        let (mut new_coordinate, mut new_velocity, provided) =
+            Self::find_new_player_coordinate_and_velocity(
+                game_state,
+                plugin_state,
+                controller_index,
+                controller,
+                player,
+            );
 
         let old_coordinate = player.position();
         let CollisionResult {
@@ -636,9 +644,9 @@ impl ApplicationPlugin {
         if let Some(player) = plugin_state.player_by_controller_index_mut(controller_index) {
             *player.position_mut() = new_coordinate.clone();
             *player.velocity_mut() = new_velocity;
-            Some(new_coordinate)
+            (Some(new_coordinate), provided)
         } else {
-            None
+            (None, false)
         }
     }
 
@@ -669,15 +677,15 @@ impl ApplicationPlugin {
         controller_index: usize,
         controller: &ControllerState,
         player: &Entity,
-    ) -> (WorldCoordinate, Vector2d<Velocity>) {
-        let (position_delta, velocity_delta) =
+    ) -> (WorldCoordinate, Vector2d<Velocity>, bool) {
+        let (position_delta, velocity_delta, provided) =
             Self::calculate_deltas(game_state, plugin_state, controller_index, controller);
 
         let world = plugin_state.world();
         let old_coordinates = player.position();
         let new_coordinates = old_coordinates.shifted(position_delta, world.tile_size());
         let new_velocity = player.velocity() + velocity_delta;
-        (new_coordinates, new_velocity)
+        (new_coordinates, new_velocity, provided)
     }
 
     fn calculate_deltas(
@@ -685,12 +693,12 @@ impl ApplicationPlugin {
         plugin_state: &PluginGameState,
         controller_index: usize,
         controller: &ControllerState,
-    ) -> (Vector2d<Length>, Vector2d<Velocity>) {
+    ) -> (Vector2d<Length>, Vector2d<Velocity>, bool) {
         let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
-            return (Vector2d::default(), Vector2d::default());
+            return (Vector2d::default(), Vector2d::default(), false);
         };
 
-        let throttle = Self::calculate_throttle(controller);
+        let (throttle, provided) = Self::calculate_throttle(controller);
         let max_acceleration = Acceleration::new::<meter_per_second_squared>(50.0);
         let acceleration = throttle * max_acceleration;
         let velocity = player.velocity(); // m/s
@@ -700,16 +708,17 @@ impl ApplicationPlugin {
         let elapsed = game_state.frame_duration(); // s
         let position_delta = (0.5 * acceleration * elapsed * elapsed) + velocity * elapsed; // m/s^2 * s^2 + m/s * s = m
         let velocity_delta = acceleration * elapsed; // m/s^2 * s = m/s
-        (position_delta, velocity_delta)
+        (position_delta, velocity_delta, provided)
     }
 
-    fn calculate_throttle(controller: &ControllerState) -> Vector2d<f32> {
+    fn calculate_throttle(controller: &ControllerState) -> (Vector2d<f32>, bool) {
         let mut throttle = Self::calculate_input_deltas(controller);
+        let provided = throttle != Vector2d::default();
         let throttle_squared = throttle.length_squared();
         if throttle_squared > 1.0 {
             throttle /= throttle_squared.sqrt();
         }
-        throttle
+        (throttle, provided)
     }
 
     fn calculate_input_deltas(controller: &ControllerState) -> Vector2d<f32> {
