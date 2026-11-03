@@ -554,7 +554,7 @@ impl ApplicationPlugin {
             if controller.enabled() {
                 let index = index + 1; // 0 is reserved for the keyboard!
                 if let (Some(new_coordinate), provided) =
-                    self.update_player(game_state, plugin_state, index, controller)
+                    Self::update_player(game_state, plugin_state, index, controller)
                 {
                     // Render non-primary players immediately. Only render the primary
                     // player if input was provided. Otherwise, fallback to the keyboard.
@@ -573,7 +573,7 @@ impl ApplicationPlugin {
 
         if !primary_rendered {
             let keyboard = input_state.keyboard().as_controller();
-            if let (Some(new_coordinate), _) = self.update_player(
+            if let (Some(new_coordinate), _) = Self::update_player(
                 game_state,
                 plugin_state,
                 PluginGameState::KEYBOARD_INDEX,
@@ -585,7 +585,6 @@ impl ApplicationPlugin {
     }
 
     fn update_player(
-        &self,
         game_state: &GameState,
         plugin_state: &mut PluginGameState,
         controller_index: usize,

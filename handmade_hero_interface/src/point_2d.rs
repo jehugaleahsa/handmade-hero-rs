@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Sub};
 
-use crate::vector_2d::Vector2d;
+use crate::{rectangle::Rectangle, vector_2d::Vector2d};
 
 #[derive(Debug, Serialize, Deserialize, Default, Copy, Clone)]
 pub struct Point2d<T> {
@@ -66,11 +66,11 @@ where
     }
 }
 
-impl<T> Sub for Point2d<T>
+impl<T, S> Sub for Point2d<T>
 where
-    T: Copy + Sub<Output = T>,
+    T: Sub<Output = S>,
 {
-    type Output = Vector2d<T>;
+    type Output = Vector2d<S>;
 
     #[inline]
     fn sub(self, other: Self) -> Self::Output {
@@ -92,10 +92,69 @@ where
 
 impl<T> Eq for Point2d<T> where T: Eq {}
 
+impl<T> Point2d<T>
+where
+    T: Copy + PartialOrd<T>,
+{
+    #[inline]
+    #[must_use]
+    pub fn intersects_rectangle(&self, rectangle: &Rectangle<T>) -> bool {
+        self.x >= rectangle.left()
+            && self.x < rectangle.right()
+            && self.y >= rectangle.bottom()
+            && self.y < rectangle.top()
+    }
+}
+
 impl From<Point2d<u8>> for Point2d<f32> {
     fn from(value: Point2d<u8>) -> Self {
         let x = f32::from(value.x());
         let y = f32::from(value.y());
         Self::from_x_y(x, y)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{point_2d::Point2d, rectangle::Rectangle};
+
+    #[test]
+    fn intersects_rectangle_if_inside() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let point = Point2d::<f32>::from_x_y(4.0, 4.0);
+        let result = point.intersects_rectangle(&rectangle);
+        assert!(result);
+    }
+
+    #[test]
+    fn intersects_rectangle_if_on_bottom_edge() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let point = Point2d::<f32>::from_x_y(4.0, 3.0);
+        let result = point.intersects_rectangle(&rectangle);
+        assert!(result);
+    }
+
+    #[test]
+    fn intersects_rectangle_if_on_left_edge() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let point = Point2d::<f32>::from_x_y(3.0, 4.0);
+        let result = point.intersects_rectangle(&rectangle);
+        assert!(result);
+    }
+
+    #[test]
+    fn will_not_intersect_rectangle_if_on_top_edge() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let point = Point2d::<f32>::from_x_y(4.0, 6.0);
+        let result = point.intersects_rectangle(&rectangle);
+        assert!(!result);
+    }
+
+    #[test]
+    fn will_not_intersect_rectangle_if_on_right_edge() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let point = Point2d::<f32>::from_x_y(6.0, 4.0);
+        let result = point.intersects_rectangle(&rectangle);
+        assert!(!result);
     }
 }
