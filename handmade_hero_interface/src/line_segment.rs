@@ -84,41 +84,64 @@ where
             // One of the points is within the rectangle.
             return true;
         }
-        // Now we know that the start and end points of the line segement are outside
-        // of the rectangle. The only way they intersect is if the lines passes through.
-        if let Some(slope) = self.slope() {
-            // The line is diagonal or horizontal. For the equation `y = mx + b`, b is where
-            // the line segment would intersect the y coordinate. With that, we can calculate
-            // the value of y at any given x using the formula. If we plug in the x coordinates
-            // of the left and right of the rectangle, we can check if y is between the bottom
-            // and right of the rectangle, telling us if they intersect.
-            let y_intersect = self.start.y() - slope * self.start.x();
-            let y_1 = slope * rectangle.left() + y_intersect;
-            if y_1 >= rectangle.bottom() && y_1 < rectangle.top() {
-                return true;
+        // Now we know that the start and end points of the line segment are outside of the
+        // rectangle. The only way they intersect is if the segment passes through. Like a point,
+        // the segment counts as inside along the rectangle's left and bottom sides but not along
+        // its right and top sides.
+        let Some(slope) = self.slope() else {
+            // The line segment is vertical, thus the x coordinate is the same for both the start
+            // and end point. It intersects if that x coordinate is between the rectangle's left
+            // and right sides and its span of y coordinates overlaps the rectangle's.
+            let x = self.start.x();
+            if x < rectangle.left() || x >= rectangle.right() {
+                return false;
             }
-            let y_2 = slope * rectangle.right() + y_intersect;
-            if y_2 >= rectangle.bottom() && y_2 < rectangle.top() {
-                return true;
-            }
-            return false;
-        }
-        // The line segment is vertical, thus the x coordinate is the same for both
-        // the start and end point. It intersects if it's x coordinate is within
-        // the rectangle's left and right sides and if the y coordinate intersects
-        // the rectangle's bottom or top.
-        if self.start.x() < rectangle.left() || self.start.x() >= rectangle.right() {
-            return false;
-        }
-        // Since the start and end can't be inside the rectangle at this point, the start
-        // must be above the top or below the bottom, and the opposite for the end.
-        if self.start.y() > rectangle.top() {
-            self.end.y() < rectangle.bottom()
-        } else if self.start.y() < rectangle.bottom() {
-            self.end.y() > rectangle.top()
+            return Self::overlaps_vertically(self.start.y(), self.end.y(), rectangle);
+        };
+        // Only the part of the segment whose x coordinates lie between the rectangle's left and
+        // right sides can pass through it, so clamp the segment's x span to the rectangle's.
+        let (min_x, max_x) = ordered(self.start.x(), self.end.x());
+        let low_x = if min_x > rectangle.left() {
+            min_x
         } else {
-            false
+            rectangle.left()
+        };
+        let high_x = if max_x < rectangle.right() {
+            max_x
+        } else {
+            rectangle.right()
+        };
+        // When the spans share at most a single x coordinate, the segment only touches the
+        // rectangle at one of its own end points, which we know are outside, or along the right
+        // side, which the rectangle excludes.
+        if low_x >= high_x {
+            return false;
         }
+        // Over the clamped span, the segment's y coordinates run between its y coordinates at
+        // either end, because the segment is straight. It passes through when that run overlaps
+        // the rectangle's span of y coordinates.
+        let y_at = |x: T| self.start.y() + slope * (x - self.start.x());
+        Self::overlaps_vertically(y_at(low_x), y_at(high_x), rectangle)
+    }
+
+    #[inline]
+    #[must_use]
+    fn overlaps_vertically(y_1: T, y_2: T, rectangle: &Rectangle<T>) -> bool {
+        let (low_y, high_y) = ordered(y_1, y_2);
+        low_y < rectangle.top() && high_y >= rectangle.bottom()
+    }
+}
+
+#[inline]
+#[must_use]
+fn ordered<T>(first: T, second: T) -> (T, T)
+where
+    T: PartialOrd,
+{
+    if first <= second {
+        (first, second)
+    } else {
+        (second, first)
     }
 }
 
@@ -263,6 +286,56 @@ mod tests {
         let rectangle = Rectangle::new(meters(3.0), meters(3.0), meters(3.0), meters(3.0));
         let start_point = Point2d::from_x_y(meters(0.0), meters(9.0));
         let end_point = Point2d::from_x_y(meters(9.0), meters(0.0));
+        let line = LineSegment::from_points(start_point, end_point);
+        let result = line.intersects_rectangle(&rectangle);
+        assert!(result);
+    }
+
+    #[test]
+    fn segment_short_of_rectangle_will_not_intersect_even_if_line_would() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let start_point = Point2d::<f32>::from_x_y(0.0, 0.0);
+        let end_point = Point2d::<f32>::from_x_y(2.0, 2.0);
+        let line = LineSegment::from_points(start_point, end_point);
+        let result = line.intersects_rectangle(&rectangle);
+        assert!(!result);
+    }
+
+    #[test]
+    fn intersects_rectangle_steep_through_top_and_bottom() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let start_point = Point2d::<f32>::from_x_y(4.0, 10.0);
+        let end_point = Point2d::<f32>::from_x_y(5.0, 0.0);
+        let line = LineSegment::from_points(start_point, end_point);
+        let result = line.intersects_rectangle(&rectangle);
+        assert!(result);
+    }
+
+    #[test]
+    fn intersects_rectangle_vertical_starting_on_top_edge() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let start_point = Point2d::<f32>::from_x_y(4.0, 6.0);
+        let end_point = Point2d::<f32>::from_x_y(4.0, 0.0);
+        let line = LineSegment::from_points(start_point, end_point);
+        let result = line.intersects_rectangle(&rectangle);
+        assert!(result);
+    }
+
+    #[test]
+    fn horizontal_along_top_edge_will_not_intersect_rectangle() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let start_point = Point2d::<f32>::from_x_y(0.0, 6.0);
+        let end_point = Point2d::<f32>::from_x_y(10.0, 6.0);
+        let line = LineSegment::from_points(start_point, end_point);
+        let result = line.intersects_rectangle(&rectangle);
+        assert!(!result);
+    }
+
+    #[test]
+    fn intersects_rectangle_horizontal_along_bottom_edge() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let start_point = Point2d::<f32>::from_x_y(0.0, 3.0);
+        let end_point = Point2d::<f32>::from_x_y(10.0, 3.0);
         let line = LineSegment::from_points(start_point, end_point);
         let result = line.intersects_rectangle(&rectangle);
         assert!(result);
