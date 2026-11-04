@@ -23,82 +23,54 @@ pub fn detect_collision(
     let starting_point = Point2d::from_x_y(starting_offset.x(), starting_offset.y());
     let distance = velocity * duration; // m/s * s = m
     let line = LineSegment::from_point_vector(starting_point, distance);
-    let (x_multiplier, y_multiplier) = find_axis_multipliers(distance);
-    if x_multiplier == 0.0 && y_multiplier == 0.0 {
+    let (step_x, step_y) = find_axis_steps(distance);
+    if step_x == 0 && step_y == 0 {
         return start.clone();
     }
-    let x_shift = x_multiplier * tile_size;
-    let y_shift = y_multiplier * tile_size;
+    // Tiles are tracked as whole-tile counts from the center tile. Rectangles in the same
+    // space as the line are built from those counts for intersection tests, and world
+    // coordinates are built from them for traversal checks, so neither is converted back
+    // into the other.
     let (center_x_offset, center_y_offset) = center.tile_offset().to_tuple();
-    let start_tile_x = to_tile_index(starting_offset.x() + center_x_offset, tile_size);
-    let start_tile_y = to_tile_index(starting_offset.y() + center_y_offset, tile_size);
     let half_tile_size = tile_size / 2.0;
-    let mut tile = to_tile_rectangle(
-        center_x_offset,
-        center_y_offset,
-        start_tile_x,
-        start_tile_y,
-        tile_size,
-        half_tile_size,
-    );
-    let mut best = start.clone();
-    loop {
-        let tile_coordinate = to_tile_cooridinate(
-            center,
-            &tile,
-            tile_size,
-            half_tile_size,
+    let intersects = |tile_x: i16, tile_y: i16| {
+        let rectangle = to_tile_rectangle(
             center_x_offset,
             center_y_offset,
+            tile_x,
+            tile_y,
+            tile_size,
+            half_tile_size,
         );
+        line.intersects_rectangle(&rectangle)
+    };
+    let is_open = |tile_x: i16, tile_y: i16| {
+        let shifted = center.shifted_tiles(tile_x, tile_y);
+        world.is_traversable(&shifted)
+    };
+    let mut tile_x = to_tile_index(starting_offset.x() + center_x_offset, tile_size);
+    let mut tile_y = to_tile_index(starting_offset.y() + center_y_offset, tile_size);
+    let mut best = start.clone();
+    loop {
+        let tile_coordinate = center.shifted_tiles(tile_x, tile_y);
         if !world.is_traversable(&tile_coordinate) {
             break;
         }
         best = tile_coordinate;
-        if x_shift != Length::zero() {
-            let x_neighbor = tile.shifted(x_shift, Length::zero());
-            if line.intersects_rectangle(&x_neighbor) {
-                tile = x_neighbor;
-            } else if y_shift != Length::zero() {
-                let y_neighbor = tile.shifted(Length::zero(), y_shift);
-                if line.intersects_rectangle(&y_neighbor) {
-                    tile = y_neighbor;
-                } else {
-                    // The line goes directly through the corner
-                    let diagonal_neighbor = tile.shifted(x_shift, y_shift);
-                    if !line.intersects_rectangle(&diagonal_neighbor) {
-                        break;
-                    }
-                    let x_neighbor_coordinate = to_tile_cooridinate(
-                        center,
-                        &x_neighbor,
-                        tile_size,
-                        half_tile_size,
-                        center_x_offset,
-                        center_y_offset,
-                    );
-                    if !world.is_traversable(&x_neighbor_coordinate) {
-                        break;
-                    }
-                    let y_neighbor_coordinate = to_tile_cooridinate(
-                        center,
-                        &y_neighbor,
-                        tile_size,
-                        half_tile_size,
-                        center_x_offset,
-                        center_y_offset,
-                    );
-                    if !world.is_traversable(&y_neighbor_coordinate) {
-                        break;
-                    }
-                    tile = diagonal_neighbor;
-                }
+        if step_x != 0 && intersects(tile_x + step_x, tile_y) {
+            tile_x += step_x;
+        } else if step_y != 0 && intersects(tile_x, tile_y + step_y) {
+            tile_y += step_y;
+        } else if step_x != 0 && step_y != 0 && intersects(tile_x + step_x, tile_y + step_y) {
+            // The line goes directly through the corner
+            if !is_open(tile_x + step_x, tile_y) || !is_open(tile_x, tile_y + step_y) {
+                break;
             }
-        } else if y_shift != Length::zero() {
-            let y_neighbor = tile.shifted(Length::zero(), y_shift);
-            if line.intersects_rectangle(&y_neighbor) {
-                tile = y_neighbor;
-            }
+            tile_x += step_x;
+            tile_y += step_y;
+        } else {
+            // The line ends within this tile.
+            break;
         }
     }
     best
@@ -106,19 +78,19 @@ pub fn detect_collision(
 
 #[inline]
 #[must_use]
-fn find_axis_multipliers(distance: Vector2d<Length>) -> (f32, f32) {
-    let x_multiplier = sign_multiplier(distance.x());
-    let y_multiplier = sign_multiplier(distance.y());
-    (x_multiplier, y_multiplier)
+fn find_axis_steps(distance: Vector2d<Length>) -> (i16, i16) {
+    let step_x = sign_step(distance.x());
+    let step_y = sign_step(distance.y());
+    (step_x, step_y)
 }
 
 #[inline]
 #[must_use]
-fn sign_multiplier(length: Length) -> f32 {
+fn sign_step(length: Length) -> i16 {
     match length.partial_cmp(&Length::zero()) {
-        Some(Ordering::Less) => -1.0,
-        Some(Ordering::Greater) => 1.0,
-        Some(Ordering::Equal) | None => 0.0,
+        Some(Ordering::Less) => -1,
+        Some(Ordering::Greater) => 1,
+        Some(Ordering::Equal) | None => 0,
     }
 }
 
@@ -150,18 +122,4 @@ fn to_tile_rectangle(
     let left = delta_x - center_x_offset - half_tile_size;
     let bottom = delta_y - center_y_offset - half_tile_size;
     Rectangle::new(bottom, left, tile_size, tile_size)
-}
-
-fn to_tile_cooridinate(
-    center: &WorldCoordinate,
-    tile: &Rectangle<Length>,
-    tile_size: Length,
-    half_tile_size: Length,
-    center_x_offset: Length,
-    center_y_offset: Length,
-) -> WorldCoordinate {
-    let tile_horizontal_center = tile.left() + half_tile_size + center_x_offset;
-    let tile_vertical_center = tile.bottom() + half_tile_size + center_y_offset;
-    let delta = Vector2d::from_x_y(tile_horizontal_center, tile_vertical_center);
-    center.shifted(delta, tile_size)
 }
