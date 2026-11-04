@@ -33,14 +33,14 @@ pub fn detect_collision(
     let mut current_generation = false;
     let mut generation_lengths = [1, 0]; // Start with just the start tile
     let (center_x_offset, center_y_offset) = center.tile_offset().to_tuple();
-    #[expect(clippy::cast_possible_truncation)]
-    let start_tile: Vector2d<i16> = (starting_offset / tile_size).map(|d| d.get::<ratio>() as i16);
+    let start_tile_x = to_tile_index(starting_offset.x() + center_x_offset, tile_size);
+    let start_tile_y = to_tile_index(starting_offset.y() + center_y_offset, tile_size);
     let half_tile_size = tile_size / 2.0;
     let start_rectangle = to_tile_rectangle(
         center_x_offset,
         center_y_offset,
-        start_tile.x(),
-        start_tile.y(),
+        start_tile_x,
+        start_tile_y,
         tile_size,
         half_tile_size,
     );
@@ -116,6 +116,21 @@ fn sign_multiplier(length: Length) -> f32 {
         Some(Ordering::Greater) => 1.0,
         Some(Ordering::Equal) | None => 0.0,
     }
+}
+
+/// Finds which tile, counted from the center tile, holds a point at the given offset from the
+/// center tile's center.
+#[inline]
+#[must_use]
+fn to_tile_index(offset_from_tile_center: Length, tile_size: Length) -> i16 {
+    // Tile k covers [k - 0.5, k + 0.5) in tile units, including its left or bottom side and
+    // excluding its right or top side, the same as its rectangle. Shifting by half a tile lines
+    // those sides up with whole numbers, so flooring lands every point, negative ones and ones
+    // exactly on a side included, in the same tile the rectangle would.
+    let tiles = (offset_from_tile_center / tile_size).get::<ratio>();
+    #[expect(clippy::cast_possible_truncation)]
+    let index = (tiles + 0.5).floor() as i16;
+    index
 }
 
 fn to_tile_rectangle(
