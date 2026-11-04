@@ -1,9 +1,9 @@
 use crate::chunk::Chunk;
 use crate::chunk_key::ChunkKey;
 use crate::collision_deltas::CollisionDeltas;
-use crate::collision_result::CollisionResult;
 use crate::tile_type::TileType;
 use crate::world_coordinate::WorldCoordinate;
+use handmade_hero_interface::directions::Directions;
 use handmade_hero_interface::units::si::length::Length;
 use handmade_hero_interface::vector_2d::Vector2d;
 use serde::{Deserialize, Serialize};
@@ -69,7 +69,7 @@ impl World {
         &self,
         coordinate: &WorldCoordinate,
         collision_deltas: CollisionDeltas,
-    ) -> CollisionResult {
+    ) -> Directions {
         let CollisionDeltas {
             top,
             bottom,
@@ -84,32 +84,30 @@ impl World {
         let bottom_any = bottom_left_collided || bottom_right_collided;
         let left_any = top_left_collided || bottom_left_collided;
         let right_any = top_right_collided || bottom_right_collided;
-        let top_collided = top_any && !bottom_any;
-        let bottom_collided = bottom_any && !top_any;
-        let left_collided = left_any && !right_any;
-        let right_collided = right_any && !left_any;
-
-        let collided = top_left_collided
-            || top_right_collided
-            || bottom_left_collided
-            || bottom_right_collided;
-        CollisionResult {
-            collided,
-            top_collided,
-            bottom_collided,
-            left_collided,
-            right_collided,
+        let mut directions = Directions::default();
+        if top_any && !bottom_any {
+            directions = directions.union(Directions::up());
         }
+        if bottom_any && !top_any {
+            directions = directions.union(Directions::down());
+        }
+        if left_any && !right_any {
+            directions = directions.union(Directions::left());
+        }
+        if right_any && !left_any {
+            directions = directions.union(Directions::right());
+        }
+        directions
     }
 
     fn is_collision(&self, coordinate: &WorldCoordinate, delta_x: Length, delta_y: Length) -> bool {
         let corner = Vector2d::from_x_y(delta_x, delta_y);
         let corner = coordinate.shifted(corner, self.tile_size);
-        !self.is_traversable_coordinate(&corner)
+        !self.is_traversable(&corner)
     }
 
     #[must_use]
-    fn is_traversable_coordinate(&self, coordinate: &WorldCoordinate) -> bool {
+    pub fn is_traversable(&self, coordinate: &WorldCoordinate) -> bool {
         self.get_chunk(coordinate.chunk_key())
             .and_then(|m| m.get(coordinate.tile_y(), coordinate.tile_x()))
             .is_some_and(TileType::is_traversable)

@@ -1,6 +1,6 @@
 use crate::chunk_key::ChunkKey;
 use crate::collision_deltas::CollisionDeltas;
-use crate::collision_result::CollisionResult;
+use crate::collision_detector;
 use crate::dimensions::Dimensions;
 use crate::entity::Entity;
 use crate::image::Image;
@@ -15,6 +15,7 @@ use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button::Button;
 use handmade_hero_interface::color::Color;
 use handmade_hero_interface::controller_state::ControllerState;
+use handmade_hero_interface::directions::Directions;
 use handmade_hero_interface::display::Display;
 use handmade_hero_interface::display_settings::DisplaySettings;
 use handmade_hero_interface::game_state::GameState;
@@ -480,13 +481,13 @@ impl ApplicationPlugin {
             let delta_y = f32::from(tiles_up) * tile_size;
             for tiles_right in -tiles_x..=tiles_x {
                 let delta_x = f32::from(tiles_right) * tile_size;
-                let tile = center.shifted_tiles(tiles_right, tiles_up);
                 let left = delta_x - center_x_offset - half_tile_size;
                 let bottom = delta_y - center_y_offset - half_tile_size;
                 let tile_rectangle = Rectangle::new(bottom, left, tile_size, tile_size);
                 let tile_rectangle = viewport.to_buffer_rectangle(&tile_rectangle);
                 // Tiles beyond the camera's room are blacked out, so the space around the chunk
                 // shows up as bars rather than a peek into the neighboring chunks.
+                let tile = center.shifted_tiles(tiles_right, tiles_up);
                 let color = if tile.chunk_key() == center.chunk_key() {
                     Self::determine_tile_color(
                         plugin_state,
@@ -606,16 +607,18 @@ impl ApplicationPlugin {
             );
 
         let old_coordinate = player.position();
-        let CollisionResult {
-            collided,
-            top_collided,
-            bottom_collided,
-            left_collided,
-            right_collided,
-        } = Self::detect_wall_collision(plugin_state, &new_coordinate, player);
+        let _ = collision_detector::detect_collision(
+            plugin_state.world(),
+            Self::view_center(plugin_state),
+            old_coordinate,
+            new_velocity,
+            game_state.frame_duration(),
+        );
+        let directions = Self::detect_wall_collision(plugin_state, &new_coordinate, player);
+        let collided = directions != Directions::default();
         if collided {
-            let reflection_y = Self::reflection(bottom_collided, top_collided);
-            let reflection_x = Self::reflection(left_collided, right_collided);
+            let reflection_y = Self::reflection(directions.is_down(), directions.is_up());
+            let reflection_x = Self::reflection(directions.is_left(), directions.is_right());
             let reflection = Vector2d::from_x_y(reflection_x, reflection_y);
             // No single wall to reflect off, such as in an inside corner, means every way forward
             // is blocked, so send the player straight back.
@@ -769,12 +772,12 @@ impl ApplicationPlugin {
         plugin_state: &PluginGameState,
         coordinates: &WorldCoordinate,
         player: &Entity,
-    ) -> CollisionResult {
+    ) -> Directions {
         let world = plugin_state.world();
         if let Some(collision_deltas) = player.collision() {
             world.detect_collision(coordinates, collision_deltas)
         } else {
-            CollisionResult::default()
+            Directions::default()
         }
     }
 

@@ -220,6 +220,21 @@ impl Rectangle<f32> {
     }
 }
 
+impl<T> Default for Rectangle<T>
+where
+    T: Default,
+{
+    #[inline]
+    fn default() -> Self {
+        Self {
+            top: Default::default(),
+            left: Default::default(),
+            bottom: Default::default(),
+            right: Default::default(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::rectangle::Rectangle;

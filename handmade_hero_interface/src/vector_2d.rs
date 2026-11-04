@@ -156,19 +156,30 @@ where
     }
 }
 
-impl Vector2d<f32> {
+impl<T> Vector2d<T>
+where
+    T: Copy + Mul<T>,
+    <T as Mul<T>>::Output: Add<Output = <T as Mul<T>>::Output>,
+{
     #[inline]
     #[must_use]
-    pub fn length(self) -> f32 {
-        self.length_squared().sqrt()
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn length_squared(self) -> f32 {
+    pub fn length_squared(self) -> <T as Mul<T>>::Output {
         self.dot(self)
     }
+}
 
+impl<T> Vector2d<T>
+where
+    T: Copy + Mul<T, Output = f32>,
+{
+    #[inline]
+    #[must_use]
+    pub fn length(self) -> <T as Mul<T>>::Output {
+        self.length_squared().sqrt()
+    }
+}
+
+impl Vector2d<f32> {
     /// Scales the vector to a length of one, or returns `None` for the zero vector, which has no
     /// direction to keep.
     #[inline]

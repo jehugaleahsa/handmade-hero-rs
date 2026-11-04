@@ -8,6 +8,7 @@ pub mod button;
 pub mod button_state;
 pub mod color;
 pub mod controller_state;
+pub mod directions;
 pub mod display;
 pub mod display_settings;
 pub mod display_state;

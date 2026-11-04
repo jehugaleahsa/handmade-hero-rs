@@ -2,7 +2,7 @@ use std::ops::{Add, Div, Mul, Sub};
 
 use crate::{point_2d::Point2d, rectangle::Rectangle, vector_2d::Vector2d};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct LineSegment<T> {
     start: Point2d<T>,
     end: Point2d<T>,
@@ -59,14 +59,14 @@ impl LineSegment<f32> {
     }
 }
 
-impl<T, S> LineSegment<T>
+impl<T> LineSegment<T>
 where
-    T: Copy + Sub<Output = S>,
-    S: PartialEq<S> + Default + Div<Output = S>,
+    T: Copy + Sub,
+    <T as Sub<T>>::Output: PartialEq<<T as Sub<T>>::Output> + Default + Div,
 {
-    pub fn slope(&self) -> Option<S> {
+    pub fn slope(&self) -> Option<<<T as Sub<T>>::Output as Div<<T as Sub<T>>::Output>>::Output> {
         let run = self.end.x() - self.start.x();
-        if run == S::default() {
+        if run == <T as Sub<T>>::Output::default() {
             return None;
         }
         let rise = self.end.y() - self.start.y();
@@ -74,21 +74,14 @@ where
     }
 }
 
-impl<T> LineSegment<T>
+impl<T, S> LineSegment<T>
 where
-    T: Copy
-        + PartialOrd<T>
-        + Add<Output = T>
-        + Sub<Output = T>
-        + Mul<Output = T>
-        + Div<Output = T>
-        + PartialEq<T>
-        + Default,
+    T: Copy + PartialOrd + Default + Sub<Output = T> + Div<Output = S> + Add<Output = T>,
+    S: Copy + PartialOrd + Mul<T, Output = T>,
 {
     pub fn intersects_rectangle(&self, rectangle: &Rectangle<T>) -> bool {
-        // The quickest way to detect if a line segment intersects with a
-        // rectangle is to first see if either point is within the rectangle.
         if self.start.intersects_rectangle(rectangle) || self.end.intersects_rectangle(rectangle) {
+            // One of the points is within the rectangle.
             return true;
         }
         // Now we know that the start and end points of the line segement are outside
@@ -131,7 +124,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{line_segment::LineSegment, point_2d::Point2d, rectangle::Rectangle};
+    use uom::si::length::meter;
+
+    use crate::{
+        line_segment::LineSegment, point_2d::Point2d, rectangle::Rectangle,
+        units::si::length::Length,
+    };
 
     #[test]
     fn slope_of_horizontal_line_zero() {
@@ -148,7 +146,7 @@ mod tests {
         let end_point = Point2d::<f32>::from_x_y(1.0, 10.0);
         let line = LineSegment::from_points(start_point, end_point);
         let slope = line.slope();
-        assert!(matches!(slope, None));
+        assert!(slope.is_none());
     }
 
     #[test]
@@ -254,6 +252,17 @@ mod tests {
         let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
         let start_point = Point2d::<f32>::from_x_y(2.0, 4.0);
         let end_point = Point2d::<f32>::from_x_y(4.0, 4.0);
+        let line = LineSegment::from_points(start_point, end_point);
+        let result = line.intersects_rectangle(&rectangle);
+        assert!(result);
+    }
+
+    #[test]
+    fn intersects_rectangle_uom_lengths() {
+        let meters = |value: f32| Length::new::<meter>(value);
+        let rectangle = Rectangle::new(meters(3.0), meters(3.0), meters(3.0), meters(3.0));
+        let start_point = Point2d::from_x_y(meters(0.0), meters(9.0));
+        let end_point = Point2d::from_x_y(meters(9.0), meters(0.0));
         let line = LineSegment::from_points(start_point, end_point);
         let result = line.intersects_rectangle(&rectangle);
         assert!(result);
