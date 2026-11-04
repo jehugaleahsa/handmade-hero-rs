@@ -121,7 +121,15 @@ where
         // either end, because the segment is straight. It passes through when that run overlaps
         // the rectangle's span of y coordinates.
         let y_at = |x: T| self.start.y() + slope * (x - self.start.x());
-        Self::overlaps_vertically(y_at(low_x), y_at(high_x), rectangle)
+        let left_y = y_at(low_x);
+        let right_y = y_at(high_x);
+        if high_x == rectangle.right() && right_y > left_y {
+            // The segment rises toward the excluded right side, so its highest y is never
+            // reached inside the rectangle. It must climb strictly above the bottom before
+            // getting there, or else it only touches the bottom-right corner.
+            return left_y < rectangle.top() && right_y > rectangle.bottom();
+        }
+        Self::overlaps_vertically(left_y, right_y, rectangle)
     }
 
     #[inline]
@@ -336,6 +344,26 @@ mod tests {
         let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
         let start_point = Point2d::<f32>::from_x_y(0.0, 3.0);
         let end_point = Point2d::<f32>::from_x_y(10.0, 3.0);
+        let line = LineSegment::from_points(start_point, end_point);
+        let result = line.intersects_rectangle(&rectangle);
+        assert!(result);
+    }
+
+    #[test]
+    fn rising_through_bottom_right_corner_will_not_intersect_rectangle() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let start_point = Point2d::<f32>::from_x_y(5.0, 2.0);
+        let end_point = Point2d::<f32>::from_x_y(7.0, 4.0);
+        let line = LineSegment::from_points(start_point, end_point);
+        let result = line.intersects_rectangle(&rectangle);
+        assert!(!result);
+    }
+
+    #[test]
+    fn intersects_rectangle_rising_through_bottom_and_out_right_side() {
+        let rectangle = Rectangle::<f32>::new(3.0, 3.0, 3.0, 3.0);
+        let start_point = Point2d::<f32>::from_x_y(4.0, 2.0);
+        let end_point = Point2d::<f32>::from_x_y(7.0, 5.0);
         let line = LineSegment::from_points(start_point, end_point);
         let result = line.intersects_rectangle(&rectangle);
         assert!(result);
