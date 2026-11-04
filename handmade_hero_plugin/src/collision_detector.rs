@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 
 use handmade_hero_interface::{
-    directions::Directions,
     line_segment::LineSegment,
     point_2d::Point2d,
     rectangle::Rectangle,
@@ -10,10 +9,7 @@ use handmade_hero_interface::{
 };
 
 use crate::{world::World, world_coordinate::WorldCoordinate};
-use uom::{
-    num_traits::Zero,
-    si::ratio::{Ratio, ratio},
-};
+use uom::{num_traits::Zero, si::ratio::ratio};
 
 pub fn detect_collision(
     world: &World,
@@ -27,25 +23,11 @@ pub fn detect_collision(
     let starting_point = Point2d::from_x_y(starting_offset.x(), starting_offset.y());
     let distance = velocity * duration; // m/s * s = m
     let line = LineSegment::from_point_vector(starting_point, distance);
-    let directions = slope_directions(line);
-    if directions == Directions::default() {
+    let (x_multiplier, y_multiplier) = find_axis_multipliers(distance);
+    if x_multiplier == 0.0 && y_multiplier == 0.0 {
         return start.clone();
     }
-    let x_multiplier = if directions.is_left() {
-        -1.0
-    } else if directions.is_right() {
-        1.0
-    } else {
-        0.0
-    };
     let x_shift = x_multiplier * tile_size;
-    let y_multiplier = if directions.is_down() {
-        -1.0
-    } else if directions.is_up() {
-        1.0
-    } else {
-        0.0
-    };
     let y_shift = y_multiplier * tile_size;
     let mut best = start.clone();
     let mut current_generation = false;
@@ -118,28 +100,21 @@ pub fn detect_collision(
     best
 }
 
-fn slope_directions(line: LineSegment<Length>) -> Directions {
-    let slope = line.slope();
-    if let Some(slope) = slope {
-        match slope.partial_cmp(&Ratio::zero()) {
-            Some(Ordering::Equal) if line.start().x() < line.end().x() => Directions::right(),
-            Some(Ordering::Equal) => Directions::left(),
-            Some(Ordering::Less) if line.start().x() < line.end().x() => {
-                Directions::up().union(Directions::right())
-            }
-            Some(Ordering::Less) => Directions::down().union(Directions::left()),
-            Some(Ordering::Greater) if line.start().x() < line.end().x() => {
-                Directions::down().union(Directions::right())
-            }
-            Some(Ordering::Greater) => Directions::up().union(Directions::left()),
-            None => Directions::default(),
-        }
-    } else {
-        match line.start().y().partial_cmp(&line.end().y()) {
-            Some(Ordering::Less) => Directions::up(),
-            Some(Ordering::Greater) => Directions::down(),
-            Some(Ordering::Equal) | None => Directions::default(),
-        }
+#[inline]
+#[must_use]
+fn find_axis_multipliers(distance: Vector2d<Length>) -> (f32, f32) {
+    let x_multiplier = sign_multiplier(distance.x());
+    let y_multiplier = sign_multiplier(distance.y());
+    (x_multiplier, y_multiplier)
+}
+
+#[inline]
+#[must_use]
+fn sign_multiplier(length: Length) -> f32 {
+    match length.partial_cmp(&Length::zero()) {
+        Some(Ordering::Less) => -1.0,
+        Some(Ordering::Greater) => 1.0,
+        Some(Ordering::Equal) | None => 0.0,
     }
 }
 
