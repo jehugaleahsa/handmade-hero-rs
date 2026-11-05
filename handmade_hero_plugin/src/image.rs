@@ -3,13 +3,13 @@ use handmade_hero_interface::{back_buffer::BackBuffer, vector_2d::Vector2d};
 #[derive(Debug)]
 pub struct Image {
     buffer: BackBuffer,
-    offset_px: Vector2d<isize>,
+    offset_px: Vector2d<usize>,
 }
 
 impl Image {
     #[inline]
     #[must_use]
-    pub fn new(buffer: BackBuffer, offset_px: Vector2d<isize>) -> Self {
+    pub fn new(buffer: BackBuffer, offset_px: Vector2d<usize>) -> Self {
         Self { buffer, offset_px }
     }
 
@@ -19,7 +19,7 @@ impl Image {
         &self.buffer
     }
 
-    pub fn offset_px(&self) -> Vector2d<isize> {
+    pub fn offset_px(&self) -> Vector2d<usize> {
         self.offset_px
     }
 }
