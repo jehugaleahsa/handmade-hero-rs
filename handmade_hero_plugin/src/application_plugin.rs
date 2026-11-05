@@ -619,7 +619,6 @@ impl ApplicationPlugin {
                 Some(normal) => new_velocity - new_velocity.dot(normal) * normal,
                 None => Vector2d::default(),
             };
-            new_coordinate = old_coordinate.clone();
         }
         if let Some(stairs) = Self::find_stairs(plugin_state.world(), &new_coordinate)
             && !old_coordinate.is_same_tile(&new_coordinate)
