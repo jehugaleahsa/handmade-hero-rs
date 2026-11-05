@@ -1,31 +1,34 @@
 use std::cmp::Ordering;
 
 use handmade_hero_interface::{
-    line_segment::LineSegment,
-    point_2d::Point2d,
-    rectangle::Rectangle,
-    units::si::{length::Length, time::Time, velocity::Velocity},
-    vector_2d::Vector2d,
+    directions::Directions, line_segment::LineSegment, point_2d::Point2d, rectangle::Rectangle,
+    units::si::length::Length, vector_2d::Vector2d,
 };
 
 use crate::{world::World, world_coordinate::WorldCoordinate};
 use uom::{num_traits::Zero, si::ratio::ratio};
 
+/// How far short of the wall, as a fraction of the frame's movement, the player stops.
+const STOP_SHORT_FRACTION: f32 = 0.001;
+
 pub fn detect_collision(
     world: &World,
     center: &WorldCoordinate,
     start: &WorldCoordinate,
-    velocity: Vector2d<Velocity>,
-    duration: Time,
-) -> WorldCoordinate {
+    distance: Vector2d<Length>,
+) -> (WorldCoordinate, Directions) {
     let tile_size = world.tile_size();
     let starting_offset = start.distance_to(center, tile_size);
     let starting_point = Point2d::from_x_y(starting_offset.x(), starting_offset.y());
-    let distance = velocity * duration; // m/s * s = m
+    if !world.is_traversable(start) {
+        // The player somehow got stuck in a wall. Let them escape.
+        let shifted = start.shifted(distance, tile_size);
+        return (shifted, Directions::default());
+    }
     let line = LineSegment::from_point_vector(starting_point, distance);
     let (step_x, step_y) = find_axis_steps(distance);
     if step_x == 0 && step_y == 0 {
-        return start.clone();
+        return (start.clone(), Directions::default());
     }
     // Tiles are tracked as whole-tile counts from the center tile. Rectangles in the same
     // space as the line are built from those counts for intersection tests, and world
@@ -50,30 +53,92 @@ pub fn detect_collision(
     };
     let mut tile_x = to_tile_index(starting_offset.x() + center_x_offset, tile_size);
     let mut tile_y = to_tile_index(starting_offset.y() + center_y_offset, tile_size);
-    let mut best = start.clone();
+    let x_direction = find_direction(step_x, Directions::left(), Directions::right());
+    let y_direction = find_direction(step_y, Directions::down(), Directions::up());
+    let mut directions = Directions::default();
+    // The last tile known to be open. The walk stops on the boundary leading out of it.
+    let mut open_x = tile_x;
+    let mut open_y = tile_y;
     loop {
         let tile_coordinate = center.shifted_tiles(tile_x, tile_y);
         if !world.is_traversable(&tile_coordinate) {
             break;
         }
-        best = tile_coordinate;
+        open_x = tile_x;
+        open_y = tile_y;
         if step_x != 0 && intersects(tile_x + step_x, tile_y) {
             tile_x += step_x;
+            directions = x_direction;
         } else if step_y != 0 && intersects(tile_x, tile_y + step_y) {
             tile_y += step_y;
+            directions = y_direction;
         } else if step_x != 0 && step_y != 0 && intersects(tile_x + step_x, tile_y + step_y) {
             // The line goes directly through the corner
-            if !is_open(tile_x + step_x, tile_y) || !is_open(tile_x, tile_y + step_y) {
+            let x_open = is_open(tile_x + step_x, tile_y);
+            let y_open = is_open(tile_x, tile_y + step_y);
+            if x_open && y_open {
+                tile_x += step_x;
+                tile_y += step_y;
+                directions = x_direction.union(y_direction);
+            } else {
+                directions = Directions::default();
+                if !x_open {
+                    directions = directions.union(x_direction);
+                }
+                if !y_open {
+                    directions = directions.union(y_direction);
+                }
                 break;
             }
-            tile_x += step_x;
-            tile_y += step_y;
         } else {
             // The line ends within this tile.
-            break;
+            let new_coordinate = start.shifted(distance, tile_size);
+            return (new_coordinate, Directions::default());
         }
     }
-    best
+    // The player stops where the line crosses the side of the last open tile facing the wall.
+    // Finding the fraction of the movement needed to reach that side along one axis is enough,
+    // because the line is straight: the same fraction of the way along x is the same fraction
+    // of the way along y. When the wall is at a corner, either axis gives the same fraction.
+    let fraction = if directions.is_left() || directions.is_right() {
+        fraction_to_side(
+            open_x,
+            step_x,
+            center_x_offset,
+            starting_point.x(),
+            distance.x(),
+            tile_size,
+        )
+    } else {
+        fraction_to_side(
+            open_y,
+            step_y,
+            center_y_offset,
+            starting_point.y(),
+            distance.y(),
+            tile_size,
+        )
+    };
+    // Stopping exactly on the side risks floating-point rounding placing the player inside the
+    // wall on the next frame, so stop just short of it.
+    let fraction = (fraction - STOP_SHORT_FRACTION).max(0.0);
+    let new_coordinate = start.shifted(distance * fraction, tile_size);
+    (new_coordinate, directions)
+}
+
+/// Finds the fraction of the movement along one axis at which the line reaches the side of an
+/// open tile it leaves through, moving in the direction of the step.
+fn fraction_to_side(
+    open_tile: i16,
+    step: i16,
+    center_offset: Length,
+    start: Length,
+    distance: Length,
+    tile_size: Length,
+) -> f32 {
+    let tile_center = f32::from(open_tile) * tile_size - center_offset;
+    let side = tile_center + f32::from(step) * (tile_size / 2.0);
+    ((side - start) / distance).get::<ratio>()
 }
 
 #[inline]
@@ -122,4 +187,14 @@ fn to_tile_rectangle(
     let left = delta_x - center_x_offset - half_tile_size;
     let bottom = delta_y - center_y_offset - half_tile_size;
     Rectangle::new(bottom, left, tile_size, tile_size)
+}
+
+#[inline]
+#[must_use]
+fn find_direction(step: i16, negative: Directions, positive: Directions) -> Directions {
+    match step.cmp(&0) {
+        Ordering::Equal => Directions::default(),
+        Ordering::Less => negative,
+        Ordering::Greater => positive,
+    }
 }

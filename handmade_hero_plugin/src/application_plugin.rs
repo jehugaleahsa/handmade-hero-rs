@@ -597,24 +597,17 @@ impl ApplicationPlugin {
         let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
             return (None, false);
         };
-        let (mut new_coordinate, mut new_velocity, provided) =
-            Self::find_new_player_coordinate_and_velocity(
-                game_state,
-                plugin_state,
-                controller_index,
-                controller,
-                player,
-            );
+        let (position_delta, velocity_delta, provided) =
+            Self::calculate_deltas(game_state, plugin_state, controller_index, controller);
 
         let old_coordinate = player.position();
-        let _ = collision_detector::detect_collision(
+        let (mut new_coordinate, directions) = collision_detector::detect_collision(
             plugin_state.world(),
             Self::view_center(plugin_state),
             old_coordinate,
-            new_velocity,
-            game_state.frame_duration(),
+            position_delta,
         );
-        let directions = Self::detect_wall_collision(plugin_state, &new_coordinate, player);
+        let mut new_velocity = player.velocity() + velocity_delta;
         let collided = directions != Directions::default();
         if collided {
             let reflection_y = Self::reflection(directions.is_down(), directions.is_up());
@@ -671,23 +664,6 @@ impl ApplicationPlugin {
         let seconds = game_state.frame_duration().get::<second>();
         let zoom = previous_zoom * (DOUBLINGS_PER_SECOND * tilt * seconds).exp2();
         zoom.clamp(MIN_ZOOM, MAX_ZOOM)
-    }
-
-    fn find_new_player_coordinate_and_velocity(
-        game_state: &GameState,
-        plugin_state: &PluginGameState,
-        controller_index: usize,
-        controller: &ControllerState,
-        player: &Entity,
-    ) -> (WorldCoordinate, Vector2d<Velocity>, bool) {
-        let (position_delta, velocity_delta, provided) =
-            Self::calculate_deltas(game_state, plugin_state, controller_index, controller);
-
-        let world = plugin_state.world();
-        let old_coordinates = player.position();
-        let new_coordinates = old_coordinates.shifted(position_delta, world.tile_size());
-        let new_velocity = player.velocity() + velocity_delta;
-        (new_coordinates, new_velocity, provided)
     }
 
     fn calculate_deltas(
@@ -766,19 +742,6 @@ impl ApplicationPlugin {
     /// The world position drawn at the center of the screen.
     fn view_center(plugin_state: &PluginGameState) -> &WorldCoordinate {
         plugin_state.camera_position()
-    }
-
-    fn detect_wall_collision(
-        plugin_state: &PluginGameState,
-        coordinates: &WorldCoordinate,
-        player: &Entity,
-    ) -> Directions {
-        let world = plugin_state.world();
-        if let Some(collision_deltas) = player.collision() {
-            world.detect_collision(coordinates, collision_deltas)
-        } else {
-            Directions::default()
-        }
     }
 
     fn find_stairs(world: &World, coordinates: &WorldCoordinate) -> Option<TileType> {

@@ -1,11 +1,8 @@
 use crate::chunk::Chunk;
 use crate::chunk_key::ChunkKey;
-use crate::collision_deltas::CollisionDeltas;
 use crate::tile_type::TileType;
 use crate::world_coordinate::WorldCoordinate;
-use handmade_hero_interface::directions::Directions;
 use handmade_hero_interface::units::si::length::Length;
-use handmade_hero_interface::vector_2d::Vector2d;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -62,48 +59,6 @@ impl World {
                 (v.insert(chunk), true)
             }
         }
-    }
-
-    #[must_use]
-    pub fn detect_collision(
-        &self,
-        coordinate: &WorldCoordinate,
-        collision_deltas: CollisionDeltas,
-    ) -> Directions {
-        let CollisionDeltas {
-            top,
-            bottom,
-            left,
-            right,
-        } = collision_deltas;
-        let top_left_collided = self.is_collision(coordinate, left, top);
-        let top_right_collided = self.is_collision(coordinate, right, top);
-        let bottom_left_collided = self.is_collision(coordinate, left, bottom);
-        let bottom_right_collided = self.is_collision(coordinate, right, bottom);
-        let top_any = top_left_collided || top_right_collided;
-        let bottom_any = bottom_left_collided || bottom_right_collided;
-        let left_any = top_left_collided || bottom_left_collided;
-        let right_any = top_right_collided || bottom_right_collided;
-        let mut directions = Directions::default();
-        if top_any && !bottom_any {
-            directions = directions.union(Directions::up());
-        }
-        if bottom_any && !top_any {
-            directions = directions.union(Directions::down());
-        }
-        if left_any && !right_any {
-            directions = directions.union(Directions::left());
-        }
-        if right_any && !left_any {
-            directions = directions.union(Directions::right());
-        }
-        directions
-    }
-
-    fn is_collision(&self, coordinate: &WorldCoordinate, delta_x: Length, delta_y: Length) -> bool {
-        let corner = Vector2d::from_x_y(delta_x, delta_y);
-        let corner = coordinate.shifted(corner, self.tile_size);
-        !self.is_traversable(&corner)
     }
 
     #[must_use]
