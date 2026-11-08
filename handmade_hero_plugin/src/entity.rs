@@ -47,7 +47,6 @@ impl Entity {
 
     #[inline]
     #[must_use]
-    #[expect(dead_code)]
     pub fn collision(&self) -> Option<CollisionDeltas> {
         self.collision
     }

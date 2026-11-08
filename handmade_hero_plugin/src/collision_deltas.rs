@@ -1,7 +1,7 @@
 use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 pub struct CollisionDeltas {
     pub top: Length,
     pub bottom: Length,

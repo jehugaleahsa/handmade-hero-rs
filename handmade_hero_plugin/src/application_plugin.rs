@@ -70,6 +70,7 @@ impl ApplicationPlugin {
         #[allow(unused_variables)] game_state: &GameState,
         plugin_state: &mut PluginGameState,
         io: &dyn Io,
+        back_buffer: &BackBuffer,
     ) {
         #[cfg(feature = "audio_debug")]
         Self::initialize_audio_debugging(game_state, plugin_state);
@@ -78,23 +79,25 @@ impl ApplicationPlugin {
         // Create the primary player, initially linked to the keyboard
         let position = plugin_state.camera_position().centered();
         let mut player = Entity::new(position);
-        let tile_size = plugin_state.world().tile_size();
-        Self::set_player_collision(&mut player, tile_size);
+        let world = plugin_state.world();
+        let viewport = Viewport::fit(world, back_buffer.width_px(), back_buffer.height_px(), 1.0);
+        Self::set_player_collision(&mut player, &viewport);
         let entity_index = plugin_state.add_player(player);
         plugin_state.map_controller_to_player_index(PluginGameState::KEYBOARD_INDEX, entity_index);
     }
 
-    fn set_player_collision(player: &mut Entity, tile_size: Length) {
-        let height = tile_size * 0.9f32;
-        let width = tile_size * 0.75f32;
-        let left_delta = -0.5 * width;
-        let right_delta = 0.5 * width;
-        let bound_height = 0.125 * height;
+    fn set_player_collision(player: &mut Entity, viewport: &Viewport) {
+        let height_delta_px = 100.0 * 0.0625;
+        let top = viewport.to_meters(height_delta_px);
+        let left_delta_px = -42.0;
+        let left = viewport.to_meters(left_delta_px);
+        let right_delta_px = 42.0;
+        let right = viewport.to_meters(right_delta_px);
         let deltas = CollisionDeltas {
-            top: bound_height,
+            top,
             bottom: Length::zero(),
-            left: left_delta,
-            right: right_delta,
+            left,
+            right,
         };
         player.set_collision(deltas);
     }
@@ -193,14 +196,14 @@ impl ApplicationPlugin {
         input_state: &InputState,
         buffer: &mut BackBuffer,
     ) {
-        Self::detect_controllers(plugin_state, input_state);
-
         let viewport = Viewport::fit(
             plugin_state.world(),
             buffer.width_px(),
             buffer.height_px(),
             plugin_state.zoom(),
         );
+
+        Self::detect_controllers(plugin_state, input_state, &viewport);
 
         Self::ensure_chunks(plugin_state, &viewport);
 
@@ -215,7 +218,11 @@ impl ApplicationPlugin {
         let _ = Self::render_mouse(input_state, &viewport, buffer);
     }
 
-    fn detect_controllers(plugin_state: &mut PluginGameState, input_state: &InputState) {
+    fn detect_controllers(
+        plugin_state: &mut PluginGameState,
+        input_state: &InputState,
+        viewport: &Viewport,
+    ) {
         for (index, controller) in input_state.controllers().enumerate() {
             let index = index + 1; // Reserve 0 for the keyboard!
             if controller.enabled() {
@@ -226,8 +233,7 @@ impl ApplicationPlugin {
                         // The primary index is already assigned - new player
                         let position = plugin_state.camera_position().centered();
                         let mut player = Entity::new(position);
-                        let tile_size = plugin_state.world().tile_size();
-                        Self::set_player_collision(&mut player, tile_size);
+                        Self::set_player_collision(&mut player, viewport);
                         plugin_state.add_player(player)
                     } else {
                         // This is the first controller registered - share the keyboard player
@@ -601,11 +607,13 @@ impl ApplicationPlugin {
             Self::calculate_deltas(game_state, plugin_state, controller_index, controller);
 
         let old_coordinate = player.position();
+        let player_collision = player.collision().unwrap_or_default();
         let (mut new_coordinate, directions) = collision_detector::detect_collision(
             plugin_state.world(),
             Self::view_center(plugin_state),
             old_coordinate,
             position_delta,
+            player_collision,
         );
         let mut new_velocity = player.velocity() + velocity_delta;
         let collided = directions != Directions::default();
@@ -1033,10 +1041,11 @@ impl Application for ApplicationPlugin {
             game_state,
             plugin_state,
             io,
+            back_buffer,
             ..
         } = context;
         if let Some(plugin_state) = plugin_state.downcast_mut::<PluginGameState>() {
-            self.initialize_direct(game_state, plugin_state, io);
+            self.initialize_direct(game_state, plugin_state, io, back_buffer);
         }
     }
 
