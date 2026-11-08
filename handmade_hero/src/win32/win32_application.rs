@@ -357,6 +357,8 @@ impl Win32Application {
         let mut sound_output = self.start_sound_output(direct_sound.as_ref());
 
         let mut counter = PerformanceCounter::start();
+        #[cfg(feature = "fps_debug")]
+        let mut frame_stats = super::win32_frame_stats::Win32FrameStats::start();
         loop {
             // A new frame starts with every half-transition count at zero, while each button
             // keeps whether it ended the last frame down.
@@ -409,6 +411,9 @@ impl Win32Application {
                     audio.set_flip_write_cursor(flip_write_cursor);
                 }
             }
+
+            #[cfg(feature = "fps_debug")]
+            frame_stats.end_frame();
         }
     }
 

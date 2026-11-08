@@ -12,5 +12,8 @@ uom = { workspace = true }
 serde = { workspace = true }
 erased-serde = { workspace = true }
 
+[features]
+fps_debug = []
+
 [lints]
 workspace = true

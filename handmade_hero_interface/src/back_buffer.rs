@@ -73,29 +73,25 @@ impl BackBuffer {
         else {
             return;
         };
-        if min_x == max_x {
+        // An offset past the far edge of the destination leaves min beyond max, so this also
+        // guards the slicing below against starting past the end of a buffer.
+        if min_x >= max_x || min_y >= max_y {
             return;
         }
+        let copy_width = max_x - min_x;
+        let copy_height = max_y - min_y;
 
-        let mut source_row = source_offset_y * source_width + source_offset_x;
-        let mut destination_row = min_y * destination_width + min_x;
-
-        let source_pixels = source.pixels();
-        let destination_pixels = self.pixels_mut();
-        for _ in min_y..max_y {
-            let mut source_column_offset = source_row;
-            let mut destination_column_offset = destination_row;
-            #[expect(clippy::explicit_counter_loop)] // <-- Suggestion is too complicated
-            for _ in min_x..max_x {
-                let source_pixel = source_pixels[source_column_offset];
-                let destination_pixel = destination_pixels[destination_column_offset];
-                let blended_pixel = Self::blend_pixel(source_pixel, destination_pixel);
-                destination_pixels[destination_column_offset] = blended_pixel;
-                source_column_offset += 1;
-                destination_column_offset += 1;
+        let source_rows = source.pixels()[source_offset_y * source_width..]
+            .chunks_exact(source_width)
+            .take(copy_height);
+        let destination_rows =
+            self.pixels_mut()[min_y * destination_width..].chunks_exact_mut(destination_width);
+        for (source_row, destination_row) in source_rows.zip(destination_rows) {
+            let source_span = &source_row[source_offset_x..source_offset_x + copy_width];
+            let destination_span = &mut destination_row[min_x..max_x];
+            for (source_pixel, destination_pixel) in source_span.iter().zip(destination_span) {
+                *destination_pixel = Self::blend_pixel(*source_pixel, *destination_pixel);
             }
-            source_row += source_width;
-            destination_row += destination_width;
         }
     }
 
