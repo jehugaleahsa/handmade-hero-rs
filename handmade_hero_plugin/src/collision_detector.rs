@@ -1,192 +1,132 @@
-use std::cmp::Ordering;
-
-use handmade_hero_interface::{
-    directions::Directions, line_segment::LineSegment, point_2d::Point2d, rectangle::Rectangle,
-    units::si::length::Length, vector_2d::Vector2d,
-};
+use handmade_hero_interface::{units::si::length::Length, vector_2d::Vector2d};
 
 use crate::{collision_deltas::CollisionDeltas, world::World, world_coordinate::WorldCoordinate};
 use uom::{num_traits::Zero, si::ratio::ratio};
 
-/// How far short of the wall, as a fraction of the frame's movement, the player stops.
+/// How far short of a wall, as a fraction of the movement, the entity stops.
 const STOP_SHORT_FRACTION: f32 = 0.001;
 
+/// Moves an entity `distance` from `start`, stopping just short of the first wall it touches.
 pub fn detect_collision(
     world: &World,
     center: &WorldCoordinate,
     start: &WorldCoordinate,
     distance: Vector2d<Length>,
     collision_deltas: CollisionDeltas,
-) -> (WorldCoordinate, Directions) {
+) -> WorldCoordinate {
     let tile_size = world.tile_size();
-    let starting_offset = start.distance_to(center, tile_size);
-    let starting_point = Point2d::from_x_y(starting_offset.x(), starting_offset.y());
-    if !world.is_traversable(start) {
-        // The player somehow got stuck in a wall. Let them escape.
-        let shifted = start.shifted(distance, tile_size);
-        return (shifted, Directions::default());
-    }
-    let line = LineSegment::from_point_vector(starting_point, distance);
-    let (step_x, step_y) = find_axis_steps(distance);
-    if step_x == 0 && step_y == 0 {
-        return (start.clone(), Directions::default());
-    }
-    // Tiles are tracked as whole-tile counts from the center tile. Rectangles in the same
-    // space as the line are built from those counts for intersection tests, and world
-    // coordinates are built from them for traversal checks, so neither is converted back
-    // into the other.
-    let (center_x_offset, center_y_offset) = center.tile_offset().to_tuple();
     let half_tile_size = tile_size / 2.0;
-    let is_open = |tile_x: i16, tile_y: i16| {
-        let shifted = center.shifted_tiles(tile_x, tile_y);
-        world.is_traversable(&shifted)
-    };
-    let mut tile_x = to_tile_index(starting_offset.x() + center_x_offset, tile_size);
-    let mut tile_y = to_tile_index(starting_offset.y() + center_y_offset, tile_size);
-    let (x_direction, x_leading_delta, y_direction, y_leading_delta) =
-        find_directions_and_leading_deltas(step_x, step_y, collision_deltas);
-    let intersects = |tile_x: i16, tile_y: i16| {
-        let rectangle = to_tile_rectangle(
-            center_x_offset,
-            center_y_offset,
-            tile_x,
-            tile_y,
-            tile_size,
-            half_tile_size,
-            collision_deltas,
-        );
-        line.intersects_rectangle(&rectangle)
-    };
-    let mut directions = Directions::default();
-    // The last tile known to be open. The walk stops on the boundary leading out of it.
-    let mut open_x = tile_x;
-    let mut open_y = tile_y;
-    loop {
-        let tile_coordinate = center.shifted_tiles(tile_x, tile_y);
-        if !world.is_traversable(&tile_coordinate) {
-            break;
-        }
-        open_x = tile_x;
-        open_y = tile_y;
-        if step_x != 0 && intersects(tile_x + step_x, tile_y) {
-            tile_x += step_x;
-            directions = x_direction;
-        } else if step_y != 0 && intersects(tile_x, tile_y + step_y) {
-            tile_y += step_y;
-            directions = y_direction;
-        } else if step_x != 0 && step_y != 0 && intersects(tile_x + step_x, tile_y + step_y) {
-            // The line goes directly through the corner
-            let x_open = is_open(tile_x + step_x, tile_y);
-            let y_open = is_open(tile_x, tile_y + step_y);
-            if x_open && y_open {
-                tile_x += step_x;
-                tile_y += step_y;
-                directions = x_direction.union(y_direction);
-            } else {
-                directions = Directions::default();
-                if !x_open {
-                    directions = directions.union(x_direction);
-                }
-                if !y_open {
-                    directions = directions.union(y_direction);
-                }
-                break;
+    // Positions are measured from the center of the center tile, so the tile `x` tiles over and
+    // `y` tiles up from it has its center at `(x, y) * tile_size`. Tiles are found by whole-tile
+    // counts from the center tile, so no position is ever converted back into a tile coordinate.
+    let (center_x_offset, center_y_offset) = center.tile_offset().to_tuple();
+    let center_offset = Vector2d::from_x_y(center_x_offset, center_y_offset);
+    let starting = start.distance_to(center, tile_size) + center_offset;
+    let ending = starting + distance;
+
+    // Every tile the entity could touch lies between the tiles it starts and ends in, widened
+    // by how many tiles the entity itself spans.
+    let width_tiles = tiles_spanned(collision_deltas.right - collision_deltas.left, tile_size);
+    let height_tiles = tiles_spanned(collision_deltas.top - collision_deltas.bottom, tile_size);
+    let (min_tile_x, max_tile_x) = tile_range(starting.x(), ending.x(), tile_size, width_tiles);
+    let (min_tile_y, max_tile_y) = tile_range(starting.y(), ending.y(), tile_size, height_tiles);
+
+    // The Minkowski sum: instead of testing the entity's rectangle against each tile, grow the
+    // tile by the entity's shape mirrored through its center and test the entity's center point
+    // against that. The entity's right edge is what reaches a tile's left side, so the left side
+    // moves out by the right delta, and likewise for the other sides. Left and bottom deltas are
+    // negative offsets from the center, so subtracting them moves those sides outward.
+    let min_x = -half_tile_size - collision_deltas.right;
+    let min_y = -half_tile_size - collision_deltas.top;
+    let min_corner = Vector2d::from_x_y(min_x, min_y);
+    let max_x = half_tile_size - collision_deltas.left;
+    let max_y = half_tile_size - collision_deltas.bottom;
+    let max_corner = Vector2d::from_x_y(max_x, max_y);
+
+    let mut min_percent = 1.0f32;
+    for tile_y in min_tile_y..=max_tile_y {
+        for tile_x in min_tile_x..=max_tile_x {
+            let tile = center.shifted_tiles(tile_x, tile_y);
+            if world.is_traversable(&tile) {
+                continue;
             }
-        } else {
-            // The line ends within this tile.
-            let new_coordinate = start.shifted(distance, tile_size);
-            return (new_coordinate, Directions::default());
+            let tile_center_x = f32::from(tile_x) * tile_size;
+            let tile_center_y = f32::from(tile_y) * tile_size;
+            let tile_center = Vector2d::from_x_y(tile_center_x, tile_center_y);
+            let relative = starting - tile_center;
+            // The vertical walls are tested along x. The horizontal walls swap the axes so the
+            // same test runs along y.
+            let flipped_relative = Vector2d::from_x_y(relative.y(), relative.x());
+            let flipped_distance = Vector2d::from_x_y(distance.y(), distance.x());
+            let x_span = (min_corner.x(), max_corner.x());
+            let y_span = (min_corner.y(), max_corner.y());
+            test_wall(min_corner.x(), y_span, relative, distance, &mut min_percent);
+            test_wall(max_corner.x(), y_span, relative, distance, &mut min_percent);
+            test_wall(
+                min_corner.y(),
+                x_span,
+                flipped_relative,
+                flipped_distance,
+                &mut min_percent,
+            );
+            test_wall(
+                max_corner.y(),
+                x_span,
+                flipped_relative,
+                flipped_distance,
+                &mut min_percent,
+            );
         }
     }
-    // The player stops where the line crosses the side of the last open tile facing the wall,
-    // pulled back by the player's leading edge so that edge, not the center, touches the wall.
-    // Finding the fraction of the movement needed to reach that side along one axis is enough,
-    // because the line is straight: the same fraction of the way along x is the same fraction
-    // of the way along y. When the wall is at a corner, either axis gives the same fraction.
-    let fraction = if directions.is_left() || directions.is_right() {
-        fraction_to_side(
-            open_x,
-            step_x,
-            center_x_offset,
-            starting_point.x(),
-            distance.x(),
-            tile_size,
-            x_leading_delta,
-        )
-    } else {
-        fraction_to_side(
-            open_y,
-            step_y,
-            center_y_offset,
-            starting_point.y(),
-            distance.y(),
-            tile_size,
-            y_leading_delta,
-        )
-    };
-    // Stopping exactly on the side risks floating-point rounding placing the player inside the
-    // wall on the next frame, so stop just short of it.
-    let fraction = (fraction - STOP_SHORT_FRACTION).max(0.0);
-    let new_coordinate = start.shifted(distance * fraction, tile_size);
-    (new_coordinate, directions)
+    start.shifted(distance * min_percent, tile_size)
 }
 
-/// Finds the fraction of the movement along one axis at which the line reaches the side of an
-/// open tile it leaves through, moving in the direction of the step. The leading delta is the
-/// entity's offset from its center to the edge facing the step, so the side is pulled back by
-/// the entity's extent in that direction.
-fn fraction_to_side(
-    open_tile: i16,
-    step: i16,
-    center_offset: Length,
-    start: Length,
-    distance: Length,
-    tile_size: Length,
-    leading_delta: Length,
-) -> f32 {
-    let tile_center = f32::from(open_tile) * tile_size - center_offset;
-    let side = tile_center + f32::from(step) * (tile_size / 2.0) - leading_delta;
-    ((side - start) / distance).get::<ratio>()
-}
-
-#[inline]
-#[must_use]
-fn find_axis_steps(distance: Vector2d<Length>) -> (i16, i16) {
-    let step_x = sign_step(distance.x());
-    let step_y = sign_step(distance.y());
-    (step_x, step_y)
-}
-
-/// Finds the direction of movement along each axis, each paired with the entity's delta on the
-/// edge that leads in that direction.
-#[inline]
-#[must_use]
-fn find_directions_and_leading_deltas(
-    step_x: i16,
-    step_y: i16,
-    deltas: CollisionDeltas,
-) -> (Directions, Length, Directions, Length) {
-    let (x_direction, x_delta) = find_direction_and_leading_delta(
-        step_x,
-        (Directions::left(), deltas.left),
-        (Directions::right(), deltas.right),
-    );
-    let (y_direction, y_delta) = find_direction_and_leading_delta(
-        step_y,
-        (Directions::down(), deltas.bottom),
-        (Directions::up(), deltas.top),
-    );
-    (x_direction, x_delta, y_direction, y_delta)
-}
-
-#[inline]
-#[must_use]
-fn sign_step(length: Length) -> i16 {
-    match length.partial_cmp(&Length::zero()) {
-        Some(Ordering::Less) => -1,
-        Some(Ordering::Greater) => 1,
-        Some(Ordering::Equal) | None => 0,
+/// Tests whether a move crosses a wall running parallel to the y-axis at `wall_x`, between
+/// `min_y` and `max_y`, sooner than `t_min`. On a hit, `t_min` is lowered to stop just short of
+/// the wall. The horizontal walls use the same test with x and y swapped in every argument.
+fn test_wall(
+    wall_x: Length,
+    (min_y, max_y): (Length, Length),
+    relative: Vector2d<Length>,
+    delta: Vector2d<Length>,
+    min_percent: &mut f32,
+) {
+    if delta.x() == Length::zero() {
+        return;
     }
+    let percent = ((wall_x - relative.x()) / delta.x()).get::<ratio>();
+    if percent < 0.0 || percent >= *min_percent {
+        return;
+    }
+    let y = relative.y() + delta.y() * percent;
+    if y < min_y || y > max_y {
+        return;
+    }
+    // Stopping exactly on the wall risks floating-point rounding placing the entity inside it
+    // on the next move, so stop just short of it.
+    *min_percent = (percent - STOP_SHORT_FRACTION).max(0.0);
+}
+
+/// Finds the tiles, counted from the center tile, that a move along one axis from `start` to
+/// `end` could touch, widened on both sides by `margin_tiles`.
+#[inline]
+#[must_use]
+fn tile_range(start: Length, end: Length, tile_size: Length, margin_tiles: i16) -> (i16, i16) {
+    let start_tile = to_tile_index(start, tile_size);
+    let end_tile = to_tile_index(end, tile_size);
+    let min_tile = start_tile.min(end_tile) - margin_tiles;
+    let max_tile = start_tile.max(end_tile) + margin_tiles;
+    (min_tile, max_tile)
+}
+
+/// Finds how many whole tiles a length covers, rounding up.
+#[inline]
+#[must_use]
+fn tiles_spanned(length: Length, tile_size: Length) -> i16 {
+    let tiles = (length / tile_size).get::<ratio>();
+    #[expect(clippy::cast_possible_truncation)]
+    let tiles = tiles.ceil() as i16;
+    tiles
 }
 
 /// Finds which tile, counted from the center tile, holds a point at the given offset from the
@@ -195,49 +135,11 @@ fn sign_step(length: Length) -> i16 {
 #[must_use]
 fn to_tile_index(offset_from_tile_center: Length, tile_size: Length) -> i16 {
     // Tile k covers [k - 0.5, k + 0.5) in tile units, including its left or bottom side and
-    // excluding its right or top side, the same as its rectangle. Shifting by half a tile lines
-    // those sides up with whole numbers, so flooring lands every point, negative ones and ones
-    // exactly on a side included, in the same tile the rectangle would.
+    // excluding its right or top side. Shifting by half a tile lines those sides up with whole
+    // numbers, so flooring lands every point, negative ones and ones exactly on a side included,
+    // in the right tile.
     let tiles = (offset_from_tile_center / tile_size).get::<ratio>();
     #[expect(clippy::cast_possible_truncation)]
     let index = (tiles + 0.5).floor() as i16;
     index
-}
-
-fn to_tile_rectangle(
-    center_x_offset: Length,
-    center_y_offset: Length,
-    tiles_x: i16,
-    tiles_y: i16,
-    tile_size: Length,
-    half_tile_size: Length,
-    collision_deltas: CollisionDeltas,
-) -> Rectangle<Length> {
-    let delta_x = f32::from(tiles_x) * tile_size;
-    let delta_y = f32::from(tiles_y) * tile_size;
-    // The tile grows by the entity's shape mirrored through its center: the entity's right edge
-    // is what reaches the tile's left side, so the left side moves out by the right delta, and
-    // likewise for the other sides. Left and bottom deltas are negative offsets from the center.
-    let left = delta_x - center_x_offset - half_tile_size - collision_deltas.right;
-    let bottom = delta_y - center_y_offset - half_tile_size - collision_deltas.top;
-    // The width and height are the tile size plus the entity's full extent on that axis.
-    let width = tile_size + -collision_deltas.left + collision_deltas.right;
-    let height = tile_size + -collision_deltas.bottom + collision_deltas.top;
-    Rectangle::new(bottom, left, height, width)
-}
-
-/// Picks the direction of movement along one axis, paired with the entity's collision delta
-/// on the edge that leads in that direction.
-#[inline]
-#[must_use]
-fn find_direction_and_leading_delta(
-    step: i16,
-    negative: (Directions, Length),
-    positive: (Directions, Length),
-) -> (Directions, Length) {
-    match step.cmp(&0) {
-        Ordering::Equal => (Directions::default(), Length::zero()),
-        Ordering::Less => negative,
-        Ordering::Greater => positive,
-    }
 }

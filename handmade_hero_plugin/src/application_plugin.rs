@@ -15,7 +15,6 @@ use handmade_hero_interface::back_buffer::BackBuffer;
 use handmade_hero_interface::button::Button;
 use handmade_hero_interface::color::Color;
 use handmade_hero_interface::controller_state::ControllerState;
-use handmade_hero_interface::directions::Directions;
 use handmade_hero_interface::display::Display;
 use handmade_hero_interface::display_settings::DisplaySettings;
 use handmade_hero_interface::game_state::GameState;
@@ -79,14 +78,15 @@ impl ApplicationPlugin {
         // Create the primary player, initially linked to the keyboard
         let position = plugin_state.camera_position().centered();
         let mut player = Entity::new(position);
-        let world = plugin_state.world();
-        let viewport = Viewport::fit(world, back_buffer.width_px(), back_buffer.height_px(), 1.0);
-        Self::set_player_collision(&mut player, &viewport);
+        Self::set_player_collision(&mut player, plugin_state.world(), back_buffer);
         let entity_index = plugin_state.add_player(player);
         plugin_state.map_controller_to_player_index(PluginGameState::KEYBOARD_INDEX, entity_index);
     }
 
-    fn set_player_collision(player: &mut Entity, viewport: &Viewport) {
+    fn set_player_collision(player: &mut Entity, world: &World, back_buffer: &BackBuffer) {
+        // The collision bounds are measured in pixels of the player image as drawn without
+        // zoom, so they convert to meters at a zoom of 1.0 whatever the current zoom is.
+        let viewport = Viewport::fit(world, back_buffer.width_px(), back_buffer.height_px(), 1.0);
         let height_delta_px = 100.0 * 0.0625;
         let top = viewport.to_meters(height_delta_px);
         let left_delta_px = -42.0;
@@ -203,7 +203,7 @@ impl ApplicationPlugin {
             plugin_state.zoom(),
         );
 
-        Self::detect_controllers(plugin_state, input_state, &viewport);
+        Self::detect_controllers(plugin_state, input_state, buffer);
 
         Self::ensure_chunks(plugin_state, &viewport);
 
@@ -221,7 +221,7 @@ impl ApplicationPlugin {
     fn detect_controllers(
         plugin_state: &mut PluginGameState,
         input_state: &InputState,
-        viewport: &Viewport,
+        back_buffer: &BackBuffer,
     ) {
         for (index, controller) in input_state.controllers().enumerate() {
             let index = index + 1; // Reserve 0 for the keyboard!
@@ -233,7 +233,7 @@ impl ApplicationPlugin {
                         // The primary index is already assigned - new player
                         let position = plugin_state.camera_position().centered();
                         let mut player = Entity::new(position);
-                        Self::set_player_collision(&mut player, viewport);
+                        Self::set_player_collision(&mut player, plugin_state.world(), back_buffer);
                         plugin_state.add_player(player)
                     } else {
                         // This is the first controller registered - share the keyboard player
@@ -608,26 +608,14 @@ impl ApplicationPlugin {
 
         let old_coordinate = player.position();
         let player_collision = player.collision().unwrap_or_default();
-        let (mut new_coordinate, directions) = collision_detector::detect_collision(
+        let mut new_coordinate = collision_detector::detect_collision(
             plugin_state.world(),
             Self::view_center(plugin_state),
             old_coordinate,
             position_delta,
             player_collision,
         );
-        let mut new_velocity = player.velocity() + velocity_delta;
-        let collided = directions != Directions::default();
-        if collided {
-            let reflection_y = Self::reflection(directions.is_down(), directions.is_up());
-            let reflection_x = Self::reflection(directions.is_left(), directions.is_right());
-            let reflection = Vector2d::from_x_y(reflection_x, reflection_y);
-            // No single wall to reflect off, such as in an inside corner, means every way forward
-            // is blocked, so send the player straight back.
-            new_velocity = match reflection.normalized() {
-                Some(normal) => new_velocity - new_velocity.dot(normal) * normal,
-                None => Vector2d::default(),
-            };
-        }
+        let new_velocity = player.velocity() + velocity_delta;
         if let Some(stairs) = Self::find_stairs(plugin_state.world(), &new_coordinate)
             && !old_coordinate.is_same_tile(&new_coordinate)
         {
@@ -733,16 +721,6 @@ impl ApplicationPlugin {
             -1.0
         } else {
             controller.left_joystick().y_ratio()
-        }
-    }
-
-    fn reflection(positive: bool, negative: bool) -> f32 {
-        if positive {
-            1.0
-        } else if negative {
-            -1.0
-        } else {
-            0.0
         }
     }
 
