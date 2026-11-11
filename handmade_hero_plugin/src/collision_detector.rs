@@ -1,10 +1,16 @@
 use handmade_hero_interface::{units::si::length::Length, vector_2d::Vector2d};
 
 use crate::{collision_deltas::CollisionDeltas, world::World, world_coordinate::WorldCoordinate};
-use uom::{num_traits::Zero, si::ratio::ratio};
+use uom::{
+    num_traits::Zero,
+    si::{length::meter, ratio::ratio},
+};
 
 /// How far short of a wall, as a fraction of the movement, the entity stops.
 const STOP_SHORT_FRACTION: f32 = 0.001;
+
+/// How far behind a wall's face an entity can start and still be stopped by that wall.
+const MAX_PENETRATION_METERS: f32 = 0.001;
 
 /// Moves an entity `distance` from `start`, stopping just short of the first wall it touches.
 pub fn detect_collision(
@@ -60,10 +66,27 @@ pub fn detect_collision(
             let flipped_distance = Vector2d::from_x_y(distance.y(), distance.x());
             let x_span = (min_corner.x(), max_corner.x());
             let y_span = (min_corner.y(), max_corner.y());
-            test_wall(min_corner.x(), y_span, relative, distance, &mut min_percent);
-            test_wall(max_corner.x(), y_span, relative, distance, &mut min_percent);
+            // A wall on the minimum side faces the negative direction, and a wall on the maximum
+            // side faces the positive direction.
+            test_wall(
+                min_corner.x(),
+                -1.0,
+                y_span,
+                relative,
+                distance,
+                &mut min_percent,
+            );
+            test_wall(
+                max_corner.x(),
+                1.0,
+                y_span,
+                relative,
+                distance,
+                &mut min_percent,
+            );
             test_wall(
                 min_corner.y(),
+                -1.0,
                 x_span,
                 flipped_relative,
                 flipped_distance,
@@ -71,6 +94,7 @@ pub fn detect_collision(
             );
             test_wall(
                 max_corner.y(),
+                1.0,
                 x_span,
                 flipped_relative,
                 flipped_distance,
@@ -84,18 +108,32 @@ pub fn detect_collision(
 /// Tests whether a move crosses a wall running parallel to the y-axis at `wall_x`, between
 /// `min_y` and `max_y`, sooner than `t_min`. On a hit, `t_min` is lowered to stop just short of
 /// the wall. The horizontal walls use the same test with x and y swapped in every argument.
+/// A wall only blocks movement heading into the side it faces. `facing` is `-1.0` when that
+/// side looks toward negative x and `1.0` when it looks toward positive x. Movement along the
+/// wall or away from it is never a hit, so an entity resting on a wall can always back off it.
 fn test_wall(
     wall_x: Length,
+    facing: f32,
     (min_y, max_y): (Length, Length),
     relative: Vector2d<Length>,
     delta: Vector2d<Length>,
     min_percent: &mut f32,
 ) {
-    if delta.x() == Length::zero() {
+    // How far the move travels toward the wall's face, positive when heading into it.
+    let approach = delta.x() * -facing;
+    if approach <= Length::zero() {
         return;
     }
-    let percent = ((wall_x - relative.x()) / delta.x()).get::<ratio>();
-    if percent < 0.0 || percent >= *min_percent {
+    // How far the entity starts in front of the wall's face, negative when it is behind it.
+    let gap = (relative.x() - wall_x) * facing;
+    // Rounding can leave an entity a hair behind the face it stopped at. That still counts as
+    // touching the wall. Anything deeper started on the far side, and this wall is not what
+    // stands in its way.
+    if gap < -Length::new::<meter>(MAX_PENETRATION_METERS) {
+        return;
+    }
+    let percent = (gap / approach).get::<ratio>().max(0.0);
+    if percent >= *min_percent {
         return;
     }
     let y = relative.y() + delta.y() * percent;
