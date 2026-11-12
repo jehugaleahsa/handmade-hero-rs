@@ -607,15 +607,18 @@ impl ApplicationPlugin {
             Self::calculate_deltas(game_state, plugin_state, controller_index, controller);
 
         let old_coordinate = player.position();
+        let center = Self::view_center(plugin_state);
         let player_collision = player.collision().unwrap_or_default();
-        let mut new_coordinate = collision_detector::detect_collision(
+        let (mut new_coordinate, new_velocity) = collision_detector::collide_and_slide(
             plugin_state.world(),
-            Self::view_center(plugin_state),
+            center,
             old_coordinate,
+            player.velocity(),
             position_delta,
+            velocity_delta,
             player_collision,
         );
-        let new_velocity = player.velocity() + velocity_delta;
+
         if let Some(stairs) = Self::find_stairs(plugin_state.world(), &new_coordinate)
             && !old_coordinate.is_same_tile(&new_coordinate)
         {

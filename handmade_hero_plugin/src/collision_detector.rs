@@ -1,10 +1,16 @@
-use handmade_hero_interface::{units::si::length::Length, vector_2d::Vector2d};
+use handmade_hero_interface::{
+    directions::Directions,
+    units::si::{length::Length, velocity::Velocity},
+    vector_2d::Vector2d,
+};
 
 use crate::{collision_deltas::CollisionDeltas, world::World, world_coordinate::WorldCoordinate};
 use uom::{
     num_traits::Zero,
-    si::{length::meter, ratio::ratio},
+    si::{f32::Ratio, length::meter, ratio::ratio},
 };
+
+const MAX_SLIDE_ITERATIONS: u8 = 4;
 
 /// How far short of a wall, as a fraction of the movement, the entity stops.
 const STOP_SHORT_FRACTION: f32 = 0.001;
@@ -12,14 +18,48 @@ const STOP_SHORT_FRACTION: f32 = 0.001;
 /// How far behind a wall's face an entity can start and still be stopped by that wall.
 const MAX_PENETRATION_METERS: f32 = 0.001;
 
+pub fn collide_and_slide(
+    world: &World,
+    center: &WorldCoordinate,
+    old_coordinate: &WorldCoordinate,
+    old_velocity: Vector2d<Velocity>,
+    position_delta: Vector2d<Length>,
+    velocity_delta: Vector2d<Velocity>,
+    collision_deltas: CollisionDeltas,
+) -> (WorldCoordinate, Vector2d<Velocity>) {
+    let mut new_coordinate = old_coordinate.clone();
+    let mut remaining_position_delta = position_delta;
+    let mut new_velocity = old_velocity + velocity_delta;
+    let mut remaining_percent = 1.0;
+    for _ in 0..MAX_SLIDE_ITERATIONS {
+        let (next_coordinate, wall_normal, percent) = detect_collision(
+            remaining_percent,
+            world,
+            center,
+            &new_coordinate,
+            remaining_position_delta,
+            collision_deltas,
+        );
+        new_coordinate = next_coordinate;
+        new_velocity -= new_velocity.dot(wall_normal) * wall_normal;
+        remaining_position_delta -= remaining_position_delta.dot(wall_normal) * wall_normal;
+        remaining_percent -= remaining_percent * percent;
+        if remaining_percent <= 0.0 {
+            break;
+        }
+    }
+    (new_coordinate, new_velocity)
+}
+
 /// Moves an entity `distance` from `start`, stopping just short of the first wall it touches.
-pub fn detect_collision(
+fn detect_collision(
+    remaining_percent: f32,
     world: &World,
     center: &WorldCoordinate,
     start: &WorldCoordinate,
     distance: Vector2d<Length>,
     collision_deltas: CollisionDeltas,
-) -> WorldCoordinate {
+) -> (WorldCoordinate, Vector2d<Ratio>, f32) {
     let tile_size = world.tile_size();
     let half_tile_size = tile_size / 2.0;
     // Positions are measured from the center of the center tile, so the tile `x` tiles over and
@@ -49,7 +89,8 @@ pub fn detect_collision(
     let max_y = half_tile_size - collision_deltas.bottom;
     let max_corner = Vector2d::from_x_y(max_x, max_y);
 
-    let mut min_percent = 1.0f32;
+    let mut min_percent = remaining_percent;
+    let mut min_directions = Directions::default();
     for tile_y in min_tile_y..=max_tile_y {
         for tile_x in min_tile_x..=max_tile_x {
             let tile = center.shifted_tiles(tile_x, tile_y);
@@ -68,41 +109,55 @@ pub fn detect_collision(
             let y_span = (min_corner.y(), max_corner.y());
             // A wall on the minimum side faces the negative direction, and a wall on the maximum
             // side faces the positive direction.
-            test_wall(
+            let mut directions = Directions::default();
+            if let Some(new_min_percent) = test_wall(
                 min_corner.x(),
                 -1.0,
                 y_span,
                 relative,
                 distance,
-                &mut min_percent,
-            );
-            test_wall(
-                max_corner.x(),
-                1.0,
-                y_span,
-                relative,
-                distance,
-                &mut min_percent,
-            );
-            test_wall(
+                min_percent,
+            ) {
+                min_percent = new_min_percent;
+                directions = directions.union(Directions::left());
+                min_directions = directions;
+            }
+            if let Some(new_min_percent) =
+                test_wall(max_corner.x(), 1.0, y_span, relative, distance, min_percent)
+            {
+                min_percent = new_min_percent;
+                directions = directions.union(Directions::right());
+                min_directions = directions;
+            }
+            if let Some(new_min_percent) = test_wall(
                 min_corner.y(),
                 -1.0,
                 x_span,
                 flipped_relative,
                 flipped_distance,
-                &mut min_percent,
-            );
-            test_wall(
+                min_percent,
+            ) {
+                min_percent = new_min_percent;
+                directions = directions.union(Directions::down());
+                min_directions = directions;
+            }
+            if let Some(new_min_percent) = test_wall(
                 max_corner.y(),
                 1.0,
                 x_span,
                 flipped_relative,
                 flipped_distance,
-                &mut min_percent,
-            );
+                min_percent,
+            ) {
+                min_percent = new_min_percent;
+                directions = directions.union(Directions::up());
+                min_directions = directions;
+            }
         }
     }
-    start.shifted(distance * min_percent, tile_size)
+    let actual_end = start.shifted(distance * min_percent, tile_size);
+    let wall_normal = to_wall_normal(min_directions);
+    (actual_end, wall_normal, min_percent)
 }
 
 /// Tests whether a move crosses a wall running parallel to the y-axis at `wall_x`, between
@@ -117,12 +172,12 @@ fn test_wall(
     (min_y, max_y): (Length, Length),
     relative: Vector2d<Length>,
     delta: Vector2d<Length>,
-    min_percent: &mut f32,
-) {
+    min_percent: f32,
+) -> Option<f32> {
     // How far the move travels toward the wall's face, positive when heading into it.
     let approach = delta.x() * -facing;
     if approach <= Length::zero() {
-        return;
+        return None;
     }
     // How far the entity starts in front of the wall's face, negative when it is behind it.
     let gap = (relative.x() - wall_x) * facing;
@@ -130,19 +185,20 @@ fn test_wall(
     // touching the wall. Anything deeper started on the far side, and this wall is not what
     // stands in its way.
     if gap < -Length::new::<meter>(MAX_PENETRATION_METERS) {
-        return;
+        return None;
     }
     let percent = (gap / approach).get::<ratio>().max(0.0);
-    if percent >= *min_percent {
-        return;
+    if percent >= min_percent {
+        return None;
     }
     let y = relative.y() + delta.y() * percent;
     if y < min_y || y > max_y {
-        return;
+        return None;
     }
     // Stopping exactly on the wall risks floating-point rounding placing the entity inside it
     // on the next move, so stop just short of it.
-    *min_percent = (percent - STOP_SHORT_FRACTION).max(0.0);
+    let new_min_percent = (percent - STOP_SHORT_FRACTION).max(0.0);
+    Some(new_min_percent)
 }
 
 /// Finds the tiles, counted from the center tile, that a move along one axis from `start` to
@@ -180,4 +236,24 @@ fn to_tile_index(offset_from_tile_center: Length, tile_size: Length) -> i16 {
     #[expect(clippy::cast_possible_truncation)]
     let index = (tiles + 0.5).floor() as i16;
     index
+}
+
+fn to_wall_normal(directions: Directions) -> Vector2d<Ratio> {
+    let mut x_normal = 0.0f32;
+    let mut y_normal = 0.0f32;
+    if directions.is_up() {
+        y_normal += 1.0;
+    }
+    if directions.is_right() {
+        x_normal += 1.0;
+    }
+    if directions.is_down() {
+        y_normal -= 1.0;
+    }
+    if directions.is_left() {
+        x_normal -= 1.0;
+    }
+    let x_normal = Ratio::new::<ratio>(x_normal);
+    let y_normal = Ratio::new::<ratio>(y_normal);
+    Vector2d::from_x_y(x_normal, y_normal)
 }

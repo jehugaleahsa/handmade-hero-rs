@@ -146,13 +146,15 @@ where
 {
     #[inline]
     #[must_use]
-    pub fn dot<U>(self, other: Vector2d<U>) -> <T as Mul<U>>::Output
+    pub fn dot<U, V>(self, other: Vector2d<U>) -> V
     where
-        T: Mul<U>,
+        T: Mul<U, Output = V>,
         U: Copy,
-        <T as Mul<U>>::Output: Add<Output = <T as Mul<U>>::Output>,
+        V: Add<V, Output = V>,
     {
-        self.x() * other.x() + self.y() * other.y()
+        let x = self.x() * other.x();
+        let y = self.y() * other.y();
+        x + y
     }
 }
 
