@@ -1,6 +1,7 @@
 mod application_plugin;
 mod chunk;
 mod chunk_coordinate;
+mod chunk_generation;
 mod chunk_key;
 mod collision_deltas;
 mod collision_detector;
