@@ -1,13 +1,23 @@
-use handmade_hero_interface::{units::si::velocity::Velocity, vector_2d::Vector2d};
+use handmade_hero_interface::{
+    units::si::{length::Length, velocity::Velocity},
+    vector_2d::Vector2d,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{collision_deltas::CollisionDeltas, world_coordinate::WorldCoordinate};
 
 #[derive(Debug, Serialize, Deserialize)]
+pub enum EntityResidence {
+    High { position: Vector2d<Length> },
+    Low { position: WorldCoordinate },
+    Dormant {},
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Entity {
-    position: WorldCoordinate,
     velocity: Vector2d<Velocity>,
     collision: Option<CollisionDeltas>,
+    residence: EntityResidence,
 }
 
 impl Entity {
@@ -15,22 +25,22 @@ impl Entity {
     #[must_use]
     pub fn new(position: WorldCoordinate) -> Self {
         Self {
-            position,
             velocity: Vector2d::default(),
             collision: None,
+            residence: EntityResidence::Low { position },
         }
     }
 
     #[inline]
     #[must_use]
-    pub fn position(&self) -> &WorldCoordinate {
-        &self.position
+    pub fn residence(&self) -> &EntityResidence {
+        &self.residence
     }
 
     #[inline]
     #[must_use]
-    pub fn position_mut(&mut self) -> &mut WorldCoordinate {
-        &mut self.position
+    pub fn residence_mut(&mut self) -> &mut EntityResidence {
+        &mut self.residence
     }
 
     #[inline]

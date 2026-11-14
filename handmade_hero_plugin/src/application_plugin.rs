@@ -1,7 +1,7 @@
 use crate::chunk_key::ChunkKey;
 use crate::collision_deltas::CollisionDeltas;
 use crate::dimensions::Dimensions;
-use crate::entity::Entity;
+use crate::entity::{Entity, EntityResidence};
 use crate::image::Image;
 use crate::tile_type::TileType;
 use crate::viewport::Viewport;
@@ -361,7 +361,9 @@ impl ApplicationPlugin {
         let tile = world.get_chunk(chunk_key).map(|c| c[(tile_y, tile_x)]);
         if let Some(tile) = tile {
             let is_player_coordinate = plugin_state.players().any(|p| {
-                let position = p.position();
+                let EntityResidence::Low { position } = p.residence() else {
+                    return false;
+                };
                 chunk_key == position.chunk_key()
                     && tile_y == position.tile_y()
                     && tile_x == position.tile_x()
@@ -437,10 +439,16 @@ impl ApplicationPlugin {
         let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
             return (None, false);
         };
+        let EntityResidence::Low {
+            position: old_coordinate,
+        } = player.residence()
+        else {
+            return (None, false);
+        };
+
         let (position_delta, velocity_delta, provided) =
             Self::calculate_deltas(game_state, plugin_state, controller_index, controller);
 
-        let old_coordinate = player.position();
         let center = Self::view_center(plugin_state);
         let player_collision = player.collision().unwrap_or_default();
         let (mut new_coordinate, new_velocity) = collision_detector::collide_and_slide(
@@ -468,13 +476,15 @@ impl ApplicationPlugin {
             *plugin_state.camera_position_mut() = camera_coordinates;
         }
 
-        if let Some(player) = plugin_state.player_by_controller_index_mut(controller_index) {
-            *player.position_mut() = new_coordinate.clone();
-            *player.velocity_mut() = new_velocity;
-            (Some(new_coordinate), provided)
-        } else {
-            (None, false)
-        }
+        let Some(player) = plugin_state.player_by_controller_index_mut(controller_index) else {
+            return (None, false);
+        };
+        let EntityResidence::Low { position } = player.residence_mut() else {
+            return (None, false);
+        };
+        *position = new_coordinate.clone();
+        *player.velocity_mut() = new_velocity;
+        (Some(new_coordinate), provided)
     }
 
     /// Scales the zoom by the right joystick's vertical tilt.
