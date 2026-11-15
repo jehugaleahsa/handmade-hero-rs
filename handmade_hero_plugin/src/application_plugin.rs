@@ -1,13 +1,13 @@
 use crate::chunk_key::ChunkKey;
 use crate::collision_deltas::CollisionDeltas;
 use crate::dimensions::Dimensions;
-use crate::entity::{Entity, EntityResidence};
+use crate::entity::Entity;
 use crate::image::Image;
 use crate::tile_type::TileType;
 use crate::viewport::Viewport;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
-use crate::{chunk_generation, collision_detector};
+use crate::{chunk_generation, collision_detection};
 use handmade_hero_interface::application::Application;
 use handmade_hero_interface::application_error::{ApplicationError, Result};
 use handmade_hero_interface::audio_context::AudioContext;
@@ -71,19 +71,22 @@ impl ApplicationPlugin {
         self.player_image = Self::load_image(io, "player.bmp");
 
         // Create the primary player, initially linked to the keyboard
-        let position = plugin_state.camera_position().centered();
-        let mut player = Entity::new(position);
-        Self::set_player_collision(&mut player, plugin_state.world(), back_buffer);
+        let player = Self::create_player(plugin_state, back_buffer);
         let entity_index = plugin_state.add_player(player);
         plugin_state.map_controller_to_player_index(PluginGameState::KEYBOARD_INDEX, entity_index);
     }
 
-    fn set_player_collision(player: &mut Entity, world: &World, back_buffer: &BackBuffer) {
+    fn create_player(plugin_state: &PluginGameState, back_buffer: &BackBuffer) -> Entity {
+        let world = plugin_state.world();
+        let position = plugin_state.camera_position().centered();
+
         // The collision bounds are measured in pixels of the player image as drawn without
         // zoom, so they convert to meters at a zoom of 1.0 whatever the current zoom is.
         let viewport = Viewport::fit(world, back_buffer.width_px(), back_buffer.height_px(), 1.0);
-        let height_delta_px = 100.0 * 0.0625;
-        let top = viewport.to_meters(height_delta_px);
+        let height = viewport.to_meters(100.0);
+        let width = viewport.to_meters(100.0);
+
+        let top = height * 0.0625;
         let left_delta_px = -42.0;
         let left = viewport.to_meters(left_delta_px);
         let right_delta_px = 42.0;
@@ -94,7 +97,10 @@ impl ApplicationPlugin {
             left,
             right,
         };
+
+        let mut player = Entity::new(position, height, width);
         player.set_collision(deltas);
+        player
     }
 
     #[cfg(feature = "audio_debug")]
@@ -226,9 +232,7 @@ impl ApplicationPlugin {
                 {
                     let player_index = if plugin_state.primary_controller_index().is_some() {
                         // The primary index is already assigned - new player
-                        let position = plugin_state.camera_position().centered();
-                        let mut player = Entity::new(position);
-                        Self::set_player_collision(&mut player, plugin_state.world(), back_buffer);
+                        let player = Self::create_player(plugin_state, back_buffer);
                         plugin_state.add_player(player)
                     } else {
                         // This is the first controller registered - share the keyboard player
@@ -361,12 +365,10 @@ impl ApplicationPlugin {
         let tile = world.get_chunk(chunk_key).map(|c| c[(tile_y, tile_x)]);
         if let Some(tile) = tile {
             let is_player_coordinate = plugin_state.players().any(|p| {
-                let EntityResidence::Low { position } = p.residence() else {
-                    return false;
-                };
-                chunk_key == position.chunk_key()
-                    && tile_y == position.tile_y()
-                    && tile_x == position.tile_x()
+                let coordinate = p.coordinate();
+                chunk_key == coordinate.chunk_key()
+                    && tile_y == coordinate.tile_y()
+                    && tile_x == coordinate.tile_x()
             });
             if is_player_coordinate {
                 return Color::from(Color::from_rgb(0x00, 0x00, 0x00));
@@ -396,7 +398,7 @@ impl ApplicationPlugin {
         for (index, controller) in input_state.controllers().enumerate() {
             if controller.enabled() {
                 let index = index + 1; // 0 is reserved for the keyboard!
-                if let (Some(new_coordinate), provided) =
+                if let (Some(coordinate), provided) =
                     Self::update_player(game_state, plugin_state, index, controller)
                 {
                     // Render non-primary players immediately. Only render the primary
@@ -407,7 +409,7 @@ impl ApplicationPlugin {
                         .is_none_or(|pi| pi != index)
                         || provided
                     {
-                        self.render_player(plugin_state, viewport, buffer, &new_coordinate);
+                        self.render_player(plugin_state, viewport, buffer, &coordinate);
                         primary_rendered = provided;
                     }
                 }
@@ -416,13 +418,13 @@ impl ApplicationPlugin {
 
         if !primary_rendered {
             let keyboard = input_state.keyboard().as_controller();
-            if let (Some(new_coordinate), _) = Self::update_player(
+            if let (Some(coordinate), _) = Self::update_player(
                 game_state,
                 plugin_state,
                 PluginGameState::KEYBOARD_INDEX,
                 keyboard,
             ) {
-                self.render_player(plugin_state, viewport, buffer, &new_coordinate);
+                self.render_player(plugin_state, viewport, buffer, &coordinate);
             }
         }
     }
@@ -439,27 +441,25 @@ impl ApplicationPlugin {
         let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
             return (None, false);
         };
-        let EntityResidence::Low {
-            position: old_coordinate,
-        } = player.residence()
-        else {
-            return (None, false);
-        };
 
         let (position_delta, velocity_delta, provided) =
-            Self::calculate_deltas(game_state, plugin_state, controller_index, controller);
+            Self::calculate_deltas(game_state, player, controller);
 
         let center = Self::view_center(plugin_state);
+        let old_coordinate = player.coordinate();
+        let tile_size = plugin_state.world().tile_size();
+        let old_position = old_coordinate.distance_to(center, tile_size);
         let player_collision = player.collision().unwrap_or_default();
-        let (mut new_coordinate, new_velocity) = collision_detector::collide_and_slide(
+        let (new_position, new_velocity) = collision_detection::collide_and_slide(
             plugin_state.world(),
             center,
-            old_coordinate,
+            old_position,
             player.velocity(),
             position_delta,
             velocity_delta,
             player_collision,
         );
+        let mut new_coordinate = center.shifted(new_position, tile_size);
 
         if let Some(stairs) = Self::find_stairs(plugin_state.world(), &new_coordinate)
             && !old_coordinate.is_same_tile(&new_coordinate)
@@ -479,10 +479,7 @@ impl ApplicationPlugin {
         let Some(player) = plugin_state.player_by_controller_index_mut(controller_index) else {
             return (None, false);
         };
-        let EntityResidence::Low { position } = player.residence_mut() else {
-            return (None, false);
-        };
-        *position = new_coordinate.clone();
+        *player.coordinate_mut() = new_coordinate.clone();
         *player.velocity_mut() = new_velocity;
         (Some(new_coordinate), provided)
     }
@@ -510,14 +507,9 @@ impl ApplicationPlugin {
 
     fn calculate_deltas(
         game_state: &GameState,
-        plugin_state: &PluginGameState,
-        controller_index: usize,
+        player: &Entity,
         controller: &ControllerState,
     ) -> (Vector2d<Length>, Vector2d<Velocity>, bool) {
-        let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
-            return (Vector2d::default(), Vector2d::default(), false);
-        };
-
         let (throttle, provided) = Self::calculate_throttle(controller);
         let max_acceleration = Acceleration::new::<meter_per_second_squared>(50.0);
         let acceleration = throttle * max_acceleration;
@@ -588,14 +580,14 @@ impl ApplicationPlugin {
         plugin_state: &PluginGameState,
         viewport: &Viewport,
         buffer: &mut BackBuffer,
-        position: &WorldCoordinate,
+        coordinate: &WorldCoordinate,
     ) {
         let Some(ref image) = self.player_image else {
             return;
         };
-        let camera_coordinate = plugin_state.camera_position();
+        let center = Self::view_center(plugin_state);
         let tile_size = plugin_state.world().tile_size();
-        let delta = position.distance_to(camera_coordinate, tile_size);
+        let delta = coordinate.distance_to(center, tile_size);
         #[expect(clippy::cast_precision_loss)]
         let height = viewport.to_meters(image.buffer().height_px() as f32);
         #[expect(clippy::cast_precision_loss)]

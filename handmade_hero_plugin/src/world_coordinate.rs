@@ -212,7 +212,6 @@ impl WorldCoordinate {
         Self::new_internal(chunk_key, self.chunk_coordinate, self.rows, self.columns)
     }
 
-    #[inline]
     #[must_use]
     pub fn centered(&self) -> Self {
         let x = self.columns / 2;
@@ -223,7 +222,6 @@ impl WorldCoordinate {
     }
 
     // The distance between two coordinates in the same chunk
-    #[inline]
     #[must_use]
     pub fn distance_to(&self, other: &Self, tile_size: Length) -> Vector2d<Length> {
         let from_coordinate = Point2d::<f32>::from(self.chunk_coordinate.offset());

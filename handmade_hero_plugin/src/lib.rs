@@ -4,7 +4,7 @@ mod chunk_coordinate;
 mod chunk_generation;
 mod chunk_key;
 mod collision_deltas;
-mod collision_detector;
+mod collision_detection;
 mod dimensions;
 mod entity;
 mod image;

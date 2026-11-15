@@ -21,34 +21,35 @@ const MAX_PENETRATION_METERS: f32 = 0.001;
 pub fn collide_and_slide(
     world: &World,
     center: &WorldCoordinate,
-    old_coordinate: &WorldCoordinate,
+    old_position: Vector2d<Length>,
     old_velocity: Vector2d<Velocity>,
-    position_delta: Vector2d<Length>,
+    distance: Vector2d<Length>,
     velocity_delta: Vector2d<Velocity>,
     collision_deltas: CollisionDeltas,
-) -> (WorldCoordinate, Vector2d<Velocity>) {
-    let mut new_coordinate = old_coordinate.clone();
-    let mut remaining_position_delta = position_delta;
+) -> (Vector2d<Length>, Vector2d<Velocity>) {
+    let mut new_position = old_position;
+    let mut remaining_distance = distance;
     let mut new_velocity = old_velocity + velocity_delta;
     let mut remaining_percent = 1.0;
+
     for _ in 0..MAX_SLIDE_ITERATIONS {
-        let (next_coordinate, wall_normal, percent) = detect_collision(
+        let (next_position, wall_normal, percent) = detect_collision(
             remaining_percent,
             world,
             center,
-            &new_coordinate,
-            remaining_position_delta,
+            new_position,
+            remaining_distance,
             collision_deltas,
         );
-        new_coordinate = next_coordinate;
+        new_position = next_position;
         new_velocity -= new_velocity.dot(wall_normal) * wall_normal;
-        remaining_position_delta -= remaining_position_delta.dot(wall_normal) * wall_normal;
+        remaining_distance -= remaining_distance.dot(wall_normal) * wall_normal;
         remaining_percent -= remaining_percent * percent;
         if remaining_percent <= 0.0 {
             break;
         }
     }
-    (new_coordinate, new_velocity)
+    (new_position, new_velocity)
 }
 
 /// Moves an entity `distance` from `start`, stopping just short of the first wall it touches.
@@ -56,18 +57,15 @@ fn detect_collision(
     remaining_percent: f32,
     world: &World,
     center: &WorldCoordinate,
-    start: &WorldCoordinate,
+    starting: Vector2d<Length>,
     distance: Vector2d<Length>,
     collision_deltas: CollisionDeltas,
-) -> (WorldCoordinate, Vector2d<Ratio>, f32) {
+) -> (Vector2d<Length>, Vector2d<Ratio>, f32) {
     let tile_size = world.tile_size();
     let half_tile_size = tile_size / 2.0;
     // Positions are measured from the center of the center tile, so the tile `x` tiles over and
     // `y` tiles up from it has its center at `(x, y) * tile_size`. Tiles are found by whole-tile
     // counts from the center tile, so no position is ever converted back into a tile coordinate.
-    let (center_x_offset, center_y_offset) = center.tile_offset().to_tuple();
-    let center_offset = Vector2d::from_x_y(center_x_offset, center_y_offset);
-    let starting = start.distance_to(center, tile_size) + center_offset;
     let ending = starting + distance;
 
     // Every tile the entity could touch lies between the tiles it starts and ends in, widened
@@ -155,7 +153,7 @@ fn detect_collision(
             }
         }
     }
-    let actual_end = start.shifted(distance * min_percent, tile_size);
+    let actual_end = starting + distance * min_percent;
     let wall_normal = to_wall_normal(min_directions);
     (actual_end, wall_normal, min_percent)
 }

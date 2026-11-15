@@ -7,40 +7,37 @@ use serde::{Deserialize, Serialize};
 use crate::{collision_deltas::CollisionDeltas, world_coordinate::WorldCoordinate};
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum EntityResidence {
-    High { position: Vector2d<Length> },
-    Low { position: WorldCoordinate },
-    Dormant {},
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct Entity {
+    coordinate: WorldCoordinate,
     velocity: Vector2d<Velocity>,
     collision: Option<CollisionDeltas>,
-    residence: EntityResidence,
+    height: Length,
+    width: Length,
 }
 
 impl Entity {
     #[inline]
     #[must_use]
-    pub fn new(position: WorldCoordinate) -> Self {
+    pub fn new(coordinate: WorldCoordinate, height: Length, width: Length) -> Self {
         Self {
+            coordinate,
             velocity: Vector2d::default(),
             collision: None,
-            residence: EntityResidence::Low { position },
+            height,
+            width,
         }
     }
 
     #[inline]
     #[must_use]
-    pub fn residence(&self) -> &EntityResidence {
-        &self.residence
+    pub fn coordinate(&self) -> &WorldCoordinate {
+        &self.coordinate
     }
 
     #[inline]
     #[must_use]
-    pub fn residence_mut(&mut self) -> &mut EntityResidence {
-        &mut self.residence
+    pub fn coordinate_mut(&mut self) -> &mut WorldCoordinate {
+        &mut self.coordinate
     }
 
     #[inline]
@@ -64,5 +61,19 @@ impl Entity {
     #[inline]
     pub fn set_collision(&mut self, deltas: CollisionDeltas) {
         self.collision = Some(deltas);
+    }
+
+    #[inline]
+    #[must_use]
+    #[allow(unused)]
+    pub fn height(&self) -> Length {
+        self.height
+    }
+
+    #[inline]
+    #[must_use]
+    #[allow(unused)]
+    pub fn width(&self) -> Length {
+        self.width
     }
 }
