@@ -7,6 +7,7 @@ mod collision_deltas;
 mod collision_detection;
 mod dimensions;
 mod entity;
+mod high_entity;
 mod image;
 mod plugin_audio_state;
 mod plugin_game_state;

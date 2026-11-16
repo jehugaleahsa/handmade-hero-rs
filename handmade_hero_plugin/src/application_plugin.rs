@@ -71,36 +71,8 @@ impl ApplicationPlugin {
         self.player_image = Self::load_image(io, "player.bmp");
 
         // Create the primary player, initially linked to the keyboard
-        let player = Self::create_player(plugin_state, back_buffer);
-        let entity_index = plugin_state.add_player(player);
-        plugin_state.map_controller_to_player_index(PluginGameState::KEYBOARD_INDEX, entity_index);
-    }
-
-    fn create_player(plugin_state: &PluginGameState, back_buffer: &BackBuffer) -> Entity {
-        let world = plugin_state.world();
-        let position = plugin_state.camera_position().centered();
-
-        // The collision bounds are measured in pixels of the player image as drawn without
-        // zoom, so they convert to meters at a zoom of 1.0 whatever the current zoom is.
-        let viewport = Viewport::fit(world, back_buffer.width_px(), back_buffer.height_px(), 1.0);
-        let height = viewport.to_meters(100.0);
-        let width = viewport.to_meters(100.0);
-
-        let top = height * 0.0625;
-        let left_delta_px = -42.0;
-        let left = viewport.to_meters(left_delta_px);
-        let right_delta_px = 42.0;
-        let right = viewport.to_meters(right_delta_px);
-        let deltas = CollisionDeltas {
-            top,
-            bottom: Length::zero(),
-            left,
-            right,
-        };
-
-        let mut player = Entity::new(position, height, width);
-        player.set_collision(deltas);
-        player
+        let player_index = Self::add_player(plugin_state, back_buffer);
+        plugin_state.map_controller_to_player_index(PluginGameState::KEYBOARD_INDEX, player_index);
     }
 
     #[cfg(feature = "audio_debug")]
@@ -232,8 +204,7 @@ impl ApplicationPlugin {
                 {
                     let player_index = if plugin_state.primary_controller_index().is_some() {
                         // The primary index is already assigned - new player
-                        let player = Self::create_player(plugin_state, back_buffer);
-                        plugin_state.add_player(player)
+                        Self::add_player(plugin_state, back_buffer)
                     } else {
                         // This is the first controller registered - share the keyboard player
                         plugin_state.set_primary_controller_index(index);
@@ -284,6 +255,41 @@ impl ApplicationPlugin {
             return true;
         }
         controller.left_trigger_ratio() != 0.0 || controller.right_trigger_ratio() != 0.0
+    }
+
+    fn add_player(plugin_state: &mut PluginGameState, back_buffer: &BackBuffer) -> usize {
+        let player = Self::create_player(plugin_state, back_buffer);
+        let center = Self::view_center(plugin_state).clone();
+        let tile_size = plugin_state.world().tile_size();
+        let high_entity = plugin_state.add_player(player, &center, tile_size);
+        high_entity.index()
+    }
+
+    fn create_player(plugin_state: &PluginGameState, back_buffer: &BackBuffer) -> Entity {
+        let world = plugin_state.world();
+        let position = Self::view_center(plugin_state).centered();
+
+        // The collision bounds are measured in pixels of the player image as drawn without
+        // zoom, so they convert to meters at a zoom of 1.0 whatever the current zoom is.
+        let viewport = Viewport::fit(world, back_buffer.width_px(), back_buffer.height_px(), 1.0);
+        let height = viewport.to_meters(100.0);
+        let width = viewport.to_meters(100.0);
+
+        let top = height * 0.0625;
+        let left_delta_px = -42.0;
+        let left = viewport.to_meters(left_delta_px);
+        let right_delta_px = 42.0;
+        let right = viewport.to_meters(right_delta_px);
+        let deltas = CollisionDeltas {
+            top,
+            bottom: Length::zero(),
+            left,
+            right,
+        };
+
+        let mut player = Entity::new(position, height, width);
+        player.set_collision(deltas);
+        player
     }
 
     fn ensure_chunks(plugin_state: &mut PluginGameState, viewport: &Viewport) {

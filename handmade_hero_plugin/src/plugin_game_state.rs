@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
-use crate::chunk_key::ChunkKey;
 use crate::entity::Entity;
 use crate::plugin_audio_state::PluginAudioState;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
+use crate::{chunk_key::ChunkKey, high_entity::HighEntity};
 use handmade_hero_interface::units::si::length::Length;
 use serde::{Deserialize, Serialize};
 use uom::si::length::meter;
@@ -12,6 +12,7 @@ use uom::si::length::meter;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PluginGameState {
     entities: Vec<Entity>,
+    high_entities: Vec<HighEntity>,
     world: World,
     camera_position: WorldCoordinate,
     audio: PluginAudioState,
@@ -32,6 +33,7 @@ impl PluginGameState {
         let camera_position = WorldCoordinate::new(&world, current_chunk_key).centered();
         Self {
             entities: Vec::new(),
+            high_entities: Vec::new(),
             world,
             camera_position,
             audio: PluginAudioState::new(),
@@ -155,10 +157,29 @@ impl PluginGameState {
     }
 
     #[inline]
-    pub fn add_player(&mut self, player: Entity) -> usize {
+    pub fn add_player(
+        &mut self,
+        player: Entity,
+        center: &WorldCoordinate,
+        tile_size: Length,
+    ) -> &HighEntity {
         let index = self.entities.len();
         self.entities.push(player);
-        index
+        self.make_high(index, center, tile_size) // Assume players always on camera
+    }
+
+    fn make_high(
+        &mut self,
+        entity_index: usize,
+        center: &WorldCoordinate,
+        tile_size: Length,
+    ) -> &HighEntity {
+        let entity = &self.entities[entity_index];
+        let position = entity.coordinate().distance_to(center, tile_size);
+        let high_entity = HighEntity::new(entity_index, position);
+        let high_entity_index = self.high_entities.len();
+        self.high_entities.push(high_entity);
+        &self.high_entities[high_entity_index]
     }
 
     #[inline]
