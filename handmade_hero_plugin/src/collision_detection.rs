@@ -1,5 +1,4 @@
 use handmade_hero_interface::{
-    directions::Directions,
     units::si::{length::Length, velocity::Velocity},
     vector_2d::Vector2d,
 };
@@ -44,7 +43,7 @@ pub fn collide_and_slide(
         new_position = next_position;
         new_velocity -= new_velocity.dot(wall_normal) * wall_normal;
         remaining_distance -= remaining_distance.dot(wall_normal) * wall_normal;
-        remaining_percent -= remaining_percent * percent;
+        remaining_percent -= percent;
         if remaining_percent <= 0.0 {
             break;
         }
@@ -88,7 +87,8 @@ fn detect_collision(
     let max_corner = Vector2d::from_x_y(max_x, max_y);
 
     let mut min_percent = remaining_percent;
-    let mut min_directions = Directions::default();
+    // Stays zero when nothing is hit, which leaves the velocity and remaining distance untouched.
+    let mut wall_normal = to_wall_normal(0.0, 0.0);
     for tile_y in min_tile_y..=max_tile_y {
         for tile_x in min_tile_x..=max_tile_x {
             let tile = center.shifted_tiles(tile_x, tile_y);
@@ -106,8 +106,8 @@ fn detect_collision(
             let x_span = (min_corner.x(), max_corner.x());
             let y_span = (min_corner.y(), max_corner.y());
             // A wall on the minimum side faces the negative direction, and a wall on the maximum
-            // side faces the positive direction.
-            let mut directions = Directions::default();
+            // side faces the positive direction. A test only passes when its wall is closer than
+            // every wall hit so far, so each hit replaces the normal rather than adding to it.
             if let Some(new_min_percent) = test_wall(
                 min_corner.x(),
                 -1.0,
@@ -117,15 +117,13 @@ fn detect_collision(
                 min_percent,
             ) {
                 min_percent = new_min_percent;
-                directions = directions.union(Directions::left());
-                min_directions = directions;
+                wall_normal = to_wall_normal(-1.0, 0.0);
             }
             if let Some(new_min_percent) =
                 test_wall(max_corner.x(), 1.0, y_span, relative, distance, min_percent)
             {
                 min_percent = new_min_percent;
-                directions = directions.union(Directions::right());
-                min_directions = directions;
+                wall_normal = to_wall_normal(1.0, 0.0);
             }
             if let Some(new_min_percent) = test_wall(
                 min_corner.y(),
@@ -136,8 +134,7 @@ fn detect_collision(
                 min_percent,
             ) {
                 min_percent = new_min_percent;
-                directions = directions.union(Directions::down());
-                min_directions = directions;
+                wall_normal = to_wall_normal(0.0, -1.0);
             }
             if let Some(new_min_percent) = test_wall(
                 max_corner.y(),
@@ -148,13 +145,11 @@ fn detect_collision(
                 min_percent,
             ) {
                 min_percent = new_min_percent;
-                directions = directions.union(Directions::up());
-                min_directions = directions;
+                wall_normal = to_wall_normal(0.0, 1.0);
             }
         }
     }
     let actual_end = starting + distance * min_percent;
-    let wall_normal = to_wall_normal(min_directions);
     (actual_end, wall_normal, min_percent)
 }
 
@@ -236,22 +231,10 @@ fn to_tile_index(offset_from_tile_center: Length, tile_size: Length) -> i16 {
     index
 }
 
-fn to_wall_normal(directions: Directions) -> Vector2d<Ratio> {
-    let mut x_normal = 0.0f32;
-    let mut y_normal = 0.0f32;
-    if directions.is_up() {
-        y_normal += 1.0;
-    }
-    if directions.is_right() {
-        x_normal += 1.0;
-    }
-    if directions.is_down() {
-        y_normal -= 1.0;
-    }
-    if directions.is_left() {
-        x_normal -= 1.0;
-    }
-    let x_normal = Ratio::new::<ratio>(x_normal);
-    let y_normal = Ratio::new::<ratio>(y_normal);
-    Vector2d::from_x_y(x_normal, y_normal)
+#[inline]
+#[must_use]
+fn to_wall_normal(x: f32, y: f32) -> Vector2d<Ratio> {
+    let x = Ratio::new::<ratio>(x);
+    let y = Ratio::new::<ratio>(y);
+    Vector2d::from_x_y(x, y)
 }
