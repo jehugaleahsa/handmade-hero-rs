@@ -404,18 +404,23 @@ impl ApplicationPlugin {
         for (index, controller) in input_state.controllers().enumerate() {
             if controller.enabled() {
                 let index = index + 1; // 0 is reserved for the keyboard!
-                if let (Some(coordinate), provided) =
-                    Self::update_player(game_state, plugin_state, index, controller)
-                {
+                Self::update_zoom(game_state, plugin_state, controller);
+                if let Some(player) = plugin_state.player_by_controller_index(index) {
+                    let (new_coordinate, new_velocity, provided) =
+                        Self::find_player_motion(game_state, plugin_state, controller, player);
                     // Render non-primary players immediately. Only render the primary
                     // player if input was provided. Otherwise, fallback to the keyboard.
                     // This prevents double movement for the primary player.
-                    if plugin_state
+                    let is_not_primary = plugin_state
                         .primary_controller_index()
-                        .is_none_or(|pi| pi != index)
-                        || provided
+                        .is_none_or(|pi| pi != index);
+                    if (is_not_primary || provided)
+                        && let Some(player) = plugin_state.player_by_controller_index_mut(index)
                     {
-                        self.render_player(plugin_state, viewport, buffer, &coordinate);
+                        let old_coordinate = player.coordinate().clone();
+                        Self::update_player(player, &new_coordinate, new_velocity);
+                        Self::update_camera(plugin_state, &old_coordinate, &new_coordinate);
+                        self.render_player(plugin_state, viewport, buffer, &new_coordinate);
                         primary_rendered = provided;
                     }
                 }
@@ -424,35 +429,65 @@ impl ApplicationPlugin {
 
         if !primary_rendered {
             let keyboard = input_state.keyboard().as_controller();
-            if let (Some(coordinate), _) = Self::update_player(
-                game_state,
-                plugin_state,
-                PluginGameState::KEYBOARD_INDEX,
-                keyboard,
-            ) {
-                self.render_player(plugin_state, viewport, buffer, &coordinate);
+            Self::update_zoom(game_state, plugin_state, keyboard);
+            if let Some(player) =
+                plugin_state.player_by_controller_index(PluginGameState::KEYBOARD_INDEX)
+            {
+                let (new_coordinate, new_velocity, _) =
+                    Self::find_player_motion(game_state, plugin_state, keyboard, player);
+                if let Some(player) =
+                    plugin_state.player_by_controller_index_mut(PluginGameState::KEYBOARD_INDEX)
+                {
+                    let old_coordinate = player.coordinate().clone();
+                    Self::update_player(player, &new_coordinate, new_velocity);
+                    Self::update_camera(plugin_state, &old_coordinate, &new_coordinate);
+                    self.render_player(plugin_state, viewport, buffer, &new_coordinate);
+                }
             }
         }
     }
 
-    fn update_player(
+    fn update_zoom(
         game_state: &GameState,
         plugin_state: &mut PluginGameState,
-        controller_index: usize,
         controller: &ControllerState,
-    ) -> (Option<WorldCoordinate>, bool) {
+    ) {
         let zoom = Self::calculate_zoom(game_state, plugin_state.zoom(), controller);
         plugin_state.set_zoom(zoom);
+    }
 
-        let Some(player) = plugin_state.player_by_controller_index(controller_index) else {
-            return (None, false);
-        };
+    /// Scales the zoom by the right joystick's vertical tilt.
+    ///
+    /// Zooming multiplies rather than adds, so each second the stick is held changes the zoom
+    /// by the same ratio at every level, and tilting the other way exactly undoes it.
+    #[must_use]
+    fn calculate_zoom(
+        game_state: &GameState,
+        previous_zoom: f32,
+        controller: &ControllerState,
+    ) -> f32 {
+        const MIN_ZOOM: f32 = 0.25;
+        const MAX_ZOOM: f32 = 2.0;
+        // A fully tilted stick doubles or halves the zoom this many times per second.
+        const DOUBLINGS_PER_SECOND: f32 = 1.0;
 
+        let tilt = controller.right_joystick().y_ratio();
+        let seconds = game_state.frame_duration().get::<second>();
+        let zoom = previous_zoom * (DOUBLINGS_PER_SECOND * tilt * seconds).exp2();
+        zoom.clamp(MIN_ZOOM, MAX_ZOOM)
+    }
+
+    fn find_player_motion(
+        game_state: &GameState,
+        plugin_state: &PluginGameState,
+        controller: &ControllerState,
+        player: &Entity,
+    ) -> (WorldCoordinate, Vector2d<Velocity>, bool) {
         let (position_delta, velocity_delta, provided) =
             Self::calculate_deltas(game_state, player, controller);
 
         let center = Self::view_center(plugin_state);
-        let old_coordinate = player.coordinate();
+        let old_coordinate = player.coordinate().clone();
         let tile_size = plugin_state.world().tile_size();
         let old_position = old_coordinate.distance_to(center, tile_size);
         let player_collision = player.collision().unwrap_or_default();
@@ -477,38 +512,8 @@ impl ApplicationPlugin {
                 new_coordinate = new_coordinate.elevated(-1);
             }
         }
-        if old_coordinate.chunk_key() != new_coordinate.chunk_key() {
-            let camera_coordinates = new_coordinate.centered();
-            *plugin_state.camera_position_mut() = camera_coordinates;
-        }
 
-        let Some(player) = plugin_state.player_by_controller_index_mut(controller_index) else {
-            return (None, false);
-        };
-        *player.coordinate_mut() = new_coordinate.clone();
-        *player.velocity_mut() = new_velocity;
-        (Some(new_coordinate), provided)
-    }
-
-    /// Scales the zoom by the right joystick's vertical tilt.
-    ///
-    /// Zooming multiplies rather than adds, so each second the stick is held changes the zoom
-    /// by the same ratio at every level, and tilting the other way exactly undoes it.
-    #[must_use]
-    fn calculate_zoom(
-        game_state: &GameState,
-        previous_zoom: f32,
-        controller: &ControllerState,
-    ) -> f32 {
-        const MIN_ZOOM: f32 = 0.25;
-        const MAX_ZOOM: f32 = 2.0;
-        // A fully tilted stick doubles or halves the zoom this many times per second.
-        const DOUBLINGS_PER_SECOND: f32 = 1.0;
-
-        let tilt = controller.right_joystick().y_ratio();
-        let seconds = game_state.frame_duration().get::<second>();
-        let zoom = previous_zoom * (DOUBLINGS_PER_SECOND * tilt * seconds).exp2();
-        zoom.clamp(MIN_ZOOM, MAX_ZOOM)
+        (new_coordinate, new_velocity, provided)
     }
 
     fn calculate_deltas(
@@ -579,6 +584,26 @@ impl ApplicationPlugin {
             .get_chunk(coordinates.chunk_key())
             .and_then(|c| c.get(coordinates.tile_y(), coordinates.tile_x()))
             .filter(|t| t.is_stairs())
+    }
+
+    fn update_player(
+        player: &mut Entity,
+        new_coordinate: &WorldCoordinate,
+        new_velocity: Vector2d<Velocity>,
+    ) {
+        *player.coordinate_mut() = new_coordinate.clone();
+        *player.velocity_mut() = new_velocity;
+    }
+
+    fn update_camera(
+        plugin_state: &mut PluginGameState,
+        old_coordinate: &WorldCoordinate,
+        new_coordinate: &WorldCoordinate,
+    ) {
+        if old_coordinate.chunk_key() != new_coordinate.chunk_key() {
+            let camera_coordinates = new_coordinate.centered();
+            *plugin_state.camera_position_mut() = camera_coordinates;
+        }
     }
 
     fn render_player(
