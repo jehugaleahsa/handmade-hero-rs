@@ -19,4 +19,16 @@ impl HighEntity {
     pub fn index(&self) -> usize {
         self.index
     }
+
+    #[inline]
+    #[must_use]
+    pub fn position(&self) -> &Vector2d<Length> {
+        &self.position
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn position_mut(&mut self) -> &mut Vector2d<Length> {
+        &mut self.position
+    }
 }

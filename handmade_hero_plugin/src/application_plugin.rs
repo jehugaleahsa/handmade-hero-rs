@@ -2,7 +2,9 @@ use crate::chunk_key::ChunkKey;
 use crate::collision_deltas::CollisionDeltas;
 use crate::dimensions::Dimensions;
 use crate::entity::Entity;
+use crate::high_entity::HighEntity;
 use crate::image::Image;
+use crate::player::Player;
 use crate::tile_type::TileType;
 use crate::viewport::Viewport;
 use crate::world::World;
@@ -71,8 +73,8 @@ impl ApplicationPlugin {
         self.player_image = Self::load_image(io, "player.bmp");
 
         // Create the primary player, initially linked to the keyboard
-        let player_index = Self::add_player(plugin_state, back_buffer);
-        plugin_state.map_controller_to_player_index(PluginGameState::KEYBOARD_INDEX, player_index);
+        let high_index = Self::add_player(plugin_state, back_buffer);
+        plugin_state.map_controller_to_player_index(PluginGameState::KEYBOARD_INDEX, high_index);
     }
 
     #[cfg(feature = "audio_debug")]
@@ -202,7 +204,7 @@ impl ApplicationPlugin {
                 if Self::is_player_is_disabled(plugin_state, index)
                     && Self::is_input_detected(controller)
                 {
-                    let player_index = if plugin_state.primary_controller_index().is_some() {
+                    let high_index = if plugin_state.primary_controller_index().is_some() {
                         // The primary index is already assigned - new player
                         Self::add_player(plugin_state, back_buffer)
                     } else {
@@ -212,12 +214,12 @@ impl ApplicationPlugin {
                             .player_index_by_controller_index(PluginGameState::KEYBOARD_INDEX)
                             .unwrap() // SAFETY: Always a keyboard
                     };
-                    plugin_state.map_controller_to_player_index(index, player_index);
-                    plugin_state.enable_player(player_index);
+                    plugin_state.map_controller_to_player_index(index, high_index);
+                    plugin_state.enable_player(high_index);
                 }
             } else {
-                if let Some(player_index) = plugin_state.player_index_by_controller_index(index) {
-                    plugin_state.disable_player(player_index);
+                if let Some(high_index) = plugin_state.player_index_by_controller_index(index) {
+                    plugin_state.disable_player(high_index);
                 }
                 if let Some(primary_index) = plugin_state.primary_controller_index()
                     && primary_index == index
@@ -229,9 +231,8 @@ impl ApplicationPlugin {
     }
 
     fn is_player_is_disabled(plugin_state: &PluginGameState, controller_index: usize) -> bool {
-        if let Some(player_index) = plugin_state.player_index_by_controller_index(controller_index)
-        {
-            plugin_state.is_player_disabled(player_index)
+        if let Some(high_index) = plugin_state.player_index_by_controller_index(controller_index) {
+            plugin_state.is_player_disabled(high_index)
         } else {
             true
         }
@@ -261,8 +262,7 @@ impl ApplicationPlugin {
         let player = Self::create_player(plugin_state, back_buffer);
         let center = Self::view_center(plugin_state).clone();
         let tile_size = plugin_state.world().tile_size();
-        let high_entity = plugin_state.add_player(player, &center, tile_size);
-        high_entity.index()
+        plugin_state.add_player(player, &center, tile_size)
     }
 
     fn create_player(plugin_state: &PluginGameState, back_buffer: &BackBuffer) -> Entity {
@@ -406,8 +406,8 @@ impl ApplicationPlugin {
                 let index = index + 1; // 0 is reserved for the keyboard!
                 Self::update_zoom(game_state, plugin_state, controller);
                 if let Some(player) = plugin_state.player_by_controller_index(index) {
-                    let (new_coordinate, new_velocity, provided) =
-                        Self::find_player_motion(game_state, plugin_state, controller, player);
+                    let (new_coordinate, new_position, new_velocity, provided) =
+                        Self::find_player_motion(game_state, plugin_state, controller, &player);
                     // Render non-primary players immediately. Only render the primary
                     // player if input was provided. Otherwise, fallback to the keyboard.
                     // This prevents double movement for the primary player.
@@ -415,10 +415,11 @@ impl ApplicationPlugin {
                         .primary_controller_index()
                         .is_none_or(|pi| pi != index);
                     if (is_not_primary || provided)
-                        && let Some(player) = plugin_state.player_by_controller_index_mut(index)
+                        && let Some(mut player) = plugin_state.player_by_controller_index_mut(index)
                     {
-                        let old_coordinate = player.coordinate().clone();
-                        Self::update_player(player, &new_coordinate, new_velocity);
+                        let old_coordinate = player.entity().coordinate().clone();
+                        Self::update_high_entity(player.high_entity(), new_position);
+                        Self::update_entity(player.entity(), &new_coordinate, new_velocity);
                         Self::update_camera(plugin_state, &old_coordinate, &new_coordinate);
                         self.render_player(plugin_state, viewport, buffer, &new_coordinate);
                         primary_rendered = provided;
@@ -433,13 +434,14 @@ impl ApplicationPlugin {
             if let Some(player) =
                 plugin_state.player_by_controller_index(PluginGameState::KEYBOARD_INDEX)
             {
-                let (new_coordinate, new_velocity, _) =
-                    Self::find_player_motion(game_state, plugin_state, keyboard, player);
-                if let Some(player) =
+                let (new_coordinate, new_position, new_velocity, _) =
+                    Self::find_player_motion(game_state, plugin_state, keyboard, &player);
+                if let Some(mut player) =
                     plugin_state.player_by_controller_index_mut(PluginGameState::KEYBOARD_INDEX)
                 {
-                    let old_coordinate = player.coordinate().clone();
-                    Self::update_player(player, &new_coordinate, new_velocity);
+                    let old_coordinate = player.entity().coordinate().clone();
+                    Self::update_high_entity(player.high_entity(), new_position);
+                    Self::update_entity(player.entity(), &new_coordinate, new_velocity);
                     Self::update_camera(plugin_state, &old_coordinate, &new_coordinate);
                     self.render_player(plugin_state, viewport, buffer, &new_coordinate);
                 }
@@ -481,21 +483,22 @@ impl ApplicationPlugin {
         game_state: &GameState,
         plugin_state: &PluginGameState,
         controller: &ControllerState,
-        player: &Entity,
-    ) -> (WorldCoordinate, Vector2d<Velocity>, bool) {
+        player: &Player<'_>,
+    ) -> (WorldCoordinate, Vector2d<Length>, Vector2d<Velocity>, bool) {
+        let entity = player.entity();
         let (position_delta, velocity_delta, provided) =
-            Self::calculate_deltas(game_state, player, controller);
+            Self::calculate_deltas(game_state, entity, controller);
 
         let center = Self::view_center(plugin_state);
-        let old_coordinate = player.coordinate().clone();
+        let old_coordinate = entity.coordinate().clone();
         let tile_size = plugin_state.world().tile_size();
-        let old_position = old_coordinate.distance_to(center, tile_size);
-        let player_collision = player.collision().unwrap_or_default();
+        let player_collision = entity.collision().unwrap_or_default();
+        let high_entity = player.high_entity();
         let (new_position, new_velocity) = collision_detection::collide_and_slide(
             plugin_state.world(),
             center,
-            old_position,
-            player.velocity(),
+            *high_entity.position(),
+            entity.velocity(),
             position_delta,
             velocity_delta,
             player_collision,
@@ -513,7 +516,7 @@ impl ApplicationPlugin {
             }
         }
 
-        (new_coordinate, new_velocity, provided)
+        (new_coordinate, new_position, new_velocity, provided)
     }
 
     fn calculate_deltas(
@@ -586,13 +589,17 @@ impl ApplicationPlugin {
             .filter(|t| t.is_stairs())
     }
 
-    fn update_player(
-        player: &mut Entity,
+    fn update_high_entity(entity: &mut HighEntity, new_position: Vector2d<Length>) {
+        *entity.position_mut() = new_position;
+    }
+
+    fn update_entity(
+        entity: &mut Entity,
         new_coordinate: &WorldCoordinate,
         new_velocity: Vector2d<Velocity>,
     ) {
-        *player.coordinate_mut() = new_coordinate.clone();
-        *player.velocity_mut() = new_velocity;
+        *entity.coordinate_mut() = new_coordinate.clone();
+        *entity.velocity_mut() = new_velocity;
     }
 
     fn update_camera(

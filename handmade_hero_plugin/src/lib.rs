@@ -9,6 +9,7 @@ mod dimensions;
 mod entity;
 mod high_entity;
 mod image;
+mod player;
 mod plugin_audio_state;
 mod plugin_game_state;
 mod tile_type;

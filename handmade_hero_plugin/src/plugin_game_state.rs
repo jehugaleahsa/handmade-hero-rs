@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::entity::Entity;
+use crate::player::{Player, PlayerMut};
 use crate::plugin_audio_state::PluginAudioState;
 use crate::world::World;
 use crate::world_coordinate::WorldCoordinate;
@@ -52,8 +53,22 @@ impl PluginGameState {
 
     #[inline]
     #[must_use]
+    #[allow(dead_code)]
     pub fn entity_mut(&mut self, index: usize) -> Option<&mut Entity> {
         self.entities.get_mut(index)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn high_entity(&self, index: usize) -> Option<&HighEntity> {
+        self.high_entities.get(index)
+    }
+
+    #[inline]
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn high_entity_mut(&mut self, index: usize) -> Option<&mut HighEntity> {
+        self.high_entities.get_mut(index)
     }
 
     #[inline]
@@ -125,29 +140,6 @@ impl PluginGameState {
             .and_then(|i| *i)
     }
 
-    #[inline]
-    #[must_use]
-    pub fn player_by_controller_index(&self, controller_index: usize) -> Option<&Entity> {
-        if let Some(index) = self.player_index_by_controller_index(controller_index) {
-            self.entity(index)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn player_by_controller_index_mut(
-        &mut self,
-        controller_index: usize,
-    ) -> Option<&mut Entity> {
-        if let Some(index) = self.player_index_by_controller_index(controller_index) {
-            self.entity_mut(index)
-        } else {
-            None
-        }
-    }
-
     pub fn map_controller_to_player_index(&mut self, controller_index: usize, entity_index: usize) {
         if controller_index >= self.controller_player_indexes.len() {
             self.controller_player_indexes
@@ -156,13 +148,54 @@ impl PluginGameState {
         self.controller_player_indexes[controller_index] = Some(entity_index);
     }
 
+    pub fn player_by_controller_index(&self, controller_index: usize) -> Option<Player<'_>> {
+        let high_index = self.player_index_by_controller_index(controller_index)?;
+        let high_entity = self.high_entity(high_index)?;
+        let entity = self.entity(high_entity.index())?;
+        let primary = self
+            .primary_controller_index
+            .is_some_and(|ix| ix == controller_index);
+        let enabled = !self.is_player_disabled(high_index);
+        let player = Player::new(
+            entity,
+            high_index,
+            high_entity,
+            controller_index,
+            primary,
+            enabled,
+        );
+        Some(player)
+    }
+
+    pub fn player_by_controller_index_mut(
+        &mut self,
+        controller_index: usize,
+    ) -> Option<PlayerMut<'_>> {
+        let high_index = self.player_index_by_controller_index(controller_index)?;
+        let high_entity = self.high_entities.get_mut(high_index)?;
+        let entity = self.entities.get_mut(high_entity.index())?;
+        let primary = self
+            .primary_controller_index
+            .is_some_and(|ix| ix == controller_index);
+        let enabled = !self.player_disabled.contains(&high_index);
+        let player = PlayerMut::new(
+            entity,
+            high_index,
+            high_entity,
+            controller_index,
+            primary,
+            enabled,
+        );
+        Some(player)
+    }
+
     #[inline]
     pub fn add_player(
         &mut self,
         player: Entity,
         center: &WorldCoordinate,
         tile_size: Length,
-    ) -> &HighEntity {
+    ) -> usize {
         let index = self.entities.len();
         self.entities.push(player);
         self.make_high(index, center, tile_size) // Assume players always on camera
@@ -173,29 +206,29 @@ impl PluginGameState {
         entity_index: usize,
         center: &WorldCoordinate,
         tile_size: Length,
-    ) -> &HighEntity {
+    ) -> usize {
         let entity = &self.entities[entity_index];
         let position = entity.coordinate().distance_to(center, tile_size);
         let high_entity = HighEntity::new(entity_index, position);
         let high_entity_index = self.high_entities.len();
         self.high_entities.push(high_entity);
-        &self.high_entities[high_entity_index]
+        high_entity_index
     }
 
     #[inline]
     #[must_use]
-    pub fn is_player_disabled(&self, player_index: usize) -> bool {
-        self.player_disabled.contains(&player_index)
+    pub fn is_player_disabled(&self, high_index: usize) -> bool {
+        self.player_disabled.contains(&high_index)
     }
 
     #[inline]
-    pub fn enable_player(&mut self, player_index: usize) {
-        self.player_disabled.remove(&player_index);
+    pub fn enable_player(&mut self, high_index: usize) {
+        self.player_disabled.remove(&high_index);
     }
 
     #[inline]
-    pub fn disable_player(&mut self, player_index: usize) {
-        self.player_disabled.insert(player_index);
+    pub fn disable_player(&mut self, high_index: usize) {
+        self.player_disabled.insert(high_index);
     }
 
     #[inline]
