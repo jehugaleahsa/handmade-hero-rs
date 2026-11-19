@@ -73,6 +73,12 @@ impl PluginGameState {
 
     #[inline]
     #[must_use]
+    pub fn high_entities_mut(&mut self) -> impl Iterator<Item = &mut HighEntity> {
+        self.high_entities.iter_mut()
+    }
+
+    #[inline]
+    #[must_use]
     pub fn camera_position(&self) -> &WorldCoordinate {
         &self.camera_position
     }

@@ -420,8 +420,12 @@ impl ApplicationPlugin {
                         let old_coordinate = player.entity().coordinate().clone();
                         Self::update_high_entity(player.high_entity(), new_position);
                         Self::update_entity(player.entity(), &new_coordinate, new_velocity);
-                        Self::update_camera(plugin_state, &old_coordinate, &new_coordinate);
                         self.render_player(plugin_state, viewport, buffer, &new_coordinate);
+                        if let Some(offset) =
+                            Self::update_camera(plugin_state, &old_coordinate, &new_coordinate)
+                        {
+                            Self::adjust_high_entities(plugin_state, offset);
+                        }
                         primary_rendered = provided;
                     }
                 }
@@ -442,8 +446,12 @@ impl ApplicationPlugin {
                     let old_coordinate = player.entity().coordinate().clone();
                     Self::update_high_entity(player.high_entity(), new_position);
                     Self::update_entity(player.entity(), &new_coordinate, new_velocity);
-                    Self::update_camera(plugin_state, &old_coordinate, &new_coordinate);
                     self.render_player(plugin_state, viewport, buffer, &new_coordinate);
+                    if let Some(offset) =
+                        Self::update_camera(plugin_state, &old_coordinate, &new_coordinate)
+                    {
+                        Self::adjust_high_entities(plugin_state, offset);
+                    }
                 }
             }
         }
@@ -602,17 +610,6 @@ impl ApplicationPlugin {
         *entity.velocity_mut() = new_velocity;
     }
 
-    fn update_camera(
-        plugin_state: &mut PluginGameState,
-        old_coordinate: &WorldCoordinate,
-        new_coordinate: &WorldCoordinate,
-    ) {
-        if old_coordinate.chunk_key() != new_coordinate.chunk_key() {
-            let camera_coordinates = new_coordinate.centered();
-            *plugin_state.camera_position_mut() = camera_coordinates;
-        }
-    }
-
     fn render_player(
         &self,
         plugin_state: &PluginGameState,
@@ -646,6 +643,30 @@ impl ApplicationPlugin {
             rectangle.left() as isize,
             rectangle.bottom() as isize,
         );
+    }
+
+    fn update_camera(
+        plugin_state: &mut PluginGameState,
+        old_coordinate: &WorldCoordinate,
+        new_coordinate: &WorldCoordinate,
+    ) -> Option<Vector2d<Length>> {
+        if old_coordinate.chunk_key() == new_coordinate.chunk_key() {
+            return None;
+        }
+        let camera_coordinate = new_coordinate.centered();
+        *plugin_state.camera_position_mut() = camera_coordinate.clone();
+
+        // All high entities are adjusted by the same offset from the old and new coordinates.
+        let tile_size = plugin_state.world().tile_size();
+        let offset = new_coordinate.distance_to(&old_coordinate, tile_size);
+        Some(offset)
+    }
+
+    fn adjust_high_entities(plugin_state: &mut PluginGameState, offset: Vector2d<Length>) {
+        // Update the camera-relative positions when entering a new chunk
+        for high_entity in plugin_state.high_entities_mut() {
+            *high_entity.position_mut() += offset;
+        }
     }
 
     fn render_rectangle(
